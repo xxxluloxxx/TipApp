@@ -4,9 +4,11 @@ import { toast } from 'vue-sonner'
 import { formatAmount } from '@/lib/currency'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
+import { useCategoriesStore } from '@/stores/categories'
+import type { Category } from '@/stores/categories'
 import type { Tables } from '@/types/database.types'
 
-export type Category = Tables<'categories'>
+export type { Category } from '@/stores/categories'
 
 export type ExpenseWithCategory = Tables<'expenses'> & {
   category: Category
@@ -38,27 +40,8 @@ function sortExpenses(list: ExpenseWithCategory[]): ExpenseWithCategory[] {
 
 export const useExpensesStore = defineStore('expenses', () => {
   const expenses = ref<ExpenseWithCategory[]>([])
-  const categories = ref<Category[]>([])
   const isLoading = ref(false)
   const error = ref<string | null>(null)
-
-  // Orden fijo de "Categorías" default: no hay columna sort_order en el
-  // schema, así que se asume que el seed las insertó en el orden de la
-  // sección 1 del design system (Comida, Transporte, ...) y se preserva ese
-  // orden ordenando por created_at asc. Es una asunción del frontend, no
-  // algo resuelto por el backend; si el orden de seed cambia, esto habría
-  // que revisarlo junto al supabase-backend-expert.
-  const defaultCategories = computed(() =>
-    [...categories.value]
-      .filter(category => category.user_id === null)
-      .sort((a, b) => a.created_at.localeCompare(b.created_at)),
-  )
-
-  const customCategories = computed(() =>
-    [...categories.value]
-      .filter(category => category.user_id !== null)
-      .sort((a, b) => a.name.localeCompare(b.name, 'es')),
-  )
 
   // Sección 2.2: total del mes calendario en curso, derivado de la misma
   // lista que ya se trae para el listado. Al ser `computed`, se actualiza
@@ -73,19 +56,6 @@ export const useExpensesStore = defineStore('expenses', () => {
       return expenseYear === year && expenseMonth === month ? sum + expense.amount : sum
     }, 0)
   })
-
-  async function fetchCategories(): Promise<void> {
-    const { data, error: fetchError } = await supabase
-      .from('categories')
-      .select('*')
-
-    if (fetchError) {
-      console.error('[expenses] No se pudieron cargar las categorías', fetchError)
-      return
-    }
-
-    categories.value = data ?? []
-  }
 
   async function fetchAll(): Promise<void> {
     isLoading.value = true
@@ -108,10 +78,6 @@ export const useExpensesStore = defineStore('expenses', () => {
     isLoading.value = false
   }
 
-  function categoryById(categoryId: string): Category | undefined {
-    return categories.value.find(category => category.id === categoryId)
-  }
-
   function replaceById(id: string, next: ExpenseWithCategory) {
     const idx = expenses.value.findIndex(expense => expense.id === id)
     if (idx === -1) return
@@ -125,7 +91,8 @@ export const useExpensesStore = defineStore('expenses', () => {
    * de llamarla; la confirmación/rollback contra Supabase sigue en segundo
    * plano y se resuelve vía toast. */
   function addExpense(payload: ExpensePayload): void {
-    const category = categoryById(payload.categoryId)
+    const categoriesStore = useCategoriesStore()
+    const category = categoriesStore.categoryById(payload.categoryId)
     const authStore = useAuthStore()
     const userId = authStore.user?.id
 
@@ -193,8 +160,9 @@ export const useExpensesStore = defineStore('expenses', () => {
   /** Edición optimista (sección 3.9): mismo patrón que `addExpense`, con
    * rollback al valor previo si falla el `update()`. */
   function updateExpense(id: string, payload: ExpensePayload): void {
+    const categoriesStore = useCategoriesStore()
     const previous = expenses.value.find(expense => expense.id === id)
-    const category = categoryById(payload.categoryId)
+    const category = categoriesStore.categoryById(payload.categoryId)
     if (!previous || !category) return
 
     const optimistic: ExpenseWithCategory = {
@@ -279,14 +247,10 @@ export const useExpensesStore = defineStore('expenses', () => {
 
   return {
     expenses,
-    categories,
-    defaultCategories,
-    customCategories,
     monthTotal,
     isLoading,
     error,
     fetchAll,
-    fetchCategories,
     addExpense,
     updateExpense,
     deleteExpense,

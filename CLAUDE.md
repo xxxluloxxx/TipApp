@@ -41,7 +41,77 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
-Primera feature real de punta a punta implementada: **autenticación +
+Se agregó **gestión de categorías propias del usuario** (crear/editar/
+eliminar) sobre la base ya existente de autenticación + listado de gastos +
+alta/edición de gastos. No fue necesaria ninguna migración: el esquema de
+`categories` ya tenía `icon`/`color` y RLS completo para las operaciones de
+escritura sobre categorías propias, y `expenses.category_id` ya tiene
+`on delete restrict`, lo que ya bloqueaba a nivel de BD borrar una categoría
+con gastos asociados. Todo el trabajo de esta iteración fue diseño (UX) +
+frontend.
+
+- Especificación funcional/UX completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/categories-mvp-ux.md`
+  (`ui-ux-designer`) — consultar antes de tocar la pantalla `/categorias` o
+  el Sheet de alta/edición de categoría. Decisiones clave: ruta dedicada
+  `/categorias` (no Sheet/modal, es una pantalla de gestión de baja
+  frecuencia, no un formulario puntual); sin selector de ícono en el
+  formulario en v1 (el campo `icon` se muestra para las default pero queda
+  `NULL` para las custom, porque nada más en el frontend lo consume
+  todavía); paleta de color como grid fijo de 10 swatches (los mismos hex ya
+  sembrados en las categorías default) en vez de un color picker libre;
+  guardado de categoría **no optimista** (a diferencia de gastos) porque
+  queda un caso real de conflicto server-only (nombre duplicado en carrera,
+  índice único de Postgres); borrado de categoría sí optimista, con
+  "Eliminar" deshabilitado de antemano (no reactivamente) cuando la
+  categoría tiene gastos asociados, calculado con un conteo dedicado al
+  cargar la pantalla — sin ningún flujo de reasignación masiva de gastos
+  (fuera de alcance, la restricción de BD ya cubre el caso real).
+- `src/stores/categories.ts` (nuevo, `vue-frontend-expert`): store separado
+  de `expenses.ts` (antes las categorías vivían ahí) — dueño único del
+  estado de categorías (`categories`, `defaultCategories`,
+  `customCategories`, `expenseCounts`), con `fetchCategories`,
+  `fetchExpenseCounts` (conteo por categoría propia vía el embed de
+  PostgREST `categories?select=id,expenses(count)`, no reutiliza la lista
+  de `expenses.ts` que tiene `LIMIT 200` y subcontaría en cuentas grandes),
+  `addCategory`/`updateCategory` (no optimistas, devuelven
+  `{ category }` o `{ errorCode }` para que el Sheet decida la rama de UI
+  sin try/catch) y `deleteCategory` (optimista con rollback). `expenses.ts`
+  importa este store puntualmente (una sola dirección de dependencia, sin
+  ciclo) para resolver la categoría del gasto optimista; re-exporta
+  `Category` para no romper imports existentes.
+- `src/views/CategoriesView.vue` (nuevo) y
+  `src/components/CategoryFormSheet.vue` (nuevo): pantalla `/categorias` y
+  su Sheet de alta/edición, siguiendo el doc de UX al pie de la letra
+  (estados de carga/vacío/error, validación de nombre duplicado en cliente
+  contra defaults+propias con backstop del error Postgres `23505`, grid de
+  swatches con `Check` + `aria-pressed`, `AlertDialog` de confirmación de
+  borrado igual que en gastos).
+- `src/router/index.ts`: nueva ruta `/categorias` (`name: 'categories'`,
+  `requiresAuth`). `src/views/HomeView.vue`: nuevo item "Categorías" (ícono
+  `Tag`) en el `DropdownMenu` del header, entre el bloque de identidad y
+  "Cerrar sesión", cada uno con su propio separador.
+- `src/lib/colors.ts`: se exportó `hexToRgb` (antes privado) y se agregó
+  `withAlpha(hex, alpha)` para el fondo semitransparente del swatch de
+  categoría en `CategoriesView.vue`.
+- `npm run build` (`vue-tsc --build` + `vite build`) verificado sin errores
+  tras estos cambios.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente contra el Supabase real en el navegador (mismo
+  caveat ya existente para gastos, ver abajo) — en particular, el query de
+  conteo embebido (`categories?select=id,expenses(count)`) no se ejecutó
+  contra datos reales en esta sesión (sin acceso de red), solo se validó
+  que compila con los tipos existentes (con un cast puntual documentado en
+  `src/stores/categories.ts`, porque `database.types.ts` no modela la forma
+  del agregado embebido de PostgREST). Recomendado probarlo manualmente
+  antes de dar la feature por cerrada.
+- El campo `icon` sigue sin ser editable por el usuario (deliberado, ver
+  arriba) — si en el futuro se decide agregarlo, el doc de UX ya deja
+  anotado el camino de menor esfuerzo (un `<Input>` de texto libre, no un
+  picker dedicado).
+
+Primera feature real de punta a punta implementada previamente: **autenticación +
 listado de gastos + alta/edición de gastos**, conectada al Supabase remoto
 real. `src/App.vue` ya NO es la demo del sistema de diseño — es el shell
 raíz de la app (splash de sesión + `<router-view>` + `<Toaster>`).
@@ -195,10 +265,13 @@ fecha/reportes, no hay gastos compartidos/grupales.
 
 1. **Probar manualmente el flujo end-to-end en el navegador** contra el
    Supabase real: signup → (confirmar email si `enable_confirmations` está
-   activo) → login → agregar/editar/eliminar gasto → logout → refresh de
-   página (verificar que no hay flash de contenido). No se hizo en esta
-   iteración (la verificación fue build + revisión de código) — recomendado
-   antes de dar la feature por cerrada en producción.
+   activo) → login → agregar/editar/eliminar gasto → **crear/editar/
+   eliminar categoría propia desde `/categorias`, incluyendo intentar
+   borrar una con gastos asociados (debe quedar deshabilitado)** → logout →
+   refresh de página (verificar que no hay flash de contenido). No se hizo
+   en esta iteración ni en la anterior (la verificación fue build + revisión
+   de código) — recomendado antes de dar cualquiera de las dos features por
+   cerrada en producción.
 2. **PWA real**: manifest, service worker, estrategia offline con
    `vite-plugin-pwa` — a cargo de `vue-frontend-expert`. Candidata natural a
    seguir ahora que hay pantallas reales que instalar/cachear.

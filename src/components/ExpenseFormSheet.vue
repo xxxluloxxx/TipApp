@@ -2,6 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Loader2 } from '@lucide/vue'
 import { isFutureDate, todayDateInputValue } from '@/lib/date'
+import { useCategoriesStore } from '@/stores/categories'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -36,6 +37,7 @@ const emit = defineEmits<{
 }>()
 
 const expensesStore = useExpensesStore()
+const categoriesStore = useCategoriesStore()
 
 const isEditing = computed(() => !!props.expense)
 const todayValue = computed(() => todayDateInputValue())
@@ -227,7 +229,7 @@ function onSubmit() {
               <SelectGroup>
                 <SelectLabel>Categorías</SelectLabel>
                 <SelectItem
-                  v-for="category in expensesStore.defaultCategories"
+                  v-for="category in categoriesStore.defaultCategories"
                   :key="category.id"
                   :value="category.id"
                 >
@@ -239,12 +241,12 @@ function onSubmit() {
                 </SelectItem>
               </SelectGroup>
 
-              <template v-if="expensesStore.customCategories.length">
+              <template v-if="categoriesStore.customCategories.length">
                 <SelectSeparator />
                 <SelectGroup>
                   <SelectLabel>Mis categorías</SelectLabel>
                   <SelectItem
-                    v-for="category in expensesStore.customCategories"
+                    v-for="category in categoriesStore.customCategories"
                     :key="category.id"
                     :value="category.id"
                   >

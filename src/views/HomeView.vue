@@ -9,11 +9,13 @@ import {
   Plus,
   Receipt,
   RotateCcw,
+  Tag,
   Trash2,
   User,
 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
+import { useCategoriesStore } from '@/stores/categories'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { currentMonthLabel, formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
@@ -46,6 +48,7 @@ import {
 const router = useRouter()
 const authStore = useAuthStore()
 const expensesStore = useExpensesStore()
+const categoriesStore = useCategoriesStore()
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
@@ -54,7 +57,7 @@ async function loadAll() {
   loadError.value = false
   isInitialLoading.value = true
   try {
-    await Promise.all([expensesStore.fetchCategories(), expensesStore.fetchAll()])
+    await Promise.all([categoriesStore.fetchCategories(), expensesStore.fetchAll()])
     if (expensesStore.error) loadError.value = true
   } finally {
     isInitialLoading.value = false
@@ -138,6 +141,11 @@ function expenseTitle(expense: ExpenseWithCategory): string {
               {{ authStore.user?.email }}
             </p>
           </div>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem @select="router.push({ name: 'categories' })">
+            <Tag class="size-4" />
+            Categorías
+          </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem @select="onLogout">
             <LogOut class="size-4" />

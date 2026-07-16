@@ -9,7 +9,7 @@
  * la forma más robusta de cumplir la regla "nunca solo color / siempre
  * texto legible" para cualquier hex que llegue de la base de datos.
  */
-function hexToRgb(hex: string): [number, number, number] | null {
+export function hexToRgb(hex: string): [number, number, number] | null {
   const match = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex.trim())
   if (!match) return null
   return [Number.parseInt(match[1]!, 16), Number.parseInt(match[2]!, 16), Number.parseInt(match[3]!, 16)]
@@ -32,4 +32,18 @@ export function readableTextColor(hex: string | null | undefined): string | unde
   if (!rgb) return undefined
   const luminance = relativeLuminance(rgb)
   return luminance > 0.42 ? '#111827' : '#ffffff'
+}
+
+/**
+ * `rgba(...)` con opacidad para el fondo del swatch de categoría (sección
+ * 2.1 de categories-mvp-ux.md: "fondo = `color` al ~12% de opacidad, borde
+ * `1px solid color`"). Se calcula en runtime en vez de usar clases de
+ * Tailwind con opacidad (`bg-[color]/12`) porque el hex viene de datos, no
+ * de una clase estática conocida en build time.
+ */
+export function withAlpha(hex: string | null | undefined, alpha: number): string | undefined {
+  if (!hex) return undefined
+  const rgb = hexToRgb(hex)
+  if (!rgb) return undefined
+  return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`
 }
