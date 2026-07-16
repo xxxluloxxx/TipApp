@@ -28,9 +28,8 @@ router/estado global — cada iteración separada y verificable.
 - **Supabase** (Postgres + Auth + Storage + Realtime, plan gratuito): backend
   como servicio para no operar infraestructura propia en esta etapa. RLS
   (Row Level Security) es obligatorio en toda tabla accesible desde el
-  cliente, ya que la `anon key` es pública. Esquema y migraciones ya
-  definidos localmente (ver sección siguiente); falta crear el proyecto
-  remoto real.
+  cliente, ya que la `anon key` es pública. Proyecto remoto real ya creado y
+  en uso desde el frontend (ver sección siguiente).
 - **Vercel** (plan gratuito): hosting con deploys automáticos por push,
   preview deploys por rama/PR, y manejo simple de variables de entorno.
 - **Tailwind CSS v4 + shadcn-vue (Reka UI)**: sistema de diseño utilitario y
@@ -42,11 +41,71 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
-Dos frentes completados en paralelo: **esquema de Supabase** (backend) y
-**sistema de diseño base** (Tailwind + shadcn-vue). Todavía NO hay pantallas
-ni flujos reales de gastos implementados — eso es la próxima iteración.
+Primera feature real de punta a punta implementada: **autenticación +
+listado de gastos + alta/edición de gastos**, conectada al Supabase remoto
+real. `src/App.vue` ya NO es la demo del sistema de diseño — es el shell
+raíz de la app (splash de sesión + `<router-view>` + `<Toaster>`).
 
-### Backend (Supabase) — diseñado y validado localmente, proyecto remoto NO creado
+### Frontend de features (Vue Router + Pinia + Supabase client) — implementado y verificado
+
+- Especificación funcional/UX completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/expenses-mvp-ux.md`
+  (`ui-ux-designer`) — fuente de verdad de cada decisión de copy/validación/
+  estado; consultar antes de tocar estas pantallas.
+- Cliente Supabase tipado: `src/lib/supabase.ts` (`createClient<Database>`,
+  lee `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY`, throw descriptivo si
+  faltan, nunca usa `service_role`).
+- Helpers: `src/lib/date.ts` (encabezados de grupo "Hoy"/"Ayer"/fecha en
+  español, valor de `<input type=date>`, validación de fecha futura),
+  `src/lib/currency.ts` (formato `es-AR`), `src/lib/colors.ts` (contraste de
+  texto sobre el color hex de cada categoría).
+- Pinia: `src/stores/auth.ts` (estado `pending|authenticated|unauthenticated`,
+  `initialize()` memoizada + `onAuthStateChange`, `signIn/signUp/signOut`,
+  perfil desde `profiles`) y `src/stores/expenses.ts` (gastos + categorías
+  default/custom, `monthTotal` computado, `fetchAll/fetchCategories` y
+  `addExpense/updateExpense/deleteExpense` con **actualización optimista**:
+  mutación local inmediata + confirmación/rollback en segundo plano vía toast
+  con acción "Reintentar").
+- Vue Router (`src/router/index.ts`): rutas `/login`, `/registro`, `/`
+  (`home`), guard global `beforeEach` que espera la resolución de sesión
+  (evita flash de contenido), redirige por `meta.requiresAuth`/`guestOnly`
+  preservando `?redirect=`.
+- Vistas: `src/views/LoginView.vue`, `RegisterView.vue` (maneja los dos casos
+  de `signUp`: auto-confirm vs. confirmación de email pendiente),
+  `HomeView.vue` (hero de total del mes, listado agrupado por día, estados
+  vacío/carga/error, FAB de agregar, logout vía dropdown). Sheet compartido
+  de alta/edición: `src/components/ExpenseFormSheet.vue`.
+- Componente `Alert`/`AlertDescription`/`AlertTitle` agregado a mano en
+  `src/components/ui/alert/` (no existía previamente en la Fase 1 del
+  design system pero es imprescindible para errores inline de login/
+  registro) siguiendo el mismo patrón `cva`/`cn`/`data-slot` que el resto de
+  `src/components/ui/`.
+- `npm run build` (type-check con `vue-tsc --build` + `vite build`)
+  verificado sin errores.
+
+**Deuda técnica conocida**:
+- El orden fijo de las categorías default en el Select (Comida, Transporte,
+  ...) se asume ordenando por `created_at` asc, porque no existe una columna
+  `sort_order`/`position` en `categories`. Como las 10 quedaron con el mismo
+  `created_at` (un solo INSERT del seed), el orden real depende de cómo
+  Postgres devuelve las filas — funciona hoy pero no está garantizado. Si el
+  orden de categorías importa a futuro, agregar `sort_order` con
+  `supabase-backend-expert`.
+- Edición y borrado de gastos se implementaron también (no eran requisito de
+  esta iteración) reusando el mismo patrón optimista — sin verificación
+  manual exhaustiva de todos sus casos borde.
+- No se probó manualmente el flujo completo contra el proyecto Supabase real
+  (signup → confirmar si aplica → login → alta de gasto → logout) en el
+  navegador; la verificación de esta iteración fue build + revisión de
+  código. Recomendado como siguiente paso antes de dar la feature por
+  cerrada en producción.
+
+### Backend (Supabase) — proyecto remoto real, creado y en uso
+
+Proyecto remoto "TipApp" (ref `jgdenlrceubawwmknzcb`) ya creado, linkeado y
+con las migraciones aplicadas (`db push` hecho) — ya NO es solo un esquema
+local sin desplegar. El frontend de esta iteración se conecta a este
+proyecto real con las env vars ya configuradas en `.env.local` y en Vercel.
 
 - Esquema en `/home/lulo/Proyectos/Propios/TipApp/supabase/migrations/`:
   - `20260716142005_profiles_init.sql` — `profiles` 1:1 con `auth.users`,
@@ -67,32 +126,31 @@ ni flujos reales de gastos implementados — eso es la próxima iteración.
 - **Auth**: email/password (elegido por simplicidad de MVP frente a magic
   link/OTP; ver justificación completa en el historial de la sesión que
   definió el esquema).
-- Migraciones validadas contra una instancia Supabase local real (Docker):
-  signup de prueba, trigger de perfil, y las 14 políticas RLS confirmadas
-  activas.
-- Tipos TypeScript ya generados en
-  `/home/lulo/Proyectos/Propios/TipApp/src/types/database.types.ts` (vía
-  `supabase gen types typescript --local`); regenerar contra el proyecto
-  remoto real una vez creado (comando abajo).
-- `/home/lulo/Proyectos/Propios/TipApp/.env.example` con
-  `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` vacíos; `.env`/`.env.local` ya
-  en `.gitignore`.
+- Migraciones validadas originalmente contra una instancia Supabase local
+  real (Docker), y ya aplicadas también al proyecto remoto vía
+  `supabase db push`.
+- Tipos TypeScript en
+  `/home/lulo/Proyectos/Propios/TipApp/src/types/database.types.ts`,
+  consumidos por el cliente tipado del frontend (`src/lib/supabase.ts`) y
+  por los stores de Pinia. Si el esquema remoto cambia, regenerar con
+  `npx supabase gen types typescript --project-id jgdenlrceubawwmknzcb > src/types/database.types.ts`.
+- `/home/lulo/Proyectos/Propios/TipApp/.env.local` (no versionado) ya tiene
+  `VITE_SUPABASE_URL`/`VITE_SUPABASE_ANON_KEY` reales; `.env.example` sigue
+  como plantilla vacía. Mismas env vars ya configuradas en el panel de
+  Vercel (Production/Preview/Development).
 - `supabase` CLI instalado como devDependency del proyecto (no global).
 
-**Pendiente manual del usuario** (no ejecutable por un agente sin
-credenciales):
-1. Crear proyecto en [supabase.com](https://supabase.com) (plan free).
-2. Copiar `Project URL` y `anon key` desde Settings → API.
-3. `npx supabase login`
-4. `npx supabase link --project-ref <project-ref>`
-5. `npx supabase db push` (aplica las 5 migraciones al proyecto remoto).
-6. `npx supabase gen types typescript --project-id <project-ref> > src/types/database.types.ts`
-   (regenerar tipos contra el remoto, reemplazando los generados en local).
-7. Crear `.env.local` (no versionado) con las credenciales reales.
-8. Configurar esas mismas env vars en el panel de Vercel (a cargo de
-   `vercel-devops-expert`).
-9. Opcional para producción: configurar SMTP propio en Auth y evaluar
-   `enable_confirmations = true`.
+**Pendiente opcional** (no bloquea el uso actual, evaluar antes de invitar
+usuarios reales fuera de pruebas propias):
+- Configurar SMTP propio en Auth si se quiere confirmación de email
+  confiable en producción (hoy corre con el proveedor de email default de
+  Supabase, con límites bajos de envío).
+- Evaluar si `enable_confirmations` (confirmación de email obligatoria)
+  debe estar activo o no — el frontend ya contempla ambos casos (ver
+  sección siguiente), así que este es un cambio de configuración libre de
+  riesgo para el frontend.
+- Alinear el mínimo de longitud de contraseña de Supabase Auth (default 6)
+  a 8, para que coincida con la validación de cliente en `/registro`.
 
 ### Sistema de diseño (Tailwind + shadcn-vue) — instalado y verificado
 
@@ -116,35 +174,44 @@ credenciales):
 - Botones (`default`/`icon`) ajustados a `h-11`/`size-11` (44px) para cumplir
   el mínimo táctil exigido por el doc de a11y — afecta a todo botón del
   proyecto, no solo la demo.
-- `src/App.vue` es actualmente una página de demo del sistema de diseño
-  (monto hero con `tabular-nums`, card-list de gastos de ejemplo, badges de
-  categoría, sheet de alta, alert dialog de confirmación, toggle
-  light/dark) — **no es una pantalla de producto real**, se reemplaza en la
-  próxima iteración.
+- Fase 2 de componentes (Progress, Tabs, Combobox, Calendar) sigue pendiente
+  para cuando exista la pantalla de presupuestos/reportes.
+- Se agregó `Alert`/`AlertDescription`/`AlertTitle` en
+  `src/components/ui/alert/` (no estaba en el inventario original de Fase 1,
+  pero era imprescindible para los errores inline de login/registro) — sigue
+  el mismo patrón `cva`/`cn`/`data-slot` que el resto de componentes.
+- `src/App.vue` ya NO es la demo del sistema de diseño — ahora es el shell
+  raíz real de la app (splash de sesión + `<router-view>` + `<Toaster>`, ver
+  sección de frontend de features arriba). La demo fue completamente
+  reemplazada.
 - `npm run build` (incluye `vue-tsc --build`) verificado sin errores tras
   estos cambios.
 
-**No asumir** todavía: no hay Vue Router, no hay Pinia, no hay pantallas de
-gastos reales conectadas a Supabase, no hay PWA (manifest/service worker).
+**No asumir** todavía: no hay PWA (manifest/service worker), no hay
+presupuestos (`budgets`) conectados a ninguna pantalla, no hay filtros de
+fecha/reportes, no hay gastos compartidos/grupales.
 
 ## Próximos pasos previstos (orden sugerido)
 
-1. **Conectar Supabase real**: el usuario completa los pasos manuales de la
-   sección anterior (crear proyecto, `link`, `db push`, `.env.local`, env
-   vars en Vercel).
-2. **Cliente Supabase en frontend**: instalar `@supabase/supabase-js`,
-   inicializar cliente con las env vars `VITE_SUPABASE_*`, definir capa de
-   acceso a datos tipada con `database.types.ts`.
-3. **Vue Router + Pinia**: una vez haya más de una pantalla y estado que
-   compartir (login, listado de gastos, alta/edición, presupuestos).
-4. **Features de producto reales**: pantallas de auth (email/password),
-   listado de gastos (card-list, no tabla), alta/edición vía Sheet,
-   categorías, y opcionalmente presupuestos — diseñadas primero por
-   `ui-ux-designer` (flujos concretos) e implementadas por
-   `vue-frontend-expert` sobre el sistema de diseño ya instalado.
-5. **PWA real**: manifest, service worker, estrategia offline con
-   `vite-plugin-pwa` — a cargo de `vue-frontend-expert`. Iteración separada,
-   posterior a tener features reales funcionando.
+1. **Probar manualmente el flujo end-to-end en el navegador** contra el
+   Supabase real: signup → (confirmar email si `enable_confirmations` está
+   activo) → login → agregar/editar/eliminar gasto → logout → refresh de
+   página (verificar que no hay flash de contenido). No se hizo en esta
+   iteración (la verificación fue build + revisión de código) — recomendado
+   antes de dar la feature por cerrada en producción.
+2. **PWA real**: manifest, service worker, estrategia offline con
+   `vite-plugin-pwa` — a cargo de `vue-frontend-expert`. Candidata natural a
+   seguir ahora que hay pantallas reales que instalar/cachear.
+3. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
+   presupuesto por categoría/mes y barra de progreso (componente `Progress`,
+   Fase 2 del design system) — diseñar primero con `ui-ux-designer`.
+4. **Filtros/reportes**: vista "Este mes"/"Mes anterior" (componente `Tabs`,
+   ya previsto) y filtro de rango de fechas (`Calendar`+`Popover`) sobre el
+   listado all-time actual.
+5. **Revisar el orden de categorías default**: agregar columna `sort_order`
+   en `categories` con `supabase-backend-expert` si el orden fijo de
+   categorías (Comida, Transporte, ...) necesita quedar garantizado (ver
+   deuda técnica arriba).
 6. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
    grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement.
    Requiere rediseño de esquema (tablas de grupos/miembros) y de UX; no
