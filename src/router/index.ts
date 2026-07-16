@@ -35,6 +35,33 @@ const router = createRouter({
       component: () => import('@/views/CategoriesView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 8 de credit-cards-ux.md: las rutas literales
+    // (/tarjetas/transacciones, /tarjetas/gestionar) van antes que la
+    // dinámica (/tarjetas/:id), práctica defensiva estándar.
+    {
+      path: '/tarjetas',
+      name: 'cards',
+      component: () => import('@/views/CardsDashboardView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/tarjetas/transacciones',
+      name: 'card-transactions',
+      component: () => import('@/views/CardTransactionsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/tarjetas/gestionar',
+      name: 'manage-cards',
+      component: () => import('@/views/ManageCardsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/tarjetas/:id',
+      name: 'card-detail',
+      component: () => import('@/views/CardDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
     {
       path: '/transacciones',
       name: 'transactions',

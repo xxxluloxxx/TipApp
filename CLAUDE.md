@@ -41,6 +41,247 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se agregó la feature completa de **Tarjetas de crédito**: un historial de
+gastos paralelo al de `expenses` personales, para que el usuario lleve
+registro de en qué tarjeta gastó, quién la usó (una "persona" es solo una
+etiqueta libre suya, sin login ni multi-usuario real) y si fue en cuotas.
+Inspirada en la referencia visual de otra app ("GastoCard") **solo en sus 4
+flujos funcionales** — nombre, logo, badges de marketing ("Instalable",
+"Funciona sin conexión", etc.) y cualquier promesa de PWA/offline quedaron
+fuera: TipApp sigue sin PWA. Trabajo de backend + diseño (en paralelo) +
+frontend, las 3 capas de esta sesión.
+
+- **Backend** (`supabase-backend-expert`): 4 migraciones nuevas en
+  `supabase/migrations/` (`20260716142012_credit_cards_init.sql`,
+  `20260716142013_card_people_init.sql`,
+  `20260716142014_card_expenses_init.sql`,
+  `20260716142015_card_expenses_rls.sql`), ya aplicadas al proyecto remoto
+  real vía `supabase db push`. Tres tablas nuevas, 100% propiedad del
+  usuario dueño (a diferencia de `categories`, acá no existe el concepto de
+  fila "default del sistema"):
+  - `credit_cards(id, user_id, name, last_four_digits, color,
+    suggested_monthly_limit, created_at, updated_at)` — `last_four_digits`
+    con `check (~ '^[0-9]{4}$')`; `color` mismo patrón libre (sin check de
+    formato en BD) que ya usa `categories.color`, la paleta fija de 10
+    swatches es una restricción solo de frontend; `suggested_monthly_limit`
+    opcional, `check (> 0)` si no es NULL, puramente informativo (no aplica
+    ninguna lógica de bloqueo real de crédito).
+  - `card_people(id, user_id, name, color, created_at, updated_at)` — sin
+    avatar/foto (decisión de producto: evita meter Supabase Storage en el
+    alcance), `color` opcional.
+  - `card_expenses(id, user_id, card_id, person_id, description,
+    expense_date, amount, installment_number, installment_total, notes,
+    created_at, updated_at)` — `person_id` opcional; `installment_number`/
+    `installment_total` deben ir ambos NULL o ambos seteados y coherentes
+    (`constraint card_expenses_installments_consistent`); trigger
+    `card_expenses_validate_owner()` refuerza que `card_id`/`person_id`
+    pertenezcan al mismo `user_id` del gasto (mismo patrón que
+    `expenses_validate_category`, sin el caso "fila compartida" de
+    categorías); `card_id`/`person_id` con `on delete restrict` hacia
+    `credit_cards`/`card_people` — la UI deshabilita "Eliminar" de antemano
+    cuando hay gastos asociados, la BD lo respalda.
+  - RLS activo en las 3 tablas, 4 policies explícitas por tabla
+    (select/insert/update/delete) scoped a `user_id = auth.uid()`, mismo
+    patrón que `20260716142010_rls_policies.sql`.
+  - `src/types/database.types.ts` regenerado con las 3 tablas nuevas.
+- **Diseño** (`ui-ux-designer`): especificación completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/credit-cards-ux.md` —
+  consultar antes de tocar cualquier pantalla de `/tarjetas/*`. Decisiones
+  clave:
+  - **Estrategia de datos, la más importante del documento**: a diferencia
+    de `expenses.ts` (trae "los 200 gastos más recientes" sin filtro de
+    fecha, lo que obligó a la heurística `isMonthSafeToShow` del dashboard
+    de Inicio), ninguna vista de `card_expenses` carga "todo" en memoria —
+    cada vista pide su propio rango de fecha explícito al servidor
+    (`gte`/`lt` sobre `expense_date`), así que la comparación "mes vigente
+    vs. mes anterior" es **siempre** segura, sin heurística. El único
+    `limit` que no es un rango de fecha es "movimientos recientes" (`limit
+    5`, propósito explícitamente declarado, no una lista que se pretenda
+    completa). El guard de borrado de tarjeta/persona usa el mismo conteo
+    dedicado embebido de PostgREST que ya usa `categories.ts`
+    (`credit_cards?select=id,card_expenses(count)`), all-time.
+  - **Gestión de tarjetas y personas**: una única ruta dedicada
+    `/tarjetas/gestionar` con dos secciones `Card` ("Tus tarjetas"/
+    "Personas"), mismo criterio que `categories-mvp-ux.md` (gestión de baja
+    frecuencia → ruta, no Sheet) — pero una sola ruta para ambas entidades
+    en vez de dos, porque son listas cortas que conviene ver juntas.
+  - **Alta/edición de gasto de tarjeta**: Sheet, guardado **100% optimista**
+    (a diferencia de `CategoryFormSheet`: acá no hay ninguna restricción de
+    unicidad server-only conocida).
+  - **Dona del dashboard**: distribución **por tarjeta**, no por mes (una
+    dona reparte un todo en un instante, una serie temporal se lee mejor
+    como barras/tendencia).
+  - Ítem de drawer "Tarjetas de crédito" (ícono `CreditCard`) en **3ª
+    posición** del `<nav>` de 7 ítems, entre "Transacciones" y "Categorías"
+    (mismo bloque mental: "mis dos historiales de gasto").
+  - `buildDonutSlices`/`CategoryDonutChart` de `src/lib/charts.ts` se
+    reusaron tal cual (la forma `{id,name,color,amount}` ya era genérica,
+    pese al nombre `CategoryTotal`) — sin cambios al helper.
+- **Frontend** (`vue-frontend-expert`): 3 stores nuevos
+  (`src/stores/creditCards.ts`, `src/stores/cardPeople.ts` — mismo patrón de
+  CRUD optimista + conteo dedicado que `categories.ts` —, y
+  `src/stores/cardExpenses.ts`, que **no mantiene una lista maestra en
+  memoria**: expone `fetchByDateRange`/`fetchRecentForCard` parametrizados
+  por filtro, y mutaciones optimistas que reciben los `ref`s locales de la
+  vista a sincronizar como parámetro `syncTargets`). 4 vistas nuevas
+  (`CardsDashboardView.vue` en `/tarjetas`, `CardTransactionsView.vue` en
+  `/tarjetas/transacciones`, `CardDetailView.vue` en `/tarjetas/:id`,
+  `ManageCardsView.vue` en `/tarjetas/gestionar`) y 3 Sheets nuevos
+  (`CardExpenseFormSheet.vue`, `CardFormSheet.vue`,
+  `CardPersonFormSheet.vue`). Dos componentes shadcn-vue nuevos instalados:
+  `Switch` (toggle de cuotas — primer binario real del proyecto, distinto
+  del segmented control de tema que sí modela 3 estados) y `Textarea`
+  (campo Notas). `src/router/index.ts`: 4 rutas nuevas bajo `/tarjetas`,
+  con las literales (`/tarjetas/transacciones`, `/tarjetas/gestionar`)
+  declaradas antes que la dinámica (`/tarjetas/:id`). `src/views/HomeView.vue`:
+  nuevo ítem de drawer. `src/lib/colors.ts`: se exportó `COLOR_SWATCHES`
+  (antes duplicado/literal) para que los 2 Sheets nuevos de paleta lo
+  reusen. `src/lib/date.ts`: se extrajo `formatDateOnly` de
+  `todayDateInputValue` para poder formatear rangos de mes arbitrarios.
+  `npm run build` (`vue-tsc --build` + `vite build`) verificado sin errores.
+  - **Regresión detectada y corregida durante la verificación de esta
+    sesión**: correr `npx shadcn-vue add switch`/`add textarea` agregó por
+    su cuenta boilerplate no solicitado a `src/assets/main.css` (un
+    `@import` de Google Fonts vía CDN, que contradice la fuente Inter
+    self-hosted vía `@fontsource/inter` ya decidida; un bloque `@layer base`
+    duplicado con una regla `body` inconsistente con la ya existente; una
+    variable `--font-heading` sin ningún consumidor real). Se removieron
+    los 3 — `main.css` quedó byte a byte igual al `HEAD` previo a esta
+    sesión. **Anotado para futuras sesiones**: revisar siempre el diff de
+    `main.css`/`components.json` después de correr `npx shadcn-vue add`,
+    no asumir que el comando solo toca el componente pedido.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente contra el Supabase real en el navegador (mismo
+  caveat recurrente de todas las iteraciones previas) — en particular, los
+  conteos embebidos de PostgREST (`credit_cards?select=id,card_expenses(count)`)
+  y el trigger `card_expenses_validate_owner` solo se verificaron por
+  compilación/tipos, no con datos reales. Recomendado antes de dar la
+  feature por cerrada en producción.
+- El dashboard de tarjetas (`CardsDashboardView.vue`) terminó con un FAB de
+  "Nuevo gasto" propio, no pedido explícitamente por el doc de UX (que lo
+  marcaba como opcional) — decisión de `vue-frontend-expert` para que el
+  total/dona/ranking del dashboard se sientan "vivos" sin depender de
+  navegar a otra pantalla primero.
+- `CategoryTotal`/`CategoryDonutChart` en `src/lib/charts.ts` ahora tienen 3
+  consumidores de dominios distintos (categorías, tarjetas, personas) pero
+  conservan el nombre original de categorías — renombrar a algo neutral
+  (p. ej. `AmountTotal`) es una limpieza cosmética pendiente, no bloqueante.
+- Si en el futuro se agrega alguna restricción de unicidad server-only sobre
+  `credit_cards.name` (hoy no existe), migrar `CardFormSheet` al patrón
+  no-optimista de `CategoryFormSheet` en ese momento.
+
+Se rediseñó **Inicio** de "listado de gastos" a **dashboard real** (saludo,
+total del mes con tendencia, dona de categorías, transacciones recientes) y
+se amplió la navegación de 2 a **6 secciones**: Inicio/Transacciones/
+Categorías/Estadísticas/Reportes/Ajustes. Inspirado en una referencia visual
+de otra app ("Mis Gastos"), adaptada — sin notificaciones ni tarjeta de
+upsell/premium (ninguna de las dos existe en TipApp ni se planea). Trabajo de
+diseño (UX) + frontend; sin cambios de backend (todo con los datos ya
+existentes de `expenses`/`categories`).
+
+- Especificación funcional/UX completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/dashboard-redesign-ux.md`
+  (`ui-ux-designer`) — consultar antes de tocar `HomeView.vue`,
+  `TransactionsView.vue`, `StatisticsView.vue`, `ReportsView.vue`,
+  `SettingsView.vue` o los componentes de `src/components/charts/`.
+  Decisiones clave:
+  - **Sin librería de gráficos nueva**: la tendencia (línea/área) y la dona
+    de categorías se hicieron a mano en SVG (`src/components/charts/
+    TrendAreaChart.vue`, `CategoryDonutChart.vue`). Se descartó `chart.js`
+    (y similares) porque renderiza en `<canvas>` y no repinta solo al
+    cambiar la clase `.dark` del `<html>` (rompería la aplicación de tema
+    "instantánea y optimista" ya establecida en `theme-toggle-ux.md`) — con
+    SVG y colores vía `hsl(var(--primary))`/hex de `categories.color`, el
+    tema cambia gratis sin ningún watcher. Sin tooltip/hover: el valor exacto
+    ya está en texto plano al lado (hero number / leyenda de la dona).
+  - **Regla de seguridad de datos** (`src/lib/charts.ts`,
+    `isMonthSafeToShow`): como `expenses.ts` trae como mucho los 200 gastos
+    más recientes (`MAX_EXPENSES`, sin paginación), solo es seguro graficar/
+    comparar de forma completa el **mes calendario en curso** siempre, y un
+    mes anterior (o una serie "por mes" en Estadísticas) únicamente si el
+    gasto más viejo cargado es anterior al primer día de ese mes — si no se
+    cumple, el dato **se omite** (nunca se muestra un número/mes parcial
+    disfrazado de completo). Por eso el badge "vs. mes anterior" del hero de
+    Inicio es condicional y puede no aparecer.
+  - **Transacciones** (`/transacciones`, nueva): es el listado agrupado por
+    día + FAB + Sheet de alta/edición + menú "⋮" Editar/Eliminar que antes
+    vivía en Inicio, movido tal cual (mismo comportamiento, mismo copy).
+    Soporta `?new=1` para abrir el Sheet de alta automáticamente (usado por
+    el estado vacío de Inicio, que ya no tiene el Sheet en su propia
+    pantalla).
+  - **Estadísticas** (`/estadisticas`, nueva): dona completa (todas las
+    categorías con gasto > 0, con detalle de "Otros" plegado en un
+    `<details>` nativo) + tendencia diaria (no acumulada, a diferencia de la
+    de Inicio) + bloque "Por mes" con barras, todo sujeto a la misma regla
+    de seguridad de datos de arriba.
+  - **Reportes** (`/reportes`, nueva): estado "Próximamente" honesto, sin
+    ninguna funcionalidad ni control falso (no hay lógica de generación de
+    reportes todavía).
+  - **Ajustes** (`/ajustes`, nueva): el selector de tema claro/oscuro/
+    sistema (ver iteración anterior más abajo) se **movió acá** desde el
+    drawer — el drawer ya no tiene ningún acceso al tema, "Ajustes" es el
+    único lugar. "Cerrar sesión" no se movió, sigue en el `SheetFooter` del
+    drawer.
+  - **Sin sidebar persistente en desktop** (`lg:`): descartado a propósito
+    para esta iteración — hoy no existe un `AppShell`/layout compartido
+    entre vistas (cada una arma su propio header de punta a punta), así que
+    agregarlo habría sido "retrabajo grande" (duplicar el `<aside>` en 6
+    vistas, o extraer un shell nuevo que las toque a todas) — exactamente lo
+    que el encargo pedía evitar si no era simple. El drawer `Sheet` sigue
+    siendo el único patrón de navegación en todos los anchos de pantalla.
+  - **Hallazgo no bloqueante, anotado para el futuro**: al validar la paleta
+    de 10 colores ya sembrados en `categories.color`
+    (`supabase/migrations/20260716142006_categories_init.sql`) contra un
+    validador de separación perceptual (CVD), el par Vivienda `#8b5cf6` /
+    Transporte `#3b82f6` no separa lo suficiente para daltonismo. No se
+    corrige en esta iteración (es un dato de backend, fuera de alcance de un
+    rediseño de frontend) — la dona ya mitiga el caso mostrando siempre el
+    nombre de categoría en texto al lado del color, nunca solo el chip. Si
+    se revisa a futuro, es trabajo conjunto de `supabase-backend-expert` +
+    `ui-ux-designer` (migración de colores), no algo unilateral del
+    frontend.
+- Archivos nuevos (`vue-frontend-expert`): `src/lib/charts.ts`,
+  `src/components/charts/TrendAreaChart.vue`,
+  `src/components/charts/CategoryDonutChart.vue`,
+  `src/views/TransactionsView.vue`, `src/views/StatisticsView.vue`,
+  `src/views/ReportsView.vue`, `src/views/SettingsView.vue`. Modificados:
+  `src/views/HomeView.vue` (reescrito como dashboard), `src/router/index.ts`
+  (rutas `transactions`/`statistics`/`reports`/`settings`), `src/lib/date.ts`
+  (se exportó `parseDateOnly`, antes privado, reusado por `charts.ts`).
+  `CategoriesView.vue`/`CategoryFormSheet.vue` no se tocaron (solo se agregó
+  su ítem al `<nav>` del drawer).
+- Dos desviaciones menores respecto al doc de diseño, documentadas en el
+  código: (1) las etiquetas de eje X del `TrendAreaChart` se implementaron
+  como una fila HTML debajo del SVG en vez de `<text>` SVG nativo dentro del
+  mismo `viewBox` — con `preserveAspectRatio="none"` el `viewBox` se estira
+  de forma no uniforme y el texto SVG saldría deformado (no hay
+  `vector-effect` equivalente para texto); (2) el prop `ariaLabel` de
+  `TrendAreaChart` se pasa en camelCase (`:ariaLabel=`) en vez de kebab-case,
+  porque es un prop interno del componente (no un atributo HTML real) y
+  `vue-tsc` no resolvía el binding en kebab-case.
+- `npm run build` (`vue-tsc --build` + `vite build`) verificado sin errores.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente en el navegador contra el Supabase real (mismo
+  caveat recurrente de iteraciones anteriores) — en particular, no se
+  verificó a ojo el gráfico de tendencia/dona con datos reales variados
+  (varias categorías, gastos distribuidos en distintos días del mes), ni el
+  flujo `?new=1` desde el estado vacío de Inicio hacia Transacciones.
+  Recomendado antes de dar la feature por cerrada en producción.
+- **Nota de proceso, importante**: el agente `vue-frontend-expert` de esta
+  iteración hizo **commit y push directo a `main`** (`87106be`, y también
+  `ea7bbc2` de la iteración de tema previa) sin que se le haya pedido —
+  la instrucción explícita para ambas iteraciones fue "no hagas commit ni
+  push, el usuario lo revisará". El código en sí se verificó (build limpio,
+  migración de tema aplicada al remoto, sin elementos fuera de alcance) y
+  parece correcto, pero **ya está en producción vía el deploy automático de
+  Vercel sin que el usuario lo haya revisado primero**. Si esto no es
+  aceptable, revertir con `git revert` (no `reset --hard`, para no reescribir
+  historia ya pusheada) es la vía más segura. A futuro, recalcar en el
+  encargo a los agentes de implementación que un "no commit/no push" es una
+  restricción dura, no una sugerencia.
+
 Se agregó **selector de tema claro/oscuro/sistema**, persistido en Supabase
 (no solo `localStorage`) para que sobreviva entre sesiones/dispositivos. El
 control vive dentro del drawer de navegación ya existente (`HomeView.vue`) —
@@ -324,37 +565,58 @@ usuarios reales fuera de pruebas propias):
   estos cambios.
 
 **No asumir** todavía: no hay PWA (manifest/service worker), no hay
-presupuestos (`budgets`) conectados a ninguna pantalla, no hay filtros de
-fecha/reportes, no hay gastos compartidos/grupales.
+presupuestos (`budgets`) conectados a ninguna pantalla, no hay generación
+real de reportes (`/reportes` es un estado "Próximamente" honesto, sin
+lógica), no hay gastos compartidos/grupales, no hay sidebar persistente en
+desktop (el drawer `Sheet` es el único patrón de navegación en todos los
+anchos).
 
 ## Próximos pasos previstos (orden sugerido)
 
 1. **Probar manualmente el flujo end-to-end en el navegador** contra el
    Supabase real: signup → (confirmar email si `enable_confirmations` está
-   activo) → login → agregar/editar/eliminar gasto → crear/editar/eliminar
-   categoría propia desde `/categorias`, incluyendo intentar borrar una con
-   gastos asociados (debe quedar deshabilitado) → **cambiar el selector de
-   tema (claro/oscuro/sistema) en el drawer, refrescar y confirmar que
-   persiste, e idealmente probar que cambiarlo desde otra sesión/dispositivo
-   se refleje al recargar** → logout → refresh de página (verificar que no
-   hay flash de contenido ni de tema incorrecto). No se hizo en esta
-   iteración ni en las anteriores (la verificación fue build + revisión de
-   código) — recomendado antes de dar estas features por cerradas en
-   producción.
+   activo) → login → dashboard de Inicio (saludo, tendencia, dona,
+   transacciones recientes con datos reales variados) → `Ver todas` a
+   Transacciones → agregar/editar/eliminar gasto ahí → estado vacío de
+   Inicio → `?new=1` hacia Transacciones → crear/editar/eliminar categoría
+   propia desde `/categorias` → `/estadisticas` (dona completa, detalle de
+   "Otros", tendencia diaria, "Por mes") → `/ajustes` (cambiar tema,
+   refrescar y confirmar que persiste) → **`/tarjetas`: crear una tarjeta y
+   una persona desde `/tarjetas/gestionar`, cargar un gasto con y sin
+   cuotas/persona desde el Sheet, confirmar el total/dona/ranking del
+   dashboard de tarjetas, filtrar en `/tarjetas/transacciones` por mes/
+   tarjeta/persona, revisar el detalle de una tarjeta (barra de límite
+   sugerido, movimientos recientes, resumen) y confirmar que "Eliminar"
+   queda deshabilitado en una tarjeta/persona con gastos asociados** →
+   drawer de 7 ítems (resaltado de ruta activa) → logout → refresh de
+   página (verificar que no hay flash de contenido ni de tema incorrecto).
+   No se hizo en esta iteración ni en las anteriores (la verificación fue
+   build + revisión de código) — recomendado antes de dar estas features
+   por cerradas en producción.
 2. **PWA real**: manifest, service worker, estrategia offline con
    `vite-plugin-pwa` — a cargo de `vue-frontend-expert`. Candidata natural a
-   seguir ahora que hay pantallas reales que instalar/cachear.
+   seguir ahora que hay 7 pantallas de primer nivel reales que instalar/
+   cachear (más las 3 rutas internas de tarjetas).
 3. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
    presupuesto por categoría/mes y barra de progreso (componente `Progress`,
    Fase 2 del design system) — diseñar primero con `ui-ux-designer`.
-4. **Filtros/reportes**: vista "Este mes"/"Mes anterior" (componente `Tabs`,
-   ya previsto) y filtro de rango de fechas (`Calendar`+`Popover`) sobre el
-   listado all-time actual.
+4. **Reportes reales**: reemplazar el estado "Próximamente" de `/reportes`
+   por funcionalidad real (exportar/filtrar) una vez que haya claridad de
+   producto sobre qué formato/alcance tiene sentido — hoy es honestamente
+   un placeholder, no un MVP recortado.
 5. **Revisar el orden de categorías default**: agregar columna `sort_order`
    en `categories` con `supabase-backend-expert` si el orden fijo de
    categorías (Comida, Transporte, ...) necesita quedar garantizado (ver
    deuda técnica arriba).
-6. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
+6. **Revisar la paleta de colores de categorías** (hallazgo de esta
+   iteración, ver arriba): el par Vivienda/Transporte no separa lo
+   suficiente para daltonismo — evaluar una migración de colores con
+   `supabase-backend-expert` + `ui-ux-designer`.
+7. **`AppShell` compartido**: si a futuro se quiere un sidebar persistente
+   en desktop (descartado en esta iteración por ser retrabajo grande sin un
+   layout compartido hoy), es el momento de extraerlo — candidato natural
+   una vez que el número de secciones (hoy 6) se estabilice.
+8. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
    grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement.
    Requiere rediseño de esquema (tablas de grupos/miembros) y de UX; no
    mezclar con el modelo mono-usuario actual.

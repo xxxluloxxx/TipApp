@@ -1,0 +1,339 @@
+<script setup lang="ts">
+import { computed, onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
+import { AlertCircle, ArrowLeft, Plus, RotateCcw } from '@lucide/vue'
+import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
+import { formatAmount } from '@/lib/currency'
+import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
+import { useCreditCardsStore } from '@/stores/creditCards'
+import { useCardPeopleStore } from '@/stores/cardPeople'
+import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/cardExpenses'
+import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
+import CardFormSheet from '@/components/CardFormSheet.vue'
+import CardExpenseFormSheet from '@/components/CardExpenseFormSheet.vue'
+import { Button } from '@/components/ui/button'
+import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
+
+// Sección 4 de credit-cards-ux.md: detalle de una tarjeta. Vista de "tercer
+// nivel" (vuelve a /tarjetas, no a Home), fetch propio (deep-link directo).
+
+const route = useRoute()
+const router = useRouter()
+const creditCardsStore = useCreditCardsStore()
+const cardPeopleStore = useCardPeopleStore()
+const cardExpensesStore = useCardExpensesStore()
+
+const cardId = computed(() => String(route.params.id))
+const card = computed(() => creditCardsStore.cardById(cardId.value))
+
+const isInitialLoading = ref(true)
+const loadError = ref(false)
+
+const monthExpenses = ref<CardExpenseWithRelations[]>([])
+const recentExpenses = ref<CardExpenseWithRelations[]>([])
+
+function monthStart(offsetMonths: number, reference: Date = new Date()): Date {
+  return new Date(reference.getFullYear(), reference.getMonth() + offsetMonths, 1)
+}
+
+async function loadAll() {
+  loadError.value = false
+  isInitialLoading.value = true
+  try {
+    const [cardsOk, peopleOk] = await Promise.all([creditCardsStore.fetchCards(), cardPeopleStore.fetchPeople()])
+    if (!cardsOk || !peopleOk || !card.value) {
+      loadError.value = true
+      return
+    }
+
+    const start = monthStart(0)
+    const end = monthStart(1)
+    const [monthRes, recentRes] = await Promise.all([
+      cardExpensesStore.fetchByDateRange({ from: formatDateOnly(start), to: formatDateOnly(end), cardId: cardId.value }),
+      cardExpensesStore.fetchRecentForCard(cardId.value, 5),
+    ])
+
+    if (monthRes === null || recentRes === null) {
+      loadError.value = true
+      return
+    }
+
+    monthExpenses.value = monthRes
+    recentExpenses.value = recentRes
+  } finally {
+    isInitialLoading.value = false
+  }
+}
+
+onMounted(loadAll)
+
+const monthLabel = computed(() => currentMonthLabel())
+const cardMonthTotal = computed(() => monthExpenses.value.reduce((sum, e) => sum + e.amount, 0))
+
+// Sección 4.1: barra de progreso contra el límite sugerido, siempre
+// acompañada de texto (nunca solo color) y del copy de "es informativo".
+const limitProgress = computed(() => {
+  const limit = card.value?.suggested_monthly_limit
+  if (!limit) return 0
+  return (cardMonthTotal.value / limit) * 100
+})
+const limitProgressLabel = computed(() => `${Math.round(limitProgress.value)}% usado`)
+const limitBarColorClass = computed(() => {
+  if (limitProgress.value > 100) return 'bg-destructive'
+  if (limitProgress.value >= 80) return 'bg-warning'
+  return 'bg-primary'
+})
+
+// Sección 4.2: dona de gasto por persona dentro de esta tarjeta.
+const personDonutSlices = computed(() => {
+  const totals = new Map<string, CategoryTotal>()
+  for (const e of monthExpenses.value) {
+    const key = e.person_id ?? 'none'
+    const existing = totals.get(key)
+    if (existing) {
+      existing.amount += e.amount
+    } else {
+      const name = e.person_id ? (e.person?.name ?? 'Persona') : 'Sin persona asignada'
+      const color = e.person_id ? (e.person?.color ?? null) : null
+      totals.set(key, { id: key, name, color, amount: e.amount })
+    }
+  }
+  return buildDonutSlices([...totals.values()], 5)
+})
+
+// Sección 4.4: derivado sin queries adicionales del mismo array del hero.
+const averageExpense = computed(() => (monthExpenses.value.length === 0 ? 0 : cardMonthTotal.value / monthExpenses.value.length))
+const maxExpense = computed(() => Math.max(0, ...monthExpenses.value.map(e => e.amount)))
+
+function expenseTitle(expense: CardExpenseWithRelations): string {
+  return expense.description || card.value?.name || ''
+}
+
+// Sheets de edición de tarjeta / alta de gasto (sección 4.5).
+const isCardSheetOpen = ref(false)
+const isExpenseSheetOpen = ref(false)
+const editingExpense = ref<CardExpenseWithRelations | null>(null)
+
+function openEditCard() {
+  isCardSheetOpen.value = true
+}
+function openNewExpense() {
+  editingExpense.value = null
+  isExpenseSheetOpen.value = true
+}
+
+// Definido acá, no inline en el template: un `ref` referenciado por su
+// nombre dentro de una expresión de template se auto-desenvuelve, así que
+// `[monthExpenses, recentExpenses]` en el template pasaría los *valores*
+// desenvueltos, no los `ref`s en sí (ver mismo comentario en
+// CardTransactionsView.vue).
+const expenseSyncTargets = [monthExpenses, recentExpenses]
+
+function goToTransactions() {
+  router.push({ name: 'card-transactions', query: { cardId: cardId.value } })
+}
+</script>
+
+<template>
+  <div class="min-h-screen bg-background text-foreground">
+    <header class="flex items-center gap-3 border-b border-border px-4 py-4 sm:px-6 lg:px-8">
+      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'cards' })">
+        <ArrowLeft class="size-5" />
+      </Button>
+      <h1 class="text-xl font-semibold">
+        {{ card?.name ?? 'Tarjeta' }}
+      </h1>
+    </header>
+
+    <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <!-- Estado de carga -->
+      <template v-if="isInitialLoading">
+        <Card>
+          <CardHeader>
+            <Skeleton class="h-4 w-32" />
+            <Skeleton class="mt-2 h-9 w-40" />
+          </CardHeader>
+          <Skeleton class="mx-6 mb-4 h-8" />
+        </Card>
+        <Card>
+          <CardHeader>
+            <Skeleton class="h-4 w-40" />
+          </CardHeader>
+          <div class="flex flex-col items-center gap-4 px-6 pb-6 sm:flex-row">
+            <Skeleton class="size-32 shrink-0 rounded-full" />
+          </div>
+        </Card>
+      </template>
+
+      <!-- Estado de error -->
+      <template v-else-if="loadError">
+        <div class="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
+          <AlertCircle class="size-12 text-destructive" />
+          <h2 class="text-lg font-semibold">
+            No pudimos cargar esta tarjeta
+          </h2>
+          <p class="text-sm text-muted-foreground">
+            Revisá tu conexión e intentá de nuevo.
+          </p>
+          <Button variant="outline" @click="loadAll">
+            <RotateCcw class="size-4" />
+            Reintentar
+          </Button>
+        </div>
+      </template>
+
+      <template v-else-if="card">
+        <!-- Sección 4.1: hero + progreso contra límite sugerido -->
+        <Card>
+          <CardHeader>
+            <CardDescription>Total en {{ monthLabel }}</CardDescription>
+            <CardTitle class="text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
+              <span class="align-top text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(cardMonthTotal) }}
+            </CardTitle>
+          </CardHeader>
+
+          <div v-if="card.suggested_monthly_limit" class="flex flex-col gap-1.5 px-6 pb-6">
+            <div class="h-2 overflow-hidden rounded-full bg-muted">
+              <div
+                class="h-full rounded-full transition-[width]"
+                :class="limitBarColorClass"
+                :style="{ width: `${Math.min(limitProgress, 100)}%` }"
+              />
+            </div>
+            <div class="flex items-center justify-between text-xs text-muted-foreground">
+              <span>Límite mensual sugerido: ${{ formatAmount(card.suggested_monthly_limit) }}</span>
+              <span>{{ limitProgressLabel }}</span>
+            </div>
+            <p class="text-xs text-muted-foreground">
+              Este límite es solo una referencia que vos definiste, no un límite real de tu tarjeta ni de tu banco.
+            </p>
+          </div>
+          <p v-else class="px-6 pb-6 text-xs text-muted-foreground">
+            No definiste un límite mensual sugerido para esta tarjeta.
+            <button type="button" class="font-medium text-primary underline-offset-2 hover:underline" @click="openEditCard">
+              Definir uno
+            </button>
+          </p>
+        </Card>
+
+        <!-- Sección 4.2: dona por persona -->
+        <Card v-if="personDonutSlices.length">
+          <CardHeader>
+            <CardTitle class="text-base font-semibold">
+              Gastos por persona
+            </CardTitle>
+          </CardHeader>
+          <div class="flex flex-col items-center gap-4 px-6 pb-6 sm:flex-row">
+            <CategoryDonutChart :slices="personDonutSlices" class="size-32 shrink-0" />
+            <ul class="flex w-full flex-col gap-2">
+              <li v-for="slice in personDonutSlices" :key="slice.id" class="flex items-center gap-2 text-sm">
+                <span class="size-2.5 shrink-0 rounded-full" :style="{ background: slice.color ?? 'hsl(var(--muted-foreground))' }" />
+                <span class="flex-1 truncate font-medium">{{ slice.name }}</span>
+                <span class="tabular-nums">${{ formatAmount(slice.amount) }}</span>
+                <span class="w-10 text-right text-xs text-muted-foreground">{{ slice.percentLabel }}</span>
+              </li>
+            </ul>
+          </div>
+        </Card>
+
+        <!-- Sección 4.3: movimientos recientes -->
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base font-semibold">
+              Movimientos recientes
+            </CardTitle>
+            <CardAction>
+              <Button variant="link" size="sm" class="h-auto p-0" @click="goToTransactions">
+                Ver todos
+              </Button>
+            </CardAction>
+          </CardHeader>
+
+          <p v-if="recentExpenses.length === 0" class="px-6 pb-4 text-sm text-muted-foreground">
+            Todavía no registraste gastos con esta tarjeta.
+          </p>
+          <div v-else class="flex flex-col">
+            <template v-for="(expense, idx) in recentExpenses" :key="expense.id">
+              <Separator v-if="idx > 0" />
+              <div class="flex items-center gap-3 px-4 py-3" :class="{ 'opacity-70': expense._pending }">
+                <div class="flex min-w-0 flex-1 flex-col">
+                  <p class="truncate text-sm font-medium">
+                    {{ expenseTitle(expense) }}
+                  </p>
+                  <p class="truncate text-xs text-muted-foreground">
+                    {{ expense.person?.name ?? 'Sin persona asignada' }}
+                    <span v-if="expense.installment_total"> · {{ expense.installment_number }}/{{ expense.installment_total }}</span>
+                  </p>
+                </div>
+                <div class="flex flex-col items-end gap-0.5">
+                  <p class="text-sm font-semibold tabular-nums">
+                    ${{ formatAmount(expense.amount) }}
+                  </p>
+                  <p class="text-xs text-muted-foreground">
+                    {{ formatExpenseDateHeading(expense.expense_date) }}
+                  </p>
+                </div>
+              </div>
+            </template>
+          </div>
+        </Card>
+
+        <!-- Sección 4.4: resumen -->
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Resumen del mes
+            </CardTitle>
+          </CardHeader>
+          <div class="grid grid-cols-3 gap-2 px-6 pb-6 text-center">
+            <div>
+              <p class="text-lg font-semibold tabular-nums">
+                {{ monthExpenses.length }}
+              </p>
+              <p class="text-xs text-muted-foreground">
+                Transacciones
+              </p>
+            </div>
+            <div>
+              <p class="text-lg font-semibold tabular-nums">
+                ${{ formatAmount(averageExpense) }}
+              </p>
+              <p class="text-xs text-muted-foreground">
+                Promedio
+              </p>
+            </div>
+            <div>
+              <p class="text-lg font-semibold tabular-nums">
+                ${{ formatAmount(maxExpense) }}
+              </p>
+              <p class="text-xs text-muted-foreground">
+                Mayor gasto
+              </p>
+            </div>
+          </div>
+        </Card>
+      </template>
+    </main>
+
+    <!-- Sección 4.5: acciones -->
+    <div v-if="!isInitialLoading && !loadError && card" class="flex gap-3 px-4 pb-6 sm:px-6 lg:px-8">
+      <Button variant="outline" class="flex-1" @click="openEditCard">
+        Editar tarjeta
+      </Button>
+      <Button class="flex-1" @click="openNewExpense">
+        <Plus class="size-4" />
+        Nuevo gasto
+      </Button>
+    </div>
+
+    <CardFormSheet v-model:open="isCardSheetOpen" :card="card" />
+    <CardExpenseFormSheet
+      v-model:open="isExpenseSheetOpen"
+      :expense="editingExpense"
+      :preset-card-id="cardId"
+      :sync-targets="expenseSyncTargets"
+    />
+  </div>
+</template>

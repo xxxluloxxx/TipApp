@@ -77,6 +77,93 @@ export type Database = {
           },
         ]
       }
+      card_expenses: {
+        Row: {
+          amount: number
+          card_id: string
+          created_at: string
+          description: string | null
+          expense_date: string
+          id: string
+          installment_number: number | null
+          installment_total: number | null
+          notes: string | null
+          person_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          card_id: string
+          created_at?: string
+          description?: string | null
+          expense_date?: string
+          id?: string
+          installment_number?: number | null
+          installment_total?: number | null
+          notes?: string | null
+          person_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          card_id?: string
+          created_at?: string
+          description?: string | null
+          expense_date?: string
+          id?: string
+          installment_number?: number | null
+          installment_total?: number | null
+          notes?: string | null
+          person_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "card_expenses_card_id_fkey"
+            columns: ["card_id"]
+            isOneToOne: false
+            referencedRelation: "credit_cards"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "card_expenses_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "card_people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      card_people: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       categories: {
         Row: {
           color: string | null
@@ -101,6 +188,39 @@ export type Database = {
           id?: string
           name?: string
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      credit_cards: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          last_four_digits: string | null
+          name: string
+          suggested_monthly_limit: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          last_four_digits?: string | null
+          name: string
+          suggested_monthly_limit?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          last_four_digits?: string | null
+          name?: string
+          suggested_monthly_limit?: number | null
+          updated_at?: string
+          user_id?: string
         }
         Relationships: []
       }

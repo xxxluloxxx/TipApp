@@ -7,6 +7,7 @@ import {
   ArrowUp,
   ArrowDown,
   ChartPie,
+  CreditCard,
   FileText,
   Home,
   LogOut,
@@ -163,7 +164,7 @@ async function onLogout() {
 // selector de tema, movido a Ajustes).
 const isDrawerOpen = ref(false)
 
-type NavRouteName = 'home' | 'transactions' | 'categories' | 'statistics' | 'reports' | 'settings'
+type NavRouteName = 'home' | 'transactions' | 'cards' | 'categories' | 'statistics' | 'reports' | 'settings'
 
 function isActive(name: NavRouteName): boolean {
   return route.name === name
@@ -236,6 +237,16 @@ function goAddFirstExpense() {
             >
               <ArrowLeftRight class="size-5 shrink-0" />
               Transacciones
+            </button>
+            <button
+              type="button"
+              class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="isActive('cards') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+              :aria-current="isActive('cards') ? 'page' : undefined"
+              @click="navigateFromDrawer('cards')"
+            >
+              <CreditCard class="size-5 shrink-0" />
+              Tarjetas de crédito
             </button>
             <button
               type="button"

@@ -47,3 +47,24 @@ export function withAlpha(hex: string | null | undefined, alpha: number): string
   if (!rgb) return undefined
   return `rgba(${rgb[0]}, ${rgb[1]}, ${rgb[2]}, ${alpha})`
 }
+
+/**
+ * Grid fijo de 10 swatches (sección 3.3 de categories-mvp-ux.md): mismos hex
+ * ya sembrados en `categories.color`. `CategoryFormSheet.vue` mantiene su
+ * propia copia local (no se tocó ese archivo, fuera de alcance de esta
+ * iteración); esta exportación es la reusada tal cual por `CardFormSheet.vue`
+ * y `CardPersonFormSheet.vue` (credit-cards-ux.md sección 6.2/6.3, "reusar
+ * literalmente los mismos hex/patrón") para no triplicar el literal.
+ */
+export const COLOR_SWATCHES = [
+  { hex: '#f97316', label: 'Naranja' },
+  { hex: '#3b82f6', label: 'Azul' },
+  { hex: '#8b5cf6', label: 'Violeta' },
+  { hex: '#eab308', label: 'Amarillo' },
+  { hex: '#ef4444', label: 'Rojo' },
+  { hex: '#06b6d4', label: 'Celeste' },
+  { hex: '#ec4899', label: 'Rosa' },
+  { hex: '#14b8a6', label: 'Verde azulado' },
+  { hex: '#22c55e', label: 'Verde' },
+  { hex: '#6b7280', label: 'Gris' },
+] as const

@@ -34,12 +34,21 @@ function isSameCalendarDay(a: Date, b: Date): boolean {
   )
 }
 
+/** `YYYY-MM-DD` de cualquier `Date` en horario local (sin corrimiento de
+ * zona horaria). Extraída de `todayDateInputValue` (antes hacía este cálculo
+ * inline) porque `credit-cards-ux.md` sección 1.2 necesita formatear límites
+ * `gte`/`lt` de mes arbitrarios (no solo "hoy") para los queries de
+ * `card_expenses`. */
+export function formatDateOnly(date: Date): string {
+  const year = date.getFullYear()
+  const month = String(date.getMonth() + 1).padStart(2, '0')
+  const day = String(date.getDate()).padStart(2, '0')
+  return `${year}-${month}-${day}`
+}
+
 /** Valor por defecto del campo `<input type="date">` (hoy, en horario local). */
 export function todayDateInputValue(reference: Date = new Date()): string {
-  const year = reference.getFullYear()
-  const month = String(reference.getMonth() + 1).padStart(2, '0')
-  const day = String(reference.getDate()).padStart(2, '0')
-  return `${year}-${month}-${day}`
+  return formatDateOnly(reference)
 }
 
 /** Sección 3.4 de expenses-mvp-ux.md: valida que la fecha no sea futura. */
