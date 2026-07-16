@@ -1,17 +1,18 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
   EllipsisVertical,
+  Home,
   LogOut,
+  Menu,
   Pencil,
   Plus,
   Receipt,
   RotateCcw,
   Tag,
   Trash2,
-  User,
 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { useAuthStore } from '@/stores/auth'
@@ -33,6 +34,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu'
+import { Sheet, SheetContent, SheetFooter, SheetTitle, SheetTrigger } from '@/components/ui/sheet'
 import {
   AlertDialog,
   AlertDialogAction,
@@ -46,6 +48,7 @@ import {
 } from '@/components/ui/alert-dialog'
 
 const router = useRouter()
+const route = useRoute()
 const authStore = useAuthStore()
 const expensesStore = useExpensesStore()
 const categoriesStore = useCategoriesStore()
@@ -92,11 +95,29 @@ const groupedExpenses = computed<ExpenseGroup[]>(() => {
 
 const accountLabel = computed(() => authStore.profile?.display_name || authStore.user?.email || '')
 const showEmailSecondary = computed(() => !!authStore.profile?.display_name)
+const avatarInitial = computed(() => accountLabel.value.charAt(0).toUpperCase() || '?')
 
 async function onLogout() {
   await authStore.signOut()
   await router.push('/login')
   toast('Sesión cerrada')
+}
+
+// Drawer de navegación principal (reemplaza el DropdownMenu de cuenta).
+const isDrawerOpen = ref(false)
+const isHomeActive = computed(() => route.name === 'home')
+const isCategoriesActive = computed(() => route.name === 'categories')
+
+function navigateFromDrawer(name: 'home' | 'categories') {
+  isDrawerOpen.value = false
+  if (route.name !== name) {
+    router.push({ name })
+  }
+}
+
+function logoutFromDrawer() {
+  isDrawerOpen.value = false
+  onLogout()
 }
 
 // Estado del Sheet de alta/edición.
@@ -122,33 +143,65 @@ function expenseTitle(expense: ExpenseWithCategory): string {
 <template>
   <div class="min-h-screen bg-background text-foreground">
     <header class="flex items-center justify-between border-b border-border px-4 py-4 sm:px-6 lg:px-8">
-      <DropdownMenu>
-        <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="icon" aria-label="Cuenta">
-            <User class="size-5" />
+      <Sheet v-model:open="isDrawerOpen">
+        <SheetTrigger as-child>
+          <Button variant="ghost" size="icon" aria-label="Abrir menú">
+            <Menu class="size-5" />
           </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="start">
-          <div class="px-2 py-1.5">
-            <p class="font-medium">
-              {{ accountLabel }}
-            </p>
-            <p v-if="showEmailSecondary" class="text-xs text-muted-foreground">
-              {{ authStore.user?.email }}
-            </p>
+        </SheetTrigger>
+        <SheetContent side="left" class="p-0">
+          <div class="flex items-center gap-3 border-b border-border p-6 pr-14">
+            <SheetTitle class="sr-only">
+              Menú principal
+            </SheetTitle>
+            <div class="flex size-12 shrink-0 items-center justify-center rounded-full bg-primary text-lg font-semibold text-primary-foreground">
+              {{ avatarInitial }}
+            </div>
+            <div class="flex min-w-0 flex-col">
+              <p class="truncate text-base font-semibold text-foreground">
+                {{ accountLabel }}
+              </p>
+              <p v-if="showEmailSecondary" class="truncate text-sm text-muted-foreground">
+                {{ authStore.user?.email }}
+              </p>
+            </div>
           </div>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem @select="router.push({ name: 'categories' })">
-            <Tag class="size-4" />
-            Categorías
-          </DropdownMenuItem>
-          <DropdownMenuSeparator />
-          <DropdownMenuItem @select="onLogout">
-            <LogOut class="size-4" />
-            Cerrar sesión
-          </DropdownMenuItem>
-        </DropdownMenuContent>
-      </DropdownMenu>
+
+          <nav class="flex flex-col gap-1 p-3">
+            <button
+              type="button"
+              class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="isHomeActive ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+              :aria-current="isHomeActive ? 'page' : undefined"
+              @click="navigateFromDrawer('home')"
+            >
+              <Home class="size-5 shrink-0" />
+              Inicio
+            </button>
+            <button
+              type="button"
+              class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="isCategoriesActive ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+              :aria-current="isCategoriesActive ? 'page' : undefined"
+              @click="navigateFromDrawer('categories')"
+            >
+              <Tag class="size-5 shrink-0" />
+              Categorías
+            </button>
+          </nav>
+
+          <SheetFooter class="border-t border-border">
+            <button
+              type="button"
+              class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              @click="logoutFromDrawer"
+            >
+              <LogOut class="size-5 shrink-0" />
+              Cerrar sesión
+            </button>
+          </SheetFooter>
+        </SheetContent>
+      </Sheet>
 
       <h1 class="text-xl font-semibold">
         TipApp
