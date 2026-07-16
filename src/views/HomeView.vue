@@ -7,10 +7,14 @@ import {
   Home,
   LogOut,
   Menu,
+  Monitor,
+  Moon,
   Pencil,
   Plus,
   Receipt,
   RotateCcw,
+  Sun,
+  SunMoon,
   Tag,
   Trash2,
 } from '@lucide/vue'
@@ -189,6 +193,55 @@ function expenseTitle(expense: ExpenseWithCategory): string {
               Categorías
             </button>
           </nav>
+
+          <div class="border-t border-border p-3">
+            <div id="theme-label" class="flex min-h-11 items-center gap-3 px-3 text-sm font-medium text-foreground">
+              <SunMoon class="size-5 shrink-0" />
+              Tema
+            </div>
+
+            <div
+              role="radiogroup"
+              aria-labelledby="theme-label"
+              class="flex gap-1 rounded-md bg-muted p-1"
+            >
+              <button
+                type="button"
+                role="radio"
+                :aria-checked="authStore.themePreference === 'light'"
+                aria-label="Claro"
+                class="flex min-h-11 flex-1 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                :class="authStore.themePreference === 'light' ? 'bg-background text-foreground shadow-[var(--shadow-card)]' : 'text-muted-foreground hover:text-foreground'"
+                @click="authStore.selectTheme('light')"
+              >
+                <Sun class="size-4 shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                role="radio"
+                :aria-checked="authStore.themePreference === 'dark'"
+                aria-label="Oscuro"
+                class="flex min-h-11 flex-1 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                :class="authStore.themePreference === 'dark' ? 'bg-background text-foreground shadow-[var(--shadow-card)]' : 'text-muted-foreground hover:text-foreground'"
+                @click="authStore.selectTheme('dark')"
+              >
+                <Moon class="size-4 shrink-0" />
+              </button>
+
+              <button
+                type="button"
+                role="radio"
+                :aria-checked="authStore.themePreference === 'system'"
+                aria-label="Sistema"
+                class="flex min-h-11 flex-1 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                :class="authStore.themePreference === 'system' ? 'bg-background text-foreground shadow-[var(--shadow-card)]' : 'text-muted-foreground hover:text-foreground'"
+                @click="authStore.selectTheme('system')"
+              >
+                <Monitor class="size-4 shrink-0" />
+              </button>
+            </div>
+          </div>
 
           <SheetFooter class="border-t border-border">
             <button

@@ -131,3 +131,21 @@
     @apply bg-background text-foreground font-sans;
   }
 }
+
+/*
+ * Transición global sutil al cambiar de tema (sección 4.2 de
+ * theme-toggle-ux.md): el cruce entre paleta clara/oscura se siente como un
+ * fundido corto en vez de un corte duro. La clase `.dark` se sigue
+ * aplicando en el mismo tick del click (aplicación optimista, sin demora en
+ * la interacción) — esto es puramente la transición visual sobre ese mismo
+ * cambio instantáneo.
+ */
+html {
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    transition: none;
+  }
+}

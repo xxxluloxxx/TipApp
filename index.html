@@ -5,6 +5,29 @@
     <link rel="icon" href="/favicon.ico">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>TipApp</title>
+    <!--
+      Aplica el tema cacheado ANTES de que Vue monte (evita el flash de tema
+      equivocado al recargar, sección 4.4 de theme-toggle-ux.md). Un script
+      module (como src/main.ts) se ejecuta diferido, después de que el
+      parser ya llegó al <body> — con eso alcanza a haber un primer paint en
+      claro antes de aplicar `.dark`. Este script inline y bloqueante corre
+      antes de eso, apenas el parser llega acá. La clave de localStorage
+      ('tipapp:theme-preference') debe mantenerse igual a THEME_STORAGE_KEY
+      en src/stores/auth.ts.
+    -->
+    <script>
+      (function () {
+        try {
+          var pref = localStorage.getItem('tipapp:theme-preference')
+          var prefersDark = window.matchMedia('(prefers-color-scheme: dark)').matches
+          var isDark = pref === 'dark' || (pref !== 'light' && prefersDark)
+          if (isDark) document.documentElement.classList.add('dark')
+        } catch (e) {
+          // localStorage/matchMedia no disponibles (privacy mode, etc.):
+          // no hay nada que cachear, se queda en el tema claro por defecto.
+        }
+      })()
+    </script>
   </head>
   <body>
     <div id="app"></div>

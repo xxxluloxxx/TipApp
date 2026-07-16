@@ -41,6 +41,72 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se agregó **selector de tema claro/oscuro/sistema**, persistido en Supabase
+(no solo `localStorage`) para que sobreviva entre sesiones/dispositivos. El
+control vive dentro del drawer de navegación ya existente (`HomeView.vue`) —
+no se creó ninguna pantalla de Ajustes nueva. Trabajo de las tres capas
+(backend + UX + frontend) en esta iteración.
+
+- **Backend** (`supabase-backend-expert`): migración
+  `supabase/migrations/20260716142011_profiles_theme_preference.sql` —
+  agrega `profiles.theme_preference` (`text not null default 'system'`, con
+  `check` a `'light' | 'dark' | 'system'`; se prefirió `check` sobre un
+  `enum` nativo de Postgres por la rigidez transaccional de los enums para
+  agregar/quitar valores a futuro, sin ninguna ventaja real acá con solo 3
+  valores en una columna no indexada). Ya aplicada al proyecto remoto real
+  (`db push` hecho). La policy RLS existente `profiles_update_own` (`using
+  (id = auth.uid()) with check (id = auth.uid())`) ya cubre el `UPDATE` de
+  esta columna nueva sin cambios — Postgres RLS no filtra por columna salvo
+  que la propia policy la referencie, y esta no lo hace. Tipos regenerados
+  en `src/types/database.types.ts`; ojo que el generador infiere
+  `theme_preference: string` plano (no union literal, porque no es un enum
+  nativo) — el tipo estricto `ThemePreference = 'light' | 'dark' | 'system'`
+  se declara a mano en `src/stores/auth.ts`.
+- **Diseño** (`ui-ux-designer`): especificación completa en
+  `docs/features/theme-toggle-ux.md`. Decisión clave: **segmented control de
+  3 estados** (Claro/Oscuro/Sistema, `role="radiogroup"`/`role="radio"`/
+  `aria-checked`), no un switch binario — el dato ya modela 3 valores reales
+  (`system` es el default esperable, no un caso de borde) y un switch on/off
+  no puede representar honestamente "sigo al SO" sin saltar solo cuando el
+  SO cambia de tema. No hizo falta instalar ningún componente `ui/` nuevo
+  (se descartó tanto `Switch` como `ToggleGroup`): son 3 `<button>` planos
+  inline en `HomeView.vue`, mismo criterio que los ítems del `<nav>` del
+  drawer. Ubicado como bloque propio entre `</nav>` y `<SheetFooter>` (no
+  dentro de `<nav>`, porque no navega a ningún lado). Estado seleccionado
+  indicado por fondo+elevación, nunca solo color. Si falla la persistencia
+  remota, el tema visual **no se revierte** (a diferencia del patrón de
+  rollback de gastos/categorías) — solo `toast.error(...)` con acción
+  "Reintentar", porque revertir el color de pantalla solo, sin acción del
+  usuario, sería disruptivo.
+- **Frontend** (`vue-frontend-expert`): estado y lógica de tema viven en
+  `src/stores/auth.ts` (no un store nuevo — `theme_preference` es una
+  columna más de `profiles`, que ese store ya carga). `themePreference` se
+  inicializa desde `localStorage` (clave `tipapp:theme-preference`) y se
+  corrige con el valor real del perfil remoto en `loadProfile` si difiere
+  (p. ej. cambiado desde otro dispositivo). `selectTheme(value)` aplica la
+  clase `dark` a `document.documentElement` al instante, cachea en
+  `localStorage` y dispara `persistThemePreference` en segundo plano (sin
+  esperar ni revertir si falla). Para `system`, se resuelve con
+  `window.matchMedia('(prefers-color-scheme: dark)')` y se escucha su evento
+  `change` en vivo (si el usuario cambia el tema del SO con la app abierta,
+  se refleja sin recargar). Prevención de flash (FOUC) en dos capas: un
+  script inline y bloqueante en `index.html` (`<head>`, antes de que cargue
+  `src/main.ts` como `type="module"`, que el navegador difiere) aplica la
+  clase `dark` leyendo `localStorage` antes del primer paint; el store
+  vuelve a aplicarlo de forma redundante al crearse, para quedar
+  sincronizado con el estado reactivo. Transición global sutil de color
+  (~200ms) agregada en `src/assets/main.css`, anulada bajo
+  `prefers-reduced-motion: reduce`.
+- `npm run build` (`vue-tsc --build` + `vite build`) verificado sin errores
+  tras estos cambios.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente en el navegador contra el Supabase real (mismo
+  caveat recurrente de iteraciones anteriores) — en particular, no se
+  verificó a ojo el caso de "cambiar el tema desde otro dispositivo/sesión y
+  ver que este se corrija al cargar el perfil", solo se revisó que el código
+  lo contempla. Recomendado antes de dar la feature por cerrada.
+
 Se agregó **gestión de categorías propias del usuario** (crear/editar/
 eliminar) sobre la base ya existente de autenticación + listado de gastos +
 alta/edición de gastos. No fue necesaria ninguna migración: el esquema de
@@ -265,13 +331,16 @@ fecha/reportes, no hay gastos compartidos/grupales.
 
 1. **Probar manualmente el flujo end-to-end en el navegador** contra el
    Supabase real: signup → (confirmar email si `enable_confirmations` está
-   activo) → login → agregar/editar/eliminar gasto → **crear/editar/
-   eliminar categoría propia desde `/categorias`, incluyendo intentar
-   borrar una con gastos asociados (debe quedar deshabilitado)** → logout →
-   refresh de página (verificar que no hay flash de contenido). No se hizo
-   en esta iteración ni en la anterior (la verificación fue build + revisión
-   de código) — recomendado antes de dar cualquiera de las dos features por
-   cerrada en producción.
+   activo) → login → agregar/editar/eliminar gasto → crear/editar/eliminar
+   categoría propia desde `/categorias`, incluyendo intentar borrar una con
+   gastos asociados (debe quedar deshabilitado) → **cambiar el selector de
+   tema (claro/oscuro/sistema) en el drawer, refrescar y confirmar que
+   persiste, e idealmente probar que cambiarlo desde otra sesión/dispositivo
+   se refleje al recargar** → logout → refresh de página (verificar que no
+   hay flash de contenido ni de tema incorrecto). No se hizo en esta
+   iteración ni en las anteriores (la verificación fue build + revisión de
+   código) — recomendado antes de dar estas features por cerradas en
+   producción.
 2. **PWA real**: manifest, service worker, estrategia offline con
    `vite-plugin-pwa` — a cargo de `vue-frontend-expert`. Candidata natural a
    seguir ahora que hay pantallas reales que instalar/cachear.
