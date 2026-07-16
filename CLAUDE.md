@@ -7,7 +7,7 @@ Contexto resumido del proyecto para futuras sesiones de Claude Code.
 TipApp v1 es una app de **control de gastos personales de un solo usuario**:
 cada usuario registra sus propios gastos, los clasifica en categorías
 (default o custom) y, opcionalmente, define presupuestos por categoría/mes.
-Con vocación de PWA instalable.
+Ya es una **PWA instalable** (ver sección de estado actual).
 
 **Fuera de alcance explícito en v1**: gastos compartidos/grupales tipo
 Splitwise — no hay grupos, miembros de grupo, splits de gasto entre personas,
@@ -24,7 +24,7 @@ router/estado global — cada iteración separada y verificable.
 - **Vue 3 + TypeScript** (`<script setup lang="ts">`): framework reactivo
   moderno, tipado fuerte, buen soporte de PWA vía plugins de Vite.
 - **Vite**: dev server rápido, build simple, integración directa con
-  `vite-plugin-pwa` cuando se agregue soporte PWA (todavía no instalado).
+  `vite-plugin-pwa` (ya instalado y configurado, ver estado actual).
 - **Supabase** (Postgres + Auth + Storage + Realtime, plan gratuito): backend
   como servicio para no operar infraestructura propia en esta etapa. RLS
   (Row Level Security) es obligatorio en toda tabla accesible desde el
@@ -40,6 +40,64 @@ Todo el stack se eligió priorizando permanecer dentro de los límites de los
 planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
+
+Se agregó **PWA instalable**: manifest válido, service worker con
+autoactualización e ícono placeholder. Alcance deliberadamente mínimo — nada
+de estrategia offline real (los datos de Supabase siempre van a la red) ni
+de branding elaborado (el ícono se reemplaza más adelante). Trabajo 100% de
+`vue-frontend-expert`, sin cambios de backend ni de UX más allá de reusar
+tokens ya definidos.
+
+- `vite.config.ts`: plugin `VitePWA` (`vite-plugin-pwa@1.3.0`, nueva
+  devDependency) con `registerType: 'autoUpdate'` (los deploys futuros se
+  reflejan solos en la app instalada, sin quedar pegada a una versión
+  vieja). `workbox.globPatterns` restringido a
+  `**/*.{js,css,html,ico,png,svg,woff,woff2}` — solo precachea el build
+  estático de Vite; **sin `runtimeCaching` para Supabase**, confirmado
+  inspeccionando `dist/sw.js` (no registra ninguna ruta hacia el dominio de
+  Supabase, todas las llamadas REST/Auth siguen yendo directo a la red).
+  Manifest inline: `name`/`short_name` "TipApp", `display: "standalone"`,
+  `theme_color: "#2563eb"` y `background_color: "#ffffff"` (equivalentes
+  hex ya documentados en `docs/design-system.md` para `--primary`/
+  `--background` light, no inventados), 3 íconos (192×192, 512×512, y
+  512×512 `purpose: "maskable"`).
+- Ícono placeholder: SVG a mano (cuadrado azul `#2563eb`, monograma "T"
+  blanco) exportado a PNG con `rsvg-convert` (ya presente en el sistema, no
+  se agregó ninguna dependencia nueva para esto) en
+  `public/pwa-192x192.png`, `public/pwa-512x512.png`,
+  `public/pwa-maskable-512x512.png` — la variante maskable deja el
+  monograma dentro de la zona segura (~80% central) para que Android no lo
+  recorte. Es un placeholder consciente, a reemplazar cuando haya branding
+  real.
+- `index.html`: se agregó `<meta name="theme-color" content="#2563eb">` y
+  `<link rel="apple-touch-icon" href="/pwa-192x192.png">`, ambos después
+  del script inline crítico de tema (no se tocó ni reordenó esa lógica).
+  `vite-plugin-pwa` inyecta además `<link rel="manifest">` y el script de
+  registro del service worker automáticamente en el build.
+- Verificado por el Product Owner (no solo por el agente): `npm run build`
+  limpio desde cero (`rm -rf dist && npm run build`), `dist/` contiene
+  `manifest.webmanifest`, `sw.js`, `workbox-*.js`, `registerSW.js` y los 3
+  PNG; contenido del manifest e inyección de `<link rel="manifest">`/script
+  de registro en `dist/index.html` confirmados; `dist/sw.js` sin
+  referencias a Supabase; los 2 PNG revisados visualmente (ver íconos
+  generados). `vercel.json` ya tenía el rewrite catch-all SPA
+  (`"/(.*)" → "/index.html"`) desde antes — no requiere cambios porque
+  Vercel sirve archivos estáticos existentes (manifest, sw.js, íconos)
+  antes de aplicar rewrites, así que no hay conflicto.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente la instalación real en un celular (Chrome/
+  Safari) — la verificación de esta sesión fue build + inspección de
+  `dist/` + revisión visual de íconos, sin deploy a producción todavía en
+  el momento de escribir esto. Recomendado probar el prompt de "Agregar a
+  pantalla de inicio" apenas el deploy esté en Vercel.
+- Ícono placeholder simple (monograma "T" sobre azul liso) — reemplazar por
+  branding real es trabajo pendiente explícito, no un olvido.
+- Sigue sin haber ninguna estrategia offline real para los datos: si el
+  usuario abre la app sin conexión, la shell (JS/CSS) carga desde cache
+  pero cualquier pantalla que dependa de Supabase mostrará su estado de
+  error normal (no hay fallback offline de datos). Es el próximo paso
+  natural si se decide encarar "funciona sin conexión" de verdad.
 
 Se agregó la feature completa de **Tarjetas de crédito**: un historial de
 gastos paralelo al de `expenses` personales, para que el usuario lleve
@@ -564,12 +622,13 @@ usuarios reales fuera de pruebas propias):
 - `npm run build` (incluye `vue-tsc --build`) verificado sin errores tras
   estos cambios.
 
-**No asumir** todavía: no hay PWA (manifest/service worker), no hay
-presupuestos (`budgets`) conectados a ninguna pantalla, no hay generación
-real de reportes (`/reportes` es un estado "Próximamente" honesto, sin
-lógica), no hay gastos compartidos/grupales, no hay sidebar persistente en
-desktop (el drawer `Sheet` es el único patrón de navegación en todos los
-anchos).
+**No asumir** todavía: aunque ya es instalable (manifest/service worker), no
+hay ninguna estrategia offline real de datos (Supabase siempre requiere
+red), no hay presupuestos (`budgets`) conectados a ninguna pantalla, no hay
+generación real de reportes (`/reportes` es un estado "Próximamente"
+honesto, sin lógica), no hay gastos compartidos/grupales, no hay sidebar
+persistente en desktop (el drawer `Sheet` es el único patrón de navegación
+en todos los anchos).
 
 ## Próximos pasos previstos (orden sugerido)
 
@@ -589,14 +648,16 @@ anchos).
    sugerido, movimientos recientes, resumen) y confirmar que "Eliminar"
    queda deshabilitado en una tarjeta/persona con gastos asociados** →
    drawer de 7 ítems (resaltado de ruta activa) → logout → refresh de
-   página (verificar que no hay flash de contenido ni de tema incorrecto).
-   No se hizo en esta iteración ni en las anteriores (la verificación fue
-   build + revisión de código) — recomendado antes de dar estas features
-   por cerradas en producción.
-2. **PWA real**: manifest, service worker, estrategia offline con
-   `vite-plugin-pwa` — a cargo de `vue-frontend-expert`. Candidata natural a
-   seguir ahora que hay 7 pantallas de primer nivel reales que instalar/
-   cachear (más las 3 rutas internas de tarjetas).
+   página (verificar que no hay flash de contenido ni de tema incorrecto) →
+   **probar la instalación real como PWA en un celular** (Chrome Android:
+   banner/menú "Instalar app"; Safari iOS: "Compartir" → "Agregar a
+   pantalla de inicio") una vez deployado. No se hizo en esta iteración ni
+   en las anteriores (la verificación fue build + revisión de código) —
+   recomendado antes de dar estas features por cerradas en producción.
+2. **Estrategia offline real** (opcional, evaluar prioridad): hoy la PWA es
+   instalable pero no "offline-first" — decidir si vale la pena cachear
+   algo de los datos de Supabase (p. ej. último snapshot de gastos) para
+   una experiencia degradada sin conexión, o si no es prioritario para v1.
 3. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
    presupuesto por categoría/mes y barra de progreso (componente `Progress`,
    Fase 2 del design system) — diseñar primero con `ui-ux-designer`.
