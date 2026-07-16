@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, CreditCard as CreditCardIcon, Plus, RotateCcw } from '@lucide/vue'
+import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
+import { readableTextColor } from '@/lib/colors'
 import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
 import { useCreditCardsStore } from '@/stores/creditCards'
 import { useCardPeopleStore } from '@/stores/cardPeople'
@@ -12,7 +13,6 @@ import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
 import CardExpenseFormSheet from '@/components/CardExpenseFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardDescription, CardTitle } from '@/components/ui/card'
-import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 
 // Resumen/Dashboard de tarjetas (credit-cards-ux.md sección 2). Vista de
@@ -269,40 +269,46 @@ const dashboardSyncTargets = [monthExpenses]
           </div>
         </Card>
 
-        <!-- Sección 2.3: Lista de tarjetas -->
+        <!-- Sección 2.3: Lista de tarjetas — cada fila usa el color propio de
+        la tarjeta como fondo completo (no solo un swatch chico), con el texto
+        en el color que mejor contraste dé (mismo criterio que
+        `readableTextColor` ya usa para los badges de categoría). -->
         <Card>
           <CardHeader>
             <CardTitle class="text-base font-semibold">
               Tus tarjetas
             </CardTitle>
           </CardHeader>
-          <div class="flex flex-col">
-            <template v-for="(card, idx) in cardsRanking" :key="card.id">
-              <Separator v-if="idx > 0" />
-              <button
-                type="button"
-                class="flex min-h-11 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                @click="router.push({ name: 'card-detail', params: { id: card.id } })"
-              >
-                <span class="size-8 shrink-0 rounded-full" :style="{ background: card.color ?? undefined }" />
-                <div class="flex min-w-0 flex-1 flex-col">
-                  <p class="truncate text-sm font-medium">
-                    {{ card.name }}
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    •••• {{ card.lastFourDigits }}
-                  </p>
-                </div>
-                <div class="flex flex-col items-end gap-0.5">
-                  <p class="text-sm font-semibold tabular-nums">
-                    ${{ formatAmount(card.monthTotal) }}
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    {{ card.percentLabel }} del total
-                  </p>
-                </div>
-              </button>
-            </template>
+          <div class="flex flex-col gap-2 px-3 pb-3">
+            <button
+              v-for="card in cardsRanking"
+              :key="card.id"
+              type="button"
+              class="flex min-h-14 w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :style="{ background: card.color ?? 'hsl(var(--muted))', color: readableTextColor(card.color) }"
+              @click="router.push({ name: 'card-detail', params: { id: card.id } })"
+            >
+              <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-black/15">
+                <CreditCardIcon class="size-4.5" />
+              </span>
+              <div class="flex min-w-0 flex-1 flex-col">
+                <p class="truncate text-sm font-semibold">
+                  {{ card.name }}
+                </p>
+                <p class="truncate text-xs opacity-80">
+                  •••• {{ card.lastFourDigits }}
+                </p>
+              </div>
+              <div class="flex flex-col items-end gap-0.5">
+                <p class="text-sm font-semibold tabular-nums">
+                  ${{ formatAmount(card.monthTotal) }}
+                </p>
+                <p class="text-xs opacity-80">
+                  {{ card.percentLabel }} del total
+                </p>
+              </div>
+              <ChevronRight class="size-4 shrink-0 opacity-70" />
+            </button>
           </div>
           <p v-if="!showDistribution" class="px-6 pb-4 text-sm text-muted-foreground">
             Todavía no registraste gastos de tarjeta este mes.

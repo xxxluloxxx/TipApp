@@ -2,7 +2,7 @@
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlertCircle, ArrowLeft, Plus, RotateCcw } from '@lucide/vue'
-import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
+import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
 import { useCreditCardsStore } from '@/stores/creditCards'
@@ -258,23 +258,21 @@ function goToTransactions() {
             <template v-for="(expense, idx) in recentExpenses" :key="expense.id">
               <Separator v-if="idx > 0" />
               <div class="flex items-center gap-3 px-4 py-3" :class="{ 'opacity-70': expense._pending }">
-                <div class="flex min-w-0 flex-1 flex-col">
-                  <p class="truncate text-sm font-medium">
-                    {{ expenseTitle(expense) }}
-                  </p>
-                  <p class="truncate text-xs text-muted-foreground">
-                    {{ expense.person?.name ?? 'Sin persona asignada' }}
-                    <span v-if="expense.installment_total"> · {{ expense.installment_number }}/{{ expense.installment_total }}</span>
-                  </p>
-                </div>
-                <div class="flex flex-col items-end gap-0.5">
-                  <p class="text-sm font-semibold tabular-nums">
-                    ${{ formatAmount(expense.amount) }}
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    {{ formatExpenseDateHeading(expense.expense_date) }}
-                  </p>
-                </div>
+                <span class="w-16 shrink-0 truncate text-sm font-semibold">
+                  {{ expense.person?.name ?? 'Sin persona' }}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                  {{ expenseTitle(expense) }}
+                </span>
+                <span
+                  v-if="expense.installment_total"
+                  class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary tabular-nums"
+                >
+                  {{ expense.installment_number }}/{{ expense.installment_total }}
+                </span>
+                <span class="shrink-0 text-sm font-semibold tabular-nums">
+                  ${{ formatAmount(expense.amount) }}
+                </span>
               </div>
             </template>
           </div>

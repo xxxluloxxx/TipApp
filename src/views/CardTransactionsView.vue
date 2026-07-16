@@ -4,14 +4,16 @@ import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowLeft,
+  CreditCard as CreditCardIcon,
   EllipsisVertical,
   Pencil,
   Plus,
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
-import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
+import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
+import { readableTextColor } from '@/lib/colors'
 import { useCreditCardsStore, type CreditCard } from '@/stores/creditCards'
 import { useCardPeopleStore } from '@/stores/cardPeople'
 import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/cardExpenses'
@@ -300,42 +302,44 @@ const transactionsSyncTargets = [transactions]
       </template>
 
       <template v-else>
-        <!-- Sección 3.2: agrupado por tarjeta -->
-        <Card v-for="group in groupedByCard" :key="group.card.id">
-          <CardHeader class="flex-row items-center justify-between gap-2">
-            <div class="flex items-center gap-2">
-              <span class="size-6 shrink-0 rounded-full" :style="{ background: group.card.color ?? undefined }" />
-              <CardTitle class="text-sm font-semibold">
-                {{ group.card.name }} (•••• {{ group.card.last_four_digits }})
-              </CardTitle>
-            </div>
+        <!-- Sección 3.2: agrupado por tarjeta — header de grupo con el color
+        propio de la tarjeta a todo lo ancho (mismo criterio de contraste que
+        la lista de "Tus tarjetas" del dashboard), y cada fila con la persona
+        en negrita primero, luego descripción, badge de cuota y monto. -->
+        <Card v-for="group in groupedByCard" :key="group.card.id" class="overflow-hidden py-0">
+          <div
+            class="flex items-center gap-2 px-4 py-3"
+            :style="{ background: group.card.color ?? 'hsl(var(--muted))', color: readableTextColor(group.card.color) }"
+          >
+            <CreditCardIcon class="size-4 shrink-0 opacity-90" />
+            <span class="flex-1 truncate text-sm font-semibold">
+              {{ group.card.name }} (•••• {{ group.card.last_four_digits }})
+            </span>
             <span class="text-sm font-semibold tabular-nums">${{ formatAmount(group.total) }}</span>
-          </CardHeader>
+          </div>
 
-          <p v-if="group.expenses.length === 0" class="px-6 pb-4 text-sm text-muted-foreground">
+          <p v-if="group.expenses.length === 0" class="px-6 py-4 text-sm text-muted-foreground">
             Sin transacciones
           </p>
           <div v-else class="flex flex-col">
             <template v-for="(expense, idx) in group.expenses" :key="expense.id">
               <Separator v-if="idx > 0" />
               <div class="flex items-center gap-3 px-4 py-3" :class="{ 'opacity-70': expense._pending }">
-                <div class="flex min-w-0 flex-1 flex-col">
-                  <p class="truncate text-sm font-medium">
-                    {{ expenseTitle(expense, group.card.name) }}
-                  </p>
-                  <p class="truncate text-xs text-muted-foreground">
-                    {{ expense.person?.name ?? 'Sin persona asignada' }}
-                    <span v-if="expense.installment_total"> · {{ expense.installment_number }}/{{ expense.installment_total }}</span>
-                  </p>
-                </div>
-                <div class="flex flex-col items-end gap-0.5">
-                  <p class="text-sm font-semibold tabular-nums">
-                    ${{ formatAmount(expense.amount) }}
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    {{ formatExpenseDateHeading(expense.expense_date) }}
-                  </p>
-                </div>
+                <span class="w-16 shrink-0 truncate text-sm font-semibold">
+                  {{ expense.person?.name ?? 'Sin persona' }}
+                </span>
+                <span class="min-w-0 flex-1 truncate text-sm text-muted-foreground">
+                  {{ expenseTitle(expense, group.card.name) }}
+                </span>
+                <span
+                  v-if="expense.installment_total"
+                  class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary tabular-nums"
+                >
+                  {{ expense.installment_number }}/{{ expense.installment_total }}
+                </span>
+                <span class="shrink-0 text-sm font-semibold tabular-nums">
+                  ${{ formatAmount(expense.amount) }}
+                </span>
 
                 <DropdownMenu>
                   <DropdownMenuTrigger as-child>
