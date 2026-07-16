@@ -122,17 +122,13 @@ function expenseTitle(expense: ExpenseWithCategory): string {
 <template>
   <div class="min-h-screen bg-background text-foreground">
     <header class="flex items-center justify-between border-b border-border px-4 py-4 sm:px-6 lg:px-8">
-      <h1 class="text-xl font-semibold">
-        TipApp
-      </h1>
-
       <DropdownMenu>
         <DropdownMenuTrigger as-child>
           <Button variant="ghost" size="icon" aria-label="Cuenta">
             <User class="size-5" />
           </Button>
         </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
+        <DropdownMenuContent align="start">
           <div class="px-2 py-1.5">
             <p class="font-medium">
               {{ accountLabel }}
@@ -153,6 +149,10 @@ function expenseTitle(expense: ExpenseWithCategory): string {
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
+
+      <h1 class="text-xl font-semibold">
+        TipApp
+      </h1>
     </header>
 
     <main class="mx-auto flex max-w-md flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
