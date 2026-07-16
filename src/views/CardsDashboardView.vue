@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings } from '@lucide/vue'
+import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor } from '@/lib/colors'
@@ -108,7 +108,9 @@ const cardDonutSlices = computed(() => {
 })
 
 // Sección 2.4: ranking "Top personas", incluyendo "Sin persona asignada"
-// como fila sintética (bg-muted-foreground en vez de bg-primary).
+// como fila sintética (sin color propio, usa muted-foreground). Cada persona
+// real lleva su propio `color` (mismo dato que ManageCardsView ya usa para el
+// avatar), reusado acá tanto para el ícono como para la barra de progreso.
 const peopleRanking = computed(() => {
   const totals = new Map<string, number>()
   for (const e of monthExpenses.value) {
@@ -118,10 +120,10 @@ const peopleRanking = computed(() => {
 
   const rows = [...totals.entries()].map(([key, amount]) => {
     if (key === 'none') {
-      return { id: 'none', name: 'Sin persona asignada', amount, isSynthetic: true }
+      return { id: 'none', name: 'Sin persona asignada', amount, color: null as string | null }
     }
     const person = cardPeopleStore.personById(key)
-    return { id: key, name: person?.name ?? 'Persona', amount, isSynthetic: false }
+    return { id: key, name: person?.name ?? 'Persona', amount, color: person?.color ?? null }
   }).sort((a, b) => b.amount - a.amount)
 
   const max = Math.max(0, ...rows.map(r => r.amount))
@@ -327,12 +329,21 @@ const dashboardSyncTargets = [monthExpenses]
           </CardHeader>
           <div class="flex flex-col gap-3 px-6 pb-6">
             <div v-for="p in peopleRanking" :key="p.id" class="flex items-center gap-3">
+              <span
+                v-if="p.color"
+                class="flex size-6 shrink-0 items-center justify-center rounded-full"
+                :style="{ background: p.color }"
+              >
+                <User class="size-3.5" :style="{ color: readableTextColor(p.color) }" />
+              </span>
+              <span v-else class="flex size-6 shrink-0 items-center justify-center rounded-full bg-muted">
+                <User class="size-3.5 text-muted-foreground" />
+              </span>
               <span class="w-20 shrink-0 truncate text-xs text-muted-foreground">{{ p.name }}</span>
               <div class="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
                   class="h-full rounded-full"
-                  :class="p.isSynthetic ? 'bg-muted-foreground' : 'bg-primary'"
-                  :style="{ width: `${p.percentOfMax}%` }"
+                  :style="{ width: `${p.percentOfMax}%`, background: p.color ?? 'hsl(var(--muted-foreground))' }"
                 />
               </div>
               <span class="w-14 shrink-0 text-right text-xs font-medium tabular-nums">{{ p.percentLabel }}</span>
