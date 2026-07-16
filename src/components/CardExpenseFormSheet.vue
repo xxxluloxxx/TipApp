@@ -3,6 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import { Loader2 } from '@lucide/vue'
 import { isFutureDate, todayDateInputValue } from '@/lib/date'
+import { formatAmount } from '@/lib/currency'
 import { useCreditCardsStore } from '@/stores/creditCards'
 import { useCardPeopleStore } from '@/stores/cardPeople'
 import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/cardExpenses'
@@ -131,6 +132,24 @@ watch(() => form.hasInstallments, (value) => {
     form.installmentTotal = ''
   }
 })
+
+// Sección 5.2 (referencia visual): badge "N/T" en vivo junto a los inputs de
+// cuota, y resumen de tarjeta/persona/valor antes de guardar — mismo dato que
+// ya se persiste (installment_number/installment_total), solo se refleja acá
+// también mientras se completa el formulario.
+const installmentPreviewLabel = computed(() => {
+  if (!form.hasInstallments) return null
+  const current = Number(form.installmentNumber)
+  const total = Number(form.installmentTotal)
+  if (!Number.isInteger(current) || !Number.isInteger(total) || current < 1 || total < 1) return null
+  return `${current}/${total}`
+})
+
+const selectedCardName = computed(() => creditCardsStore.cardById(form.cardId)?.name ?? null)
+const selectedPersonName = computed(() => (
+  form.personId !== NO_PERSON_VALUE ? (cardPeopleStore.personById(form.personId)?.name ?? null) : null
+))
+const summaryAmount = computed(() => parseAmount(form.amount))
 
 function parseAmount(raw: string): number | null {
   const trimmed = raw.trim()
@@ -355,6 +374,12 @@ function onSubmit() {
             <Label for="cuotas-totales">Cuotas totales</Label>
             <Input id="cuotas-totales" v-model="form.installmentTotal" type="number" min="1" :disabled="isSaving" />
           </div>
+          <span
+            v-if="installmentPreviewLabel"
+            class="mb-2.5 shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary tabular-nums"
+          >
+            {{ installmentPreviewLabel }}
+          </span>
         </div>
         <p v-if="errors.installments" class="text-xs text-destructive">
           {{ errors.installments }}
@@ -372,6 +397,23 @@ function onSubmit() {
           />
         </div>
       </form>
+
+      <!-- Resumen: mismo dato que ya se completó arriba, repetido en forma
+      compacta justo antes de confirmar (referencia visual del mockup). -->
+      <div v-if="selectedCardName || summaryAmount" class="mx-4 flex items-center justify-between gap-4 rounded-lg bg-muted px-4 py-3 text-sm">
+        <div class="flex flex-col gap-0.5">
+          <span class="text-xs text-muted-foreground">Tarjeta</span>
+          <span class="font-medium">{{ selectedCardName ?? '—' }}</span>
+        </div>
+        <div class="flex flex-col gap-0.5">
+          <span class="text-xs text-muted-foreground">Persona</span>
+          <span class="font-medium">{{ selectedPersonName ?? 'Sin persona' }}</span>
+        </div>
+        <div class="flex flex-col items-end gap-0.5">
+          <span class="text-xs text-muted-foreground">Valor</span>
+          <span class="font-semibold tabular-nums">${{ formatAmount(summaryAmount ?? 0) }}</span>
+        </div>
+      </div>
 
       <SheetFooter>
         <Button type="submit" form="card-expense-form" class="w-full" :disabled="isSaving">
