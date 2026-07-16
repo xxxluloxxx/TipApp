@@ -1,5 +1,6 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, watch } from 'vue'
+import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useAuthStore } from '@/stores/auth'
 import { Toaster } from '@/components/ui/sonner'
 
@@ -7,6 +8,18 @@ const authStore = useAuthStore()
 
 onMounted(() => {
   void authStore.initialize()
+})
+
+// El registro por defecto (registerSW.js autoinyectado) solo llama a
+// `register()`: el nuevo service worker activa en segundo plano
+// (skipWaiting + clientsClaim, ya configurados en vite.config.ts), pero la
+// pestaña ya abierta se queda corriendo el JS viejo hasta que recarga. Con
+// `registerType: 'autoUpdate'` la intención es que el usuario nunca tenga
+// que forzar el cierre de la app instalada para ver cambios — por eso acá se
+// recarga automáticamente en cuanto hay una versión nueva lista.
+const { needRefresh, updateServiceWorker } = useRegisterSW()
+watch(needRefresh, (value) => {
+  if (value) void updateServiceWorker(true)
 })
 </script>
 

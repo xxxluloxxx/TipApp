@@ -14,6 +14,12 @@ export default defineConfig({
     tailwindcss(),
     VitePWA({
       registerType: 'autoUpdate',
+      // El registro corre a mano desde App.vue vía `virtual:pwa-register/vue`
+      // (useRegisterSW), para poder forzar la recarga automática apenas hay
+      // una versión nueva — el script auto-inyectado por defecto solo llama a
+      // `register()` sin esa lógica, y la app instalada se quedaba con el JS
+      // viejo en memoria hasta que el usuario la cerraba a mano.
+      injectRegister: false,
       // No se agrega runtimeCaching para el dominio de Supabase: REST/Auth
       // siempre deben ir a la red, nunca servirse desde cache. globPatterns
       // solo precachea el build estático de Vite (JS/CSS/HTML/fuentes).
