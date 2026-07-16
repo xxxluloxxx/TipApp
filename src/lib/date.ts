@@ -17,8 +17,11 @@ const MONTHS_ES = [
  * Convierte un `date` de Postgres (`YYYY-MM-DD`, sin hora/zona) en un `Date`
  * local a medianoche. Evita el corrimiento de un día que produce
  * `new Date('YYYY-MM-DD')` al interpretarlo como UTC en vez de hora local.
+ *
+ * Exportada (antes privada) porque `src/lib/charts.ts` (dashboard-redesign)
+ * la necesita para agrupar gastos por día/mes sin duplicar el parseo.
  */
-function parseDateOnly(value: string): Date {
+export function parseDateOnly(value: string): Date {
   const [year, month, day] = value.split('-').map(Number)
   return new Date(year ?? 1970, (month ?? 1) - 1, day ?? 1)
 }

@@ -35,6 +35,30 @@ const router = createRouter({
       component: () => import('@/views/CategoriesView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/transacciones',
+      name: 'transactions',
+      component: () => import('@/views/TransactionsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/estadisticas',
+      name: 'statistics',
+      component: () => import('@/views/StatisticsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/reportes',
+      name: 'reports',
+      component: () => import('@/views/ReportsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/ajustes',
+      name: 'settings',
+      component: () => import('@/views/SettingsView.vue'),
+      meta: { requiresAuth: true },
+    },
   ],
 })
 
