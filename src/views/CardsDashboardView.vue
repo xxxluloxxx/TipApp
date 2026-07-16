@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
-import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw } from '@lucide/vue'
+import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor } from '@/lib/colors'
@@ -157,9 +157,12 @@ const dashboardSyncTargets = [monthExpenses]
       <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
         <ArrowLeft class="size-5" />
       </Button>
-      <h1 class="text-xl font-semibold">
+      <h1 class="flex-1 text-xl font-semibold">
         Tarjetas de crédito
       </h1>
+      <Button variant="ghost" size="icon" aria-label="Gestionar tarjetas y personas" @click="router.push({ name: 'manage-cards' })">
+        <Settings class="size-5" />
+      </Button>
     </header>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
