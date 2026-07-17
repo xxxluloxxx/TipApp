@@ -119,6 +119,12 @@ onMounted(loadAll)
 
 const monthLabel = computed(() => selectedMonth.value.label)
 
+// Presentacional: mes/año mostrados en el centro del donut de "Distribución
+// por tarjeta". Derivados de `monthLabel` (p. ej. "julio 2026"), sin tocar
+// el mecanismo de datos existente.
+const donutMonthName = computed(() => monthLabel.value.split(' ')[0] ?? '')
+const donutYear = computed(() => monthLabel.value.split(' ')[1] ?? '')
+
 const monthTotal = computed(() => monthExpenses.value.reduce((sum, e) => sum + e.amount, 0))
 const prevMonthTotal = computed(() => prevMonthExpenses.value.reduce((sum, e) => sum + e.amount, 0))
 
@@ -218,14 +224,14 @@ const dashboardSyncTargets = [monthExpenses]
       </Button>
 
       <div class="min-w-0 flex-1">
-        <p id="cards-dashboard-eyebrow" class="truncate text-xs font-medium text-muted-foreground">
+        <p id="cards-dashboard-eyebrow" class="truncate text-center text-xs font-medium text-muted-foreground">
           Tarjetas de crédito
         </p>
 
         <Select v-model="filters.month">
           <SelectTrigger
             aria-describedby="cards-dashboard-eyebrow"
-            class="!h-11 !w-fit !max-w-full !gap-1.5 !border-0 !bg-transparent !py-0 !pl-2 !pr-2 !shadow-none -ml-2 rounded-md text-xl font-semibold tracking-tight text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
+            class="!h-11 !w-fit !max-w-full !gap-1.5 !border-0 !bg-transparent !px-2 !py-0 !shadow-none mx-auto rounded-md text-xl font-semibold tracking-tight text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
           >
             <SelectValue class="truncate" />
           </SelectTrigger>
@@ -327,47 +333,53 @@ const dashboardSyncTargets = [monthExpenses]
       </template>
 
       <template v-else>
-        <!-- Sección 2.1: Total del mes -->
+        <!-- Secciones 2.1 + 2.2 fusionadas en una sola Card: total del mes
+        (número grande + badge "vs. mes anterior") a la izquierda, y la dona
+        de "Distribución por tarjeta" (con el mes/año al centro del donut) +
+        su leyenda a la derecha. En pantallas angostas se apilan en columna;
+        en `sm:` o más ancho van lado a lado. Si `showDistribution` es false
+        (mes sin gastos), la card se muestra igual pero sin la dona/leyenda
+        (mismo criterio que antes ocultaba la Card de distribución entera). -->
         <Card>
           <CardHeader>
-            <div class="flex items-start justify-between gap-2">
-              <div class="flex flex-col gap-1">
+            <div class="flex flex-col gap-6 sm:flex-row sm:items-center sm:gap-8">
+              <!-- Total del mes + variación -->
+              <div class="flex flex-col gap-1 sm:flex-1">
                 <CardDescription>Total de tarjetas en {{ monthLabel }}</CardDescription>
                 <CardTitle class="text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
                   <span class="align-top text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(monthTotal) }}
                 </CardTitle>
+
+                <span
+                  v-if="monthDelta !== null"
+                  class="mt-1 flex w-fit items-center gap-1 text-xs font-medium"
+                  :class="monthDelta.direction === 'up' ? 'text-destructive' : 'text-success'"
+                >
+                  <component :is="monthDelta.direction === 'up' ? ArrowUp : ArrowDown" class="size-3.5" />
+                  {{ monthDelta.percentLabel }} vs. mes anterior
+                </span>
               </div>
 
-              <span
-                v-if="monthDelta !== null"
-                class="mt-1 flex shrink-0 items-center gap-1 text-xs font-medium"
-                :class="monthDelta.direction === 'up' ? 'text-destructive' : 'text-success'"
-              >
-                <component :is="monthDelta.direction === 'up' ? ArrowUp : ArrowDown" class="size-3.5" />
-                {{ monthDelta.percentLabel }} vs. mes anterior
-              </span>
+              <!-- Distribución por tarjeta: dona + leyenda -->
+              <div v-if="showDistribution" class="flex flex-col items-center gap-4 sm:flex-1">
+                <div class="relative size-32 shrink-0">
+                  <CategoryDonutChart :slices="cardDonutSlices" class="size-full" />
+                  <div class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center text-center">
+                    <span class="text-sm font-semibold capitalize leading-tight text-foreground">{{ donutMonthName }}</span>
+                    <span class="text-xs tabular-nums text-muted-foreground">{{ donutYear }}</span>
+                  </div>
+                </div>
+                <ul class="flex w-full flex-col gap-2">
+                  <li v-for="slice in cardDonutSlices" :key="slice.id" class="flex items-center gap-2 text-sm">
+                    <span class="size-2.5 shrink-0 rounded-full" :style="{ background: slice.color ?? 'hsl(var(--muted-foreground))' }" />
+                    <span class="flex-1 truncate font-medium">{{ slice.name }}</span>
+                    <span class="tabular-nums">${{ formatAmount(slice.amount) }}</span>
+                    <span class="w-10 text-right text-xs text-muted-foreground">{{ slice.percentLabel }}</span>
+                  </li>
+                </ul>
+              </div>
             </div>
           </CardHeader>
-        </Card>
-
-        <!-- Sección 2.2: Dona por tarjeta -->
-        <Card v-if="showDistribution">
-          <CardHeader>
-            <CardTitle class="text-base font-semibold">
-              Distribución por tarjeta
-            </CardTitle>
-          </CardHeader>
-          <div class="flex flex-col items-center gap-4 px-6 pb-6 sm:flex-row sm:items-center">
-            <CategoryDonutChart :slices="cardDonutSlices" class="size-32 shrink-0" />
-            <ul class="flex w-full flex-col gap-2">
-              <li v-for="slice in cardDonutSlices" :key="slice.id" class="flex items-center gap-2 text-sm">
-                <span class="size-2.5 shrink-0 rounded-full" :style="{ background: slice.color ?? 'hsl(var(--muted-foreground))' }" />
-                <span class="flex-1 truncate font-medium">{{ slice.name }}</span>
-                <span class="tabular-nums">${{ formatAmount(slice.amount) }}</span>
-                <span class="w-10 text-right text-xs text-muted-foreground">{{ slice.percentLabel }}</span>
-              </li>
-            </ul>
-          </div>
         </Card>
 
         <!-- Sección 2.3: Lista de tarjetas — fondo de fila neutro (igual que
