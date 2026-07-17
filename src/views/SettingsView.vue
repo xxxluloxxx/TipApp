@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { useRouter } from 'vue-router'
-import { ArrowLeft, Monitor, Moon, Sun, SunMoon } from '@lucide/vue'
+import { ArrowLeft, Ban, Check, Monitor, Moon, Palette, Sun, SunMoon } from '@lucide/vue'
+import { COLOR_SWATCHES, readableTextColor } from '@/lib/colors'
 import { useAuthStore } from '@/stores/auth'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
@@ -74,6 +75,45 @@ const authStore = useAuthStore()
               @click="authStore.selectTheme('system')"
             >
               <Monitor class="size-4 shrink-0" />
+            </button>
+          </div>
+        </div>
+
+        <div class="border-t border-border px-4 py-4">
+          <div class="flex items-center gap-3">
+            <Palette class="size-5 shrink-0 text-muted-foreground" />
+            <span id="accent-color-label" class="text-sm font-medium">Color de acento</span>
+          </div>
+
+          <div
+            id="accent-color"
+            role="group"
+            aria-labelledby="accent-color-label"
+            class="mt-3 flex flex-wrap gap-3 pl-8"
+          >
+            <button
+              type="button"
+              class="relative flex size-11 shrink-0 items-center justify-center rounded-full border-2 border-dashed border-muted-foreground/50 outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="{ 'ring-2 ring-offset-2 ring-ring border-solid': authStore.accentColor === null }"
+              :aria-pressed="authStore.accentColor === null"
+              aria-label="Predeterminado"
+              @click="authStore.selectAccentColor(null)"
+            >
+              <component :is="authStore.accentColor === null ? Check : Ban" class="size-5 text-muted-foreground" />
+            </button>
+
+            <button
+              v-for="swatch in COLOR_SWATCHES"
+              :key="swatch.hex"
+              type="button"
+              class="relative flex size-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="{ 'ring-2 ring-offset-2 ring-ring': authStore.accentColor === swatch.hex }"
+              :style="{ background: swatch.hex }"
+              :aria-pressed="authStore.accentColor === swatch.hex"
+              :aria-label="swatch.label"
+              @click="authStore.selectAccentColor(swatch.hex)"
+            >
+              <Check v-if="authStore.accentColor === swatch.hex" class="size-5" :style="{ color: readableTextColor(swatch.hex) }" />
             </button>
           </div>
         </div>

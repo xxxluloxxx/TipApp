@@ -39,6 +39,36 @@ export type Database = {
   }
   public: {
     Tables: {
+      accounts: {
+        Row: {
+          color: string | null
+          created_at: string
+          icon: string | null
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          icon?: string | null
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          icon?: string | null
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       budgets: {
         Row: {
           amount_limit: number
@@ -226,6 +256,7 @@ export type Database = {
       }
       expenses: {
         Row: {
+          account_id: string
           amount: number
           category_id: string
           created_at: string
@@ -236,6 +267,7 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          account_id: string
           amount: number
           category_id: string
           created_at?: string
@@ -246,6 +278,7 @@ export type Database = {
           user_id: string
         }
         Update: {
+          account_id?: string
           amount?: number
           category_id?: string
           created_at?: string
@@ -257,6 +290,20 @@ export type Database = {
         }
         Relationships: [
           {
+            foreignKeyName: "expenses_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "account_balances"
+            referencedColumns: ["account_id"]
+          },
+          {
+            foreignKeyName: "expenses_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
             foreignKeyName: "expenses_category_id_fkey"
             columns: ["category_id"]
             isOneToOne: false
@@ -265,8 +312,57 @@ export type Database = {
           },
         ]
       }
+      incomes: {
+        Row: {
+          account_id: string
+          amount: number
+          created_at: string
+          description: string | null
+          id: string
+          income_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id: string
+          amount: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          income_date?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string
+          amount?: number
+          created_at?: string
+          description?: string | null
+          id?: string
+          income_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "incomes_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "account_balances"
+            referencedColumns: ["account_id"]
+          },
+          {
+            foreignKeyName: "incomes_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       profiles: {
         Row: {
+          accent_color: string | null
           avatar_url: string | null
           created_at: string
           display_name: string | null
@@ -275,6 +371,7 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          accent_color?: string | null
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
@@ -283,6 +380,7 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          accent_color?: string | null
           avatar_url?: string | null
           created_at?: string
           display_name?: string | null
@@ -294,7 +392,15 @@ export type Database = {
       }
     }
     Views: {
-      [_ in never]: never
+      account_balances: {
+        Row: {
+          account_id: string | null
+          balance: number | null
+          name: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       category_is_accessible: {

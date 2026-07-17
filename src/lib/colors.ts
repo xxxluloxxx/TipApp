@@ -49,6 +49,75 @@ export function withAlpha(hex: string | null | undefined, alpha: number): string
 }
 
 /**
+ * Conversión RGB (0-255) → HSL, componente interno de `hexToHslTriple`. No se
+ * expone porque ningún consumidor necesita los tres números por separado —
+ * siempre se quiere el string final listo para una variable CSS (ver esa
+ * función). Redondeado a 1 decimal: mismo nivel de precisión que los tokens
+ * ya escritos a mano en `main.css` (p. ej. `221.2 83.2% 53.3%`), para que un
+ * acento elegido por el usuario no se note "distinto" en formato de los
+ * colores de fábrica.
+ */
+function rgbToHsl([r, g, b]: [number, number, number]): { h: number; s: number; l: number } {
+  const rNorm = r / 255
+  const gNorm = g / 255
+  const bNorm = b / 255
+  const max = Math.max(rNorm, gNorm, bNorm)
+  const min = Math.min(rNorm, gNorm, bNorm)
+  const l = (max + min) / 2
+
+  if (max === min) {
+    // Gris puro (r === g === b): sin matiz ni saturación posibles.
+    return { h: 0, s: 0, l: round1(l * 100) }
+  }
+
+  const d = max - min
+  const s = l > 0.5 ? d / (2 - max - min) : d / (max + min)
+  let h: number
+  switch (max) {
+    case rNorm:
+      h = (gNorm - bNorm) / d + (gNorm < bNorm ? 6 : 0)
+      break
+    case gNorm:
+      h = (bNorm - rNorm) / d + 2
+      break
+    default:
+      h = (rNorm - gNorm) / d + 4
+  }
+
+  return { h: round1(h * 60), s: round1(s * 100), l: round1(l * 100) }
+}
+
+function round1(value: number): number {
+  return Math.round(value * 10) / 10
+}
+
+/**
+ * Convierte un hex (`#rrggbb`) a la tripleta HSL cruda `"H S% L%"`, SIN el
+ * wrapper `hsl(...)` — el formato exacto que ya usan las variables de tema en
+ * `main.css` (p. ej. `--primary: 221.2 83.2% 53.3%;`), para que un color de
+ * acento elegido en runtime pueda escribirse en esa misma variable vía
+ * `style.setProperty` sin que el resto del CSS (que hace `hsl(var(--primary))`
+ * en el `@theme`) tenga que cambiar. Reusa `hexToRgb` en vez de reparsear el
+ * hex, mismo criterio que el resto de este archivo (`readableTextColor`,
+ * `withAlpha`).
+ *
+ * `minLightness` es opcional y existe por un solo motivo: el color de
+ * acento también puede reflejarse en `--ring` (anillo de foco), pero en modo
+ * oscuro el `--ring` fijo del proyecto (`217.2 91.2% 65%` en `main.css`) NO
+ * comparte el lightness de `--primary` (que se queda en 53.3%) — es más claro
+ * a propósito para seguir siendo visible contra fondo oscuro. Pasar
+ * `{ minLightness: 65 }` replica esa misma relación para cualquier acento
+ * elegido, sin necesidad de que el llamador reimplemente la conversión.
+ */
+export function hexToHslTriple(hex: string, options?: { minLightness?: number }): string | null {
+  const rgb = hexToRgb(hex)
+  if (!rgb) return null
+  const { h, s, l } = rgbToHsl(rgb)
+  const lightness = options?.minLightness !== undefined ? Math.max(l, options.minLightness) : l
+  return `${h} ${s}% ${lightness}%`
+}
+
+/**
  * Grid fijo de 10 swatches (sección 3.3 de categories-mvp-ux.md): mismos hex
  * ya sembrados en `categories.color`. `CategoryFormSheet.vue` mantiene su
  * propia copia local (no se tocó ese archivo, fuera de alcance de esta

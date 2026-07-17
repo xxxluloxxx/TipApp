@@ -2,6 +2,7 @@ import type { Session, User } from '@supabase/supabase-js'
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 import { toast } from 'vue-sonner'
+import { hexToHslTriple, readableTextColor } from '@/lib/colors'
 import { supabase } from '@/lib/supabase'
 import type { Tables } from '@/types/database.types'
 
@@ -51,6 +52,86 @@ function applyThemeToDom(value: ThemePreference) {
   document.documentElement.classList.toggle('dark', resolvesToDark(value))
 }
 
+// Debe coincidir con la clave leída por el script inline de `index.html`
+// (que aplica el acento cacheado antes del primer paint), mismo criterio que
+// `THEME_STORAGE_KEY`.
+const ACCENT_STORAGE_KEY = 'tipapp:accent-color'
+
+const ACCENT_HEX_PATTERN = /^#[0-9a-f]{6}$/i
+
+function isAccentColor(value: unknown): value is string {
+  return typeof value === 'string' && ACCENT_HEX_PATTERN.test(value)
+}
+
+function readCachedAccentColor(): string | null {
+  try {
+    const cached = localStorage.getItem(ACCENT_STORAGE_KEY)
+    if (isAccentColor(cached)) return cached
+  } catch {
+    // localStorage no disponible (privacy mode, etc.) — cae al color de
+    // fábrica.
+  }
+  return null
+}
+
+function cacheAccentColor(value: string | null) {
+  try {
+    if (value === null) {
+      localStorage.removeItem(ACCENT_STORAGE_KEY)
+    } else {
+      localStorage.setItem(ACCENT_STORAGE_KEY, value)
+    }
+  } catch {
+    // Igual que arriba: si falla el cacheo, el acento sigue aplicado en esta
+    // sesión, solo no sobrevive a un refresh — degradación aceptable.
+  }
+}
+
+/**
+ * Aplica (o revierte, si `hex === null`) el color de acento al DOM
+ * sobreescribiendo `--primary`/`--primary-foreground`/`--ring` inline sobre
+ * `documentElement` — gana por especificidad sobre los bloques fijos
+ * `:root`/`.dark` de `main.css` sin importar cuál esté activo
+ * (accent-color-ux.md sección 7), así que no depende de si el modo actual es
+ * claro u oscuro para aplicar `--primary`/`--primary-foreground`.
+ *
+ * Decisión sobre `--ring` (no prescrita por la spec de UX, sección 2 del
+ * encargo): SÍ se refleja el acento en `--ring`. Hoy, en `:root`, `--ring` es
+ * literalmente igual a `--primary` (`main.css`) — dejar el anillo de foco
+ * desincronizado del acento elegido rompería esa relación ya existente (el
+ * resto de los botones primarios cambiaría de color pero su anillo de foco
+ * seguiría con el azul de fábrica). En light se replica el mismo valor que
+ * `--primary`. En dark, el `--ring` fijo (`217.2 91.2% 65%`) NO comparte el
+ * lightness de `--primary` fijo (que se queda en 53.3%) — es a propósito más
+ * claro para seguir siendo visible contra fondo oscuro. Se replica esa misma
+ * relación con `hexToHslTriple(hex, { minLightness: 65 })`: mismo hue/
+ * saturación del acento elegido, con un piso de lightness de 65% para
+ * cualquier acento, incluso los más oscuros (p. ej. el Gris de
+ * `COLOR_SWATCHES`), para que el anillo de foco siga siendo visible.
+ */
+function applyAccentToDom(hex: string | null) {
+  const root = document.documentElement
+
+  if (hex === null) {
+    root.style.removeProperty('--primary')
+    root.style.removeProperty('--primary-foreground')
+    root.style.removeProperty('--ring')
+    return
+  }
+
+  const primaryHsl = hexToHslTriple(hex)
+  if (!primaryHsl) return // Hex corrupto (p. ej. localStorage editado a mano): no tocar nada.
+  root.style.setProperty('--primary', primaryHsl)
+
+  const foregroundHex = readableTextColor(hex) ?? '#ffffff'
+  const foregroundHsl = hexToHslTriple(foregroundHex)
+  if (foregroundHsl) root.style.setProperty('--primary-foreground', foregroundHsl)
+
+  const isDark = root.classList.contains('dark')
+  const ringHsl = hexToHslTriple(hex, isDark ? { minLightness: 65 } : undefined)
+  if (ringHsl) root.style.setProperty('--ring', ringHsl)
+}
+
 export const useAuthStore = defineStore('auth', () => {
   const status = ref<AuthStatus>('pending')
   const user = ref<User | null>(null)
@@ -73,12 +154,26 @@ export const useAuthStore = defineStore('auth', () => {
   // pantalla real.
   applyThemeToDom(themePreference.value)
 
+  // Mismo mecanismo de aplicación temprana que el tema (ver comentario
+  // arriba), pero para el color de acento: se inicializa desde el caché de
+  // `localStorage` (el script inline de `index.html` ya lo aplicó antes del
+  // primer paint) y se re-aplica acá para sincronizar el estado reactivo.
+  const accentColor = ref<string | null>(readCachedAccentColor())
+  applyAccentToDom(accentColor.value)
+
   // El valor "sistema" es dinámico: si el usuario cambia el tema del SO
   // mientras la app sigue abierta, se refleja en vivo sin recargar.
   if (typeof window.matchMedia === 'function') {
     const darkMediaQuery = window.matchMedia('(prefers-color-scheme: dark)')
     darkMediaQuery.addEventListener('change', () => {
-      if (themePreference.value === 'system') applyThemeToDom('system')
+      if (themePreference.value === 'system') {
+        applyThemeToDom('system')
+        // El cálculo de `--ring` para el acento depende de si el modo activo
+        // es oscuro (ver `applyAccentToDom`) — al cambiar de modo por un
+        // cambio del SO hay que recalcularlo, si no el anillo de foco queda
+        // con el lightness del modo anterior.
+        applyAccentToDom(accentColor.value)
+      }
     })
   }
 
@@ -116,6 +211,19 @@ export const useAuthStore = defineStore('auth', () => {
       themePreference.value = data.theme_preference
       applyThemeToDom(data.theme_preference)
       cacheThemePreference(data.theme_preference)
+    }
+
+    // Mismo criterio que arriba para el color de acento: el perfil remoto
+    // manda. A diferencia del tema (que siempre tiene un valor válido), acá
+    // el remoto puede ser `NULL` (color de fábrica) — se normaliza a `null`
+    // si no es un hex reconocible antes de comparar.
+    if (data) {
+      const remoteAccent = isAccentColor(data.accent_color) ? data.accent_color : null
+      if (remoteAccent !== accentColor.value) {
+        accentColor.value = remoteAccent
+        applyAccentToDom(remoteAccent)
+        cacheAccentColor(remoteAccent)
+      }
     }
   }
 
@@ -205,8 +313,58 @@ export const useAuthStore = defineStore('auth', () => {
   function selectTheme(value: ThemePreference) {
     themePreference.value = value
     applyThemeToDom(value)
+    // Igual que en el listener de `matchMedia`: cambiar de modo claro/oscuro
+    // puede cambiar el lightness que le corresponde a `--ring` (ver
+    // `applyAccentToDom`), así que hay que recalcularlo con el acento actual.
+    applyAccentToDom(accentColor.value)
     cacheThemePreference(value)
     void persistThemePreference(value)
+  }
+
+  /**
+   * Escritura en segundo plano de `profiles.accent_color`. Mismo patrón que
+   * `persistThemePreference`: separada de `selectAccentColor` para poder
+   * reintentar solo esta parte desde la acción del toast de error, sin
+   * repetir la aplicación optimista al DOM (accent-color-ux.md sección 5: si
+   * falla, el color visual NO se revierte, "Reintentar" solo reintenta el
+   * guardado remoto).
+   */
+  async function persistAccentColor(value: string | null) {
+    if (!user.value) return
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ accent_color: value })
+      .eq('id', user.value.id)
+
+    if (error) {
+      console.error('[auth] No se pudo guardar el color de acento', error)
+      toast.error('No pudimos guardar tu color de acento', {
+        description: 'Se aplicó igual en este dispositivo, pero podría no verse así en otra sesión.',
+        action: {
+          label: 'Reintentar',
+          onClick: () => {
+            void persistAccentColor(value)
+          },
+        },
+      })
+      return
+    }
+
+    if (profile.value) profile.value = { ...profile.value, accent_color: value }
+  }
+
+  /**
+   * Aplicación optimista (accent-color-ux.md sección 5): cambia el DOM y el
+   * swatch marcado al instante, cachea en `localStorage` para el próximo
+   * arranque, y recién después dispara el guardado remoto en segundo plano
+   * sin esperar su resultado ni revertir nada si falla.
+   */
+  function selectAccentColor(value: string | null) {
+    accentColor.value = value
+    applyAccentToDom(value)
+    cacheAccentColor(value)
+    void persistAccentColor(value)
   }
 
   return {
@@ -214,10 +372,12 @@ export const useAuthStore = defineStore('auth', () => {
     user,
     profile,
     themePreference,
+    accentColor,
     initialize,
     signIn,
     signUp,
     signOut,
     selectTheme,
+    selectAccentColor,
   }
 })
