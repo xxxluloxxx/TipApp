@@ -137,17 +137,117 @@ hoy) sin tocar ningún store — ver sección 3.2.
 
 ## 2. Resumen/Dashboard (`/tarjetas`)
 
-Header de pantalla igual al patrón ya establecido para las demás secciones
-del drawer (`ArrowLeft` + título, vuelve a `/`):
+### 2.0 Header con selector de mes integrado (rediseño de esta iteración)
+
+**Reemplaza por completo** el header estático original (`ArrowLeft` + `<h1>
+Tarjetas de crédito</h1>` + `Settings`) y la fila de `Select` de mes que se
+había agregado debajo como control aparte (implementación funcional pero sin
+pasar por diseño — el Product Owner la sintió "desconectada", una fila de
+formulario suelta debajo de un header que no la esperaba). El mecanismo de
+datos **no cambia en nada** (mismo `filters.month`/`monthOptions`/`v-model`,
+mismo componente `Select` de shadcn-vue) — esto es 100% un cambio de
+presentación del mismo control, integrado en la barra superior en vez de
+vivir en una fila propia.
+
+**Referencia adoptada de "GastoCard"** (sección 11 la vuelve a citar): el mes
+vive en el header mismo, como texto + chevron pequeño, sin caja ni borde de
+campo de formulario — se descarta explícitamente de esa referencia el ícono
+de notificaciones contiguo (no aplica, TipApp no tiene notificaciones).
+
+**Decisión de jerarquía**: el mes pasa a ser el texto grande (protagonista,
+mismo tamaño/peso que tenía el `<h1>` antes), y **"Tarjetas de crédito" baja
+a un eyebrow chico encima, no se remueve** — sigue siendo la única pista de
+"en qué sección estoy" para alguien que entra directo a `/tarjetas` (por
+ejemplo, desde un ítem de drawer que resalta la ruta activa, pero sin mirar
+el drawer en ese momento); quitarlo del todo ahorra una línea pero le cuesta
+orientación al usuario por nada, y el layout de dos líneas (eyebrow chico +
+dato grande) ya es un patrón conocido de la propia app (mismo espíritu que
+"Hola, {nombre}" de Inicio) — no hace falta inventar nada nuevo.
 
 ```html
-<header class="flex items-center gap-3 border-b border-border px-4 py-4 sm:px-6 lg:px-8">
+<header class="flex items-center gap-2 border-b border-border px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:px-8">
   <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
     <ArrowLeft class="size-5" />
   </Button>
-  <h1 class="text-xl font-semibold">Tarjetas de crédito</h1>
+
+  <div class="min-w-0 flex-1">
+    <p id="cards-dashboard-eyebrow" class="truncate text-xs font-medium text-muted-foreground">
+      Tarjetas de crédito
+    </p>
+
+    <Select v-model="filters.month">
+      <SelectTrigger
+        aria-describedby="cards-dashboard-eyebrow"
+        class="!h-11 !w-fit !max-w-full !gap-1.5 !border-0 !bg-transparent !py-0 !pl-2 !pr-2 !shadow-none -ml-2 rounded-md text-xl font-semibold tracking-tight text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
+      >
+        <SelectValue class="truncate" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
+          {{ option.label }}
+        </SelectItem>
+      </SelectContent>
+    </Select>
+  </div>
+
+  <Button variant="ghost" size="icon" aria-label="Gestionar tarjetas y personas" @click="router.push({ name: 'manage-cards' })">
+    <Settings class="size-5" />
+  </Button>
 </header>
 ```
+
+Notas de implementación (para que `vue-frontend-expert` no tenga que
+adivinar ni redescubrir esto por prueba y error):
+
+1. **Sin componente nuevo, sin ícono nuevo a importar.** Sigue siendo el
+   mismo `<Select>`/`<SelectTrigger>`/`<SelectValue>`/`<SelectContent>`/
+   `<SelectItem>` de `@/components/ui/select` que ya se usa en
+   `CardTransactionsView.vue`, con el mismo `v-model="filters.month"` y el
+   mismo `monthOptions` ya implementado (sección 1.5). El chevron **no se
+   agrega a mano**: `SelectTrigger.vue` ya renderiza su propio
+   `ChevronDownIcon` (`@lucide/vue`, `size-4`, `text-muted-foreground`)
+   después del slot — con el trigger en `w-fit` queda pegado al texto del
+   mes ("Julio 2026 ⌄"), igual que en la referencia. No hay que tocar
+   `src/components/ui/select/SelectTrigger.vue` para nada de esto.
+2. **Por qué las clases de override llevan `!` (important)**: el trigger
+   base de shadcn-vue trae `data-[size=default]:h-9` (una variante con
+   atributo, que en CSS tiene *más* especificidad que una clase suelta como
+   `h-11`) y, en modo oscuro, `dark:bg-input/30`/`dark:hover:bg-input/50`
+   (el relleno tipo "campo" que acá se quiere eliminar). Pasar `h-11
+   border-0 bg-transparent shadow-none py-0` a secas **no garantiza** ganarle
+   a esas reglas por especificidad/orden de cascada — con `!` (que Tailwind
+   compila a `!important`) queda forzado sin ambigüedad, sin importar cómo
+   evolucione el componente base a futuro. Ya existe indicio de este mismo
+   problema sin resolver en el código actual: el `Select` de mes de
+   `CardTransactionsView.vue` (sección 3.1) usa `h-11` a secas — vale la
+   pena que `vue-frontend-expert` verifique con las devtools si ese trigger
+   realmente mide 44px de alto o quedó en 36px por este mismo motivo, como
+   chequeo rápido no bloqueante mientras toca este archivo (no es parte del
+   alcance de este rediseño: ese `Select` de `CardTransactionsView.vue` sigue
+   sin cambios de presentación, ver sección 3.1 y el punto 10 de
+   accesibilidad más abajo).
+3. **`-ml-2` + `pl-2`**: técnica estándar para que el *hit area*/fondo de
+   hover del botón tenga aire horizontal (mismo padding que cualquier botón
+   `ghost` de la app) sin que el texto del mes se corra visualmente a la
+   derecha del eyebrow "Tarjetas de crédito" (que no tiene padding propio) —
+   el margen negativo cancela el padding agregado, así ambas líneas quedan
+   alineadas al mismo borde izquierdo.
+4. **`data-[state=open]:bg-accent`**: mientras el `SelectContent` está
+   abierto, el trigger queda con el mismo fondo `accent` que en hover/press —
+   refuerza que sigue siendo un control interactivo incluso con el menú ya
+   desplegado (Reka UI ya expone `data-state="open"/"closed"` de fábrica en
+   `SelectTrigger`, no hay que cablear nada nuevo).
+5. **`truncate` en `SelectValue` + `!max-w-full` en el trigger**: red de
+   seguridad para el nombre de mes más largo en español ("Septiembre 2026",
+   el peor caso de los 12) en un viewport angosto (320px) con los dos
+   botones de ícono a los costados — en la inmensa mayoría de anchos no
+   entra en juego, pero evita que un mes largo empuje el layout o desborde
+   el header en el dispositivo más chico soportado.
+6. **El resto de la vista no cambia**: la `<div v-if="hasCards">` con la fila
+   `Select` de mes que existía debajo del header (`flex gap-2 overflow-x-auto
+   px-4 py-3 ...`) **se elimina** — el filtro de mes vive ahora únicamente en
+   el header. Todo lo demás (hero de total, dona, ranking de tarjetas,
+   estados de carga/vacío/error) sigue igual, sección 2.1 en adelante.
 
 ### 2.1 "Total del mes" con variación vs. mes anterior
 
@@ -341,6 +441,15 @@ usuario entre ambos historiales).
 
 ### 3.1 Filtros: mes / tarjeta / persona
 
+**Sin cambios respecto al rediseño de la sección 2.0.** El header con el mes
+integrado (texto grande + chevron, sin caja) es específico del dashboard
+(`/tarjetas`), que solo filtra por mes y es la puerta de entrada a la
+sección — acá en cambio hay **tres** filtros combinables (mes + tarjeta +
+persona) en una fila horizontal, y ahí el `Select` tradicional (con borde,
+trigger tipo campo) es justamente lo correcto: comunica "esto es un
+selector entre varios controles equivalentes", no "el título de la
+pantalla". No se toca esta fila ni su presentación.
+
 Fila de filtros (`flex gap-2 overflow-x-auto px-4 py-3` para que no rompan
 layout en mobile angosto), tres `Select` de shadcn-vue (ya instalado, sin
 componente nuevo):
@@ -466,21 +575,105 @@ hay nada que filtrar sin al menos una tarjeta.
 |---|---|---|---|
 | `/tarjetas/:id` | `card-detail` | `{ requiresAuth: true }` | `CardDetailView` |
 
-Header: `ArrowLeft` (vuelve a `/tarjetas`, no a Home — es un nivel más
-adentro de la sección Tarjetas) + nombre de la tarjeta.
+**Rediseño de esta iteración** (pedido explícito del Product Owner, referencia
+visual: mockup de tarjeta "JEP" verde de otra app — mismo criterio de la
+sección 11, se adopta la *estructura* visual, no la marca). Alcance acotado a
+**este archivo únicamente**: `CardDetailView.vue`. Ningún otro dato deja de
+medirse — `cardMonthTotal`, `limitProgress`, `personDonutSlices`,
+`averageExpense`, `maxExpense` y el array `monthExpenses` siguen siendo
+exactamente los mismos computeds/queries de la sección 4.1-4.4 previa a esta
+iteración, solo cambia cómo se presentan. Confirmación explícita de impacto:
+**`CardsDashboardView.vue`, `CardTransactionsView.vue`, `ManageCardsView.vue` y
+`src/lib/charts.ts` no se tocan** — todo lo que este rediseño reusa
+(`readableTextColor`, `withAlpha`, `COLOR_SWATCHES`, `formatExpenseDateHeading`,
+`CategoryDonutChart`, el componente `Badge` ya instalado en Fase 1) ya existe
+tal cual hoy, sin necesidad de extender ni modificar ningún helper compartido.
 
-### 4.1 Hero: total del mes + progreso contra el límite sugerido
+Header: se simplifica a solo `ArrowLeft` (vuelve a `/tarjetas`) **sin** el
+`<h1>` de nombre que tenía antes — el nombre + últimos 4 dígitos de la tarjeta
+pasan a vivir en el mini-visual del hero (sección 4.1.2), y repetirlo también
+en el header sería redundante apenas se hace scroll un pixel. La ruta de
+vuelta no cambia.
+
+### 4.1 Hero: color propio de la tarjeta, mini-visual, monto y progreso
+
+#### 4.1.1 Fondo del hero: tinte suave, no color sólido pleno — decisión con números
+
+La referencia usa un verde sólido pleno de fondo con texto blanco encima. Se
+evaluó reproducirlo literal (`backgroundColor: card.color` a opacidad 100% +
+`readableTextColor(card.color)` para el texto) y **se descartó**: se corrió la
+misma fórmula de contraste WCAG que ya usa `readableTextColor` (luminancia
+relativa + ratio) contra los 10 hex de `COLOR_SWATCHES` (sección 6.2, la
+paleta real y completa de `credit_cards.color`), y **4 de los 10 no alcanzan
+ni el umbral relajado de "texto grande" (3:1)** con su mejor opción de texto
+(blanco o `#111827`): Naranja `#f97316` (2.80:1), Celeste `#06b6d4` (2.43:1),
+Verde azulado `#14b8a6` (2.49:1), Verde `#22c55e` (2.28:1). Otros 3 pasan el
+umbral de texto grande pero no el de texto normal 4.5:1 (Azul 3.68:1, Rojo
+3.76:1, Rosa 3.53:1). Solo Amarillo (9.25:1), Gris (4.83:1) y, por poco,
+Violeta (4.23:1) pasarían holgado. Como el usuario elige el color de su
+tarjeta libremente entre los 10 swatches (no hay forma de excluir opciones "de
+riesgo" sin contradecir `credit-cards-ux.md` sección 6.2, que ya fija esa
+paleta como cerrada), **un fondo sólido pleno no puede garantizarse legible
+para el 100% de los casos reales** — violaría el principio de a11y ya vigente
+en todo el proyecto (`design-system.md` sección 5, "contraste AA verificado").
+
+**Decisión**: el `Card` del hero usa el mismo patrón de tinte que ya
+está shippeado en `CardsDashboardView.vue` para las filas de "Tus tarjetas"
+(sección 2.3) — `:style="{ backgroundColor: withAlpha(card.color, 0.16) }"`
+sobre la superficie neutra del `Card`, **sin tocar ningún color de texto**:
+`CardDescription`/`CardTitle`/el párrafo de disclaimer se quedan en sus tokens
+normales (`text-muted-foreground`/foreground por defecto de `Card`). Esto no
+es una concesión visual menor: es la razón por la que la solución es segura
+sin cálculo adicional por swatch — un tinte al 16% de opacidad sobre el fondo
+neutro del tema apenas corre la luminancia de esa superficie, así que el
+contraste ya verificado de los tokens de texto del design system contra
+`bg-card` se mantiene, en los dos temas, sin excepción y sin overrides de
+color de texto por elemento. `readableTextColor(card.color)` se reserva
+**únicamente** para el ícono dentro del chip sólido del mini-visual (sección
+4.1.2, superficie pequeña y ya con precedente shippeado, ver nota de alcance
+ahí) — nunca para texto de párrafo/título.
+
+Se prioriza "sigue siendo un componente TipApp reconocible, con toque de color
+de marca de la tarjeta" por sobre "réplica exacta del bloque sólido de la
+referencia" — mismo criterio que ya aplicó esta feature en otros puntos (p.
+ej. sección 11, "se adopta el patrón, no el pixel exacto").
+
+#### 4.1.2 Mini-visual de la tarjeta (ícono + nombre + últimos 4 dígitos)
+
+Arriba a la izquierda del hero, como en la referencia — mismo tratamiento
+exacto de chip que ya usa `CardsDashboardView.vue` (sección 2.3: chip
+`size-10` `rounded-lg` con `backgroundColor: card.color` sólido +
+`CreditCardIcon` coloreado vía `readableTextColor(card.color)`), sin
+inventar un ícono ni un tamaño nuevo — la única diferencia es que ahora convive
+con un fondo tinted en vez de neutro, lo cual no cambia nada del chip en sí
+(sigue siendo su propio recuadro sólido, con su propio contraste ya evaluado
+en la iteración de tarjetas original).
 
 ```html
-<Card>
-  <CardHeader>
-    <CardDescription>Total en {{ monthLabel }}</CardDescription>
-    <CardTitle class="text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
-      <span class="align-top text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(cardMonthTotal) }}
-    </CardTitle>
+<Card :style="{ backgroundColor: withAlpha(card.color, 0.16) }">
+  <CardHeader class="gap-4">
+    <div class="flex items-center gap-3">
+      <span
+        class="flex size-10 shrink-0 items-center justify-center rounded-lg"
+        :style="{ backgroundColor: card.color ?? 'hsl(var(--muted))' }"
+      >
+        <CreditCardIcon class="size-4.5" :style="{ color: readableTextColor(card.color) }" />
+      </span>
+      <div class="flex min-w-0 flex-col">
+        <p class="truncate text-sm font-semibold">{{ card.name }}</p>
+        <p class="truncate text-xs text-muted-foreground">•••• {{ card.lastFourDigits }}</p>
+      </div>
+    </div>
+
+    <div>
+      <CardDescription>Total en {{ monthLabel }}</CardDescription>
+      <CardTitle class="text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
+        <span class="align-top text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(cardMonthTotal) }}
+      </CardTitle>
+    </div>
   </CardHeader>
 
-  <div v-if="card.monthlyLimitSuggested" class="flex flex-col gap-1.5 px-6 pb-6">
+  <div v-if="card.suggested_monthly_limit" class="flex flex-col gap-1.5 px-6 pb-6">
     <div class="h-2 overflow-hidden rounded-full bg-muted">
       <div
         class="h-full rounded-full transition-[width]"
@@ -489,8 +682,8 @@ adentro de la sección Tarjetas) + nombre de la tarjeta.
       />
     </div>
     <div class="flex items-center justify-between text-xs text-muted-foreground">
-      <span>Límite mensual sugerido: ${{ formatAmount(card.monthlyLimitSuggested) }}</span>
-      <span>{{ limitProgressLabel }}</span>
+      <span>Límite mensual (sugerido): ${{ formatAmount(cardMonthTotal) }} / ${{ formatAmount(card.suggested_monthly_limit) }}</span>
+      <span>{{ limitAvailableLabel }}</span>
     </div>
     <p class="text-xs text-muted-foreground">
       Este límite es solo una referencia que vos definiste, no un límite real de tu tarjeta ni de tu banco.
@@ -503,24 +696,80 @@ adentro de la sección Tarjetas) + nombre de la tarjeta.
 </Card>
 ```
 
-- **Copy explícito de "informativo, no un límite duro"** en texto plano
-  (no solo en un tooltip que dependa de hover — no hay hover fiable en
-  touch) — cumple el pedido del encargo de que quede clarísimo.
-- `limitProgress = (cardMonthTotal / card.monthlyLimitSuggested) * 100`,
-  visualmente cappeado a 100% en el ancho de la barra (aunque el número real
-  pueda superar 100%, mostrado en `limitProgressLabel`, p. ej. `"113%
-  usado"`).
-- Color de la barra (mismo criterio semántico que `design-system.md` ya
-  anticipa para presupuestos): `bg-primary` si `<80%`, `bg-warning` si
-  `80-100%`, `bg-destructive` si `>100%` — **siempre acompañado del texto**
-  `limitProgressLabel` (p. ej. `"39% usado"` / `"113% usado"`), nunca solo
-  color, y con el copy de "es informativo" ya puesto al pie para que superar
-  el 100% no se lea como una alarma real.
-- Si `monthlyLimitSuggested` es `null`: no se muestra ninguna barra (no hay
-  contra qué progresar) — en su lugar, una invitación de una línea a
-  definirlo desde "Editar tarjeta".
+Enmascarado de dígitos con el mismo criterio ya vigente (sección 10, punto 8):
+`"•••• {4 dígitos}"` es texto real, no solo un ícono — un lector de pantalla
+lo anuncia completo.
 
-### 4.2 Dona de gasto por persona (dentro de esta tarjeta)
+#### 4.1.3 "% del total del mes" — se omite, decisión consciente
+
+La referencia muestra un `%` del total general junto al monto de la tarjeta.
+Hoy esta vista **no trae** ese dato: `monthExpenses` (sección 4.4) está
+filtrado por `card_id = :id`, mientras que el total general de todas las
+tarjetas del mes solo lo calcula `CardsDashboardView.vue` a partir de *su
+propio* fetch sin filtro de tarjeta. Mostrarlo acá exigiría una tercera query
+(`cardExpensesStore.fetchByDateRange` del mismo mes, sin `cardId`) sumada a las
+2 que esta vista ya dispara en paralelo (`Promise.all` de sección 4, mes +
+recientes) — **se decide no agregarla**, por tres motivos concretos:
+
+1. El hero ya comunica el número más accionable para "estoy mirando el
+   detalle de una tarjeta puntual": cuánto gasté en *esta* tarjeta este mes,
+   en pesos. El `%` del total general es un dato de *comparación entre
+   tarjetas*, que es exactamente la pregunta que ya resuelve el dashboard
+   (`CardsDashboardView.vue` sección 2.3, `card.percentLabel`) — duplicarlo
+   acá no agrega una decisión nueva que el usuario pueda tomar desde el
+   detalle.
+2. Una tercera query solo para un dato secundario en una pantalla que ya
+   prioriza velocidad de carga (ver sección 1.4, "por qué no traer todo") no
+   se justifica por fidelidad visual pura a la referencia.
+3. Es reversible sin costo de migración de datos si a futuro se decide que sí
+   vale la pena: no requiere ningún cambio de esquema, solo agregar la query
+   client-side.
+
+Si una futura iteración lo pide explícitamente, la ruta de menor esfuerzo es
+que `CardsDashboardView.vue` calcule y **cachee** el total general del mes
+vigente en un store (no en el detalle) y que `CardDetailView.vue` lo lea de
+ahí si ya está en memoria — evita la query duplicada en la mayoría de las
+navegaciones reales (usuario entra por el dashboard antes de tocar una
+tarjeta).
+
+`limitAvailableLabel` es un computed **nuevo**, 100% derivado de
+`limitProgress` ya existente (sin ningún dato ni query nueva):
+
+```ts
+const limitAvailableLabel = computed(() => {
+  if (limitProgress.value <= 100) return `${Math.round(100 - limitProgress.value)}% disponible`
+  return `Superado por ${Math.round(limitProgress.value - 100)}%`
+})
+```
+
+#### 4.1.4 Barra de progreso + copy del límite: reformateado, disclaimer intacto
+
+- Copy nuevo: `"Límite mensual (sugerido): $usado / $límite"` (antes
+  `"Límite mensual sugerido: $Y"` sin mostrar el usado en esa misma línea —
+  el usado ya estaba arriba en el hero, pero repetirlo acá al lado del límite
+  deja la comparación "gasté esto de esto otro" en un solo golpe de vista, más
+  cerca de la referencia) + `limitAvailableLabel` (`"Z% disponible"` o, si se
+  superó, `"Superado por Z%"` en vez de un `%` negativo sin explicar qué
+  significa un número bajo cero).
+- **El párrafo de disclaimer se mantiene literal, sin acortar** ("Este límite
+  es solo una referencia que vos definiste, no un límite real de tu tarjeta ni
+  de tu banco."). Fue una decisión de a11y/confianza tomada en la iteración
+  original de Tarjetas para evitar que un usuario confunda esta barra con un
+  límite de crédito real del banco — nada de este rediseño cambia esa
+  realidad (`suggested_monthly_limit` sigue siendo 100% definido por el
+  usuario, sin ninguna validación bancaria detrás), así que la garantía sigue
+  haciendo exactamente la misma falta que antes. Acortarlo ahorraría una línea
+  de espacio vertical, pero el riesgo de que se lea como "límite real" ya se
+  evaluó una vez y no hay ningún dato nuevo que justifique reabrir esa
+  decisión — se prioriza consistencia de confianza sobre densidad visual.
+- `limitProgress`/`limitBarColorClass` (color semántico de la barra:
+  `bg-primary`/`bg-warning`/`bg-destructive`) **no cambian** — siguen siendo
+  los mismos computeds ya validados en la iteración original, con la barra
+  visualmente cappeada a 100% de ancho aunque el número real supere eso.
+- Si `suggested_monthly_limit` es `null`: mismo comportamiento que antes (sin
+  barra, invitación de una línea a "Definir uno").
+
+### 4.2 Dona de gasto por persona (dentro de esta tarjeta) — sin cambios
 
 Mismo componente reusado, ahora con `card_expenses` filtrados a
 `card_id = :id` + mes vigente, agrupados por persona (incluyendo "Sin
@@ -536,16 +785,40 @@ persona asignada" como slice sintético, mismo criterio que la sección 2.4):
 </Card>
 ```
 
-### 4.3 "Movimientos recientes" + "Ver todos"
+### 4.3 "Movimientos recientes" + "Ver todos" — nuevo layout de fila (fecha + avatar de persona)
 
-Últimos 5 `card_expenses` de esta tarjeta, **sin** filtrar por mes vigente
-(a propósito: "recientes" es una noción de actualidad, no de mes calendario
-— si el usuario no gastó nada este mes pero sí la semana pasada del mes
-anterior, sigue siendo información "reciente" relevante). Query dedicada:
+Sigue siendo, sin cambios de datos: últimos 5 `card_expenses` de esta
+tarjeta, **sin** filtrar por mes vigente (a propósito: "recientes" es una
+noción de actualidad, no de mes calendario — si el usuario no gastó nada este
+mes pero sí la semana pasada del mes anterior, sigue siendo información
+"reciente" relevante). Misma query dedicada de siempre:
 `.eq('card_id', id).order('expense_date', {ascending:false}).order('created_at', {ascending:false}).limit(5)`
-— el `limit(5)` acá es seguro porque el propósito es literalmente "los
-últimos 5", no una lista que se pretenda completa (mismo argumento que
-sección 1.2).
+— el `limit(5)` sigue seguro porque el propósito es literalmente "los últimos
+5" (mismo argumento que sección 1.2).
+
+**Lo que cambia es el layout de cada fila**, para incorporar los dos datos que
+pide la referencia y que hoy faltan (fecha corta y un ícono líder) sin
+inventar nada nuevo: la fecha ya existe en `expense.expenseDate` y ya hay un
+formatter listo (`formatExpenseDateHeading`, el mismo que usa la sección 3.2
+para las filas de `CardTransactionsView` — "Hoy"/"Ayer"/`"20 de abril"`, sin
+necesidad de un formato corto adicional tipo "20 abr." que obligaría a escribir
+una función nueva en `src/lib/date.ts` solo por fidelidad cosmética). El
+ícono líder **es el avatar de persona**, no un ícono decorativo nuevo sin
+precedente: mismo patrón exacto que "Top personas" del dashboard (sección
+2.4) — círculo `size-9` con `background: person.color` + `User` vía
+`readableTextColor(person.color)`, o círculo `bg-muted` + `User` en
+`text-muted-foreground` si el gasto no tiene persona asignada. Se sube de
+`size-6` (usado en la barra de ranking, donde conviven con una barra de
+progreso angosta) a `size-9` porque acá el avatar es el elemento líder de la
+fila, no un ítem secundario de una lista de ranking — necesita más presencia
+visual para funcionar como "miniatura" al estilo de la referencia.
+
+Con 4 datos por fila ahora (avatar, descripción, persona, fecha, monto, más
+el badge opcional de cuota — 6 en total), una sola línea ya no alcanza sin
+truncar agresivamente. Layout de **2 líneas** dentro de la fila, con la
+jerarquía "qué fue" antes que "quién/cuándo" (igual que el resto de la app: la
+descripción es siempre el dato principal de una fila de gasto, nunca la
+persona ni la fecha):
 
 ```html
 <Card>
@@ -557,22 +830,80 @@ sección 1.2).
       </Button>
     </CardAction>
   </CardHeader>
-  <!-- filas, mismo layout de fila que sección 3.2, sin menú ⋮ (solo lectura, mismo criterio que "Transacciones recientes" de Inicio) -->
+  <div class="flex flex-col">
+    <template v-for="(expense, idx) in recentExpenses" :key="expense.id">
+      <Separator v-if="idx > 0" />
+      <div class="flex items-start gap-3 px-4 py-3">
+        <span
+          v-if="expense.person?.color"
+          class="flex size-9 shrink-0 items-center justify-center rounded-full"
+          :style="{ background: expense.person.color }"
+        >
+          <User class="size-4" :style="{ color: readableTextColor(expense.person.color) }" />
+        </span>
+        <span v-else class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
+          <User class="size-4 text-muted-foreground" />
+        </span>
+
+        <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+          <div class="flex items-start justify-between gap-2">
+            <p class="truncate text-sm font-medium">{{ expense.description || card.name }}</p>
+            <p class="shrink-0 text-sm font-semibold tabular-nums">${{ formatAmount(expense.amount) }}</p>
+          </div>
+          <div class="flex items-center justify-between gap-2">
+            <span class="truncate text-xs text-muted-foreground">
+              {{ expense.person?.name ?? 'Sin persona asignada' }} · {{ formatExpenseDateHeading(expense.expenseDate) }}
+            </span>
+            <Badge
+              v-if="expense.installmentTotal"
+              variant="secondary"
+              class="shrink-0 px-1.5 py-0 text-[10px] tabular-nums"
+            >
+              {{ expense.installmentNumber }}/{{ expense.installmentTotal }}
+            </Badge>
+          </div>
+        </div>
+      </div>
+    </template>
+  </div>
 </Card>
 ```
 
+- **Badge de cuotas, ahora un `Badge` real** (ya instalado desde Fase 1, sin
+  agregar nada) en vez del texto plano `"N/M"` que usaba el layout anterior —
+  se ubica al final de la 2ª línea (junto a persona+fecha), nunca compitiendo
+  con el monto de la 1ª línea, que sigue siendo el dato más prominente de la
+  fila.
+- Sigue **sin** menú `⋮` (solo lectura, mismo criterio que "Transacciones
+  recientes" de Inicio) — el avatar no es un control, es puramente
+  informativo, así que no aplica ningún mínimo táctil sobre él (no es un
+  target independiente; la fila entera no navega a ningún lado en este
+  listado, igual que antes).
+- Nota de a11y heredada, no nueva de esta iteración: el mismo patrón de
+  avatar-con-ícono-sobre-color-sólido ya existe hoy en "Top personas"
+  (sección 2.4) sin haber sido señalado como bloqueante — se reusa tal cual
+  acá por consistencia, no se introduce un problema nuevo. Si a futuro se
+  decide reforzar el contraste de ese ícono (p. ej. agregando un borde de 1px
+  o un halo), debería resolverse una sola vez para los dos consumidores
+  (dashboard + detalle), no de forma aislada en esta vista.
+
 `CardTransactionsView` lee `route.query.cardId` en `onMounted` y preselecciona
 ese filtro de tarjeta (mismo patrón de query param ya usado para `?new=1` en
-`dashboard-redesign-ux.md` sección 3.4).
+`dashboard-redesign-ux.md` sección 3.4) — **sin cambios**, ese comportamiento
+no depende del layout de fila.
 
-### 4.4 Resumen de la tarjeta (cantidad, promedio, mayor gasto)
+### 4.4 Resumen de la tarjeta (cantidad, promedio, mayor gasto) — tinte leve para cerrar el "marco de color" del detalle
 
 Derivado **sin queries adicionales**, del mismo array ya traído para el
 hero del mes (sección 4.1) — eficiencia deliberada, un solo query sirve
-para 4 números (total, cantidad, promedio, máximo):
+para 4 números (total, cantidad, promedio, máximo). Los 3 números en sí **no
+cambian**.
+
+Se agrega un tinte del color de la tarjeta, más sutil que el del hero (`0.08`
+de opacidad en vez de `0.16`), en vez de dejar esta `Card` neutra/blanca:
 
 ```html
-<Card>
+<Card :style="{ backgroundColor: withAlpha(card.color, 0.08) }">
   <CardHeader><CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">Resumen del mes</CardTitle></CardHeader>
   <div class="grid grid-cols-3 gap-2 px-6 pb-6 text-center">
     <div><p class="text-lg font-semibold tabular-nums">{{ monthExpenses.length }}</p><p class="text-xs text-muted-foreground">Transacciones</p></div>
@@ -582,10 +913,34 @@ para 4 números (total, cantidad, promedio, máximo):
 </Card>
 ```
 
+- **Justificación de por qué sí vale la pena** (a diferencia de dejarlo
+  neutro, que también era una opción válida): en la referencia, el color de
+  la tarjeta "enmarca" toda la pantalla de detalle, no solo el hero — sin
+  ningún tinte acá, esta `Card` quedaría como un bloque blanco/neutro
+  encajonado entre dos elementos de color (hero arriba, nada abajo salvo los
+  botones de acción), rompiendo esa sensación de "esta pantalla completa es
+  sobre *esta* tarjeta". El costo de agregarlo es mínimo: es el mismo
+  `withAlpha` ya usado en el hero, solo con un segundo valor de opacidad, sin
+  ningún cálculo ni helper nuevo.
+- **Por qué un alpha más bajo que el hero, no el mismo**: mantiene la
+  jerarquía visual correcta — el hero es la afirmación de color más fuerte de
+  la pantalla (es, literalmente, el dato principal), el resumen es
+  información secundaria de apoyo. Iguales opacidades harían que ambos
+  bloques compitan por la misma atención.
+- Mismo argumento de la sección 4.1.1 sobre por qué esto es seguro sin
+  verificar contraste por swatch: a esta opacidad, el texto sigue en sus
+  tokens normales (`text-muted-foreground` para las etiquetas, foreground por
+  defecto para los números) sin ningún override de color.
+- La dona (4.2) y las acciones (4.5) se quedan neutras, sin tinte — no forman
+  parte del pedido explícito del Product Owner y no hay una razón de
+  jerarquía tan clara para tocarlas (la dona ya usa color por persona en sus
+  propios slices; teñir su `Card` contenedora competiría visualmente con esos
+  colores).
+
 `averageExpense = cardMonthTotal / monthExpenses.length` (con guard
 `monthExpenses.length === 0` → mostrar `$0,00`, no `NaN`).
 
-### 4.5 Acciones: "Editar tarjeta" / "+ Nuevo gasto"
+### 4.5 Acciones: "Editar tarjeta" / "+ Nuevo gasto" — sin cambios
 
 Fila fija al pie del contenido (no flotante — este es un detalle de
 pantalla completa, no necesita FAB):
@@ -959,10 +1314,11 @@ con las particularidades nuevas de esta feature:
 1. **Color nunca como único indicador**: delta vs. mes anterior (ícono +
    texto, sección 2.1); leyenda de ambas donas en texto real (sección 2.2,
    4.2); barra de progreso del límite sugerido siempre con
-   `limitProgressLabel` en texto (sección 4.1); barra de "Top personas"
+   `limitAvailableLabel` en texto (sección 4.1.4); barra de "Top personas"
    siempre con nombre + `%` en texto (sección 2.4); persona sin color propio
    nunca queda "sin ningún indicador" (ícono `User` en el swatch neutro,
-   sección 6.3).
+   sección 6.3, y en el avatar de "Movimientos recientes" del detalle,
+   sección 4.3).
 2. **`aria-current="page"`** en el nuevo ítem del drawer, mismo mecanismo ya
    vigente (sección 7).
 3. **Mínimo táctil 44×44px**: filas clickeables de la lista de tarjetas
@@ -992,6 +1348,32 @@ con las particularidades nuevas de esta feature:
 9. **`prefers-reduced-motion`**: heredado de Sheet/AlertDialog/Switch (Reka
    UI), sin configuración adicional — misma cobertura que el resto del
    proyecto.
+10. **Selector de mes del header (sección 2.0) reconocible como interactivo
+    sin caja/borde**: no depende solo del chevron (que además cambia de
+    color/fondo, no solo de forma) — `hover:bg-accent`/
+    `data-[state=open]:bg-accent` dan un fondo perceptible al pasar el mouse
+    o al abrir el listado (mismo token `accent` que ya usan los ítems del
+    drawer y las filas de `DebtsDashboardView.vue`), y
+    `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`
+    da foco visible por teclado, igual que cualquier otro control de la app
+    — nunca solo "el texto es clickeable porque sí". Altura forzada a `44px`
+    (`!h-11`) para cumplir el mínimo táctil aunque el contenido de texto
+    solo mida ~28px de alto a `text-xl`. `aria-describedby` conecta el
+    trigger con el eyebrow "Tarjetas de crédito" para que un lector de
+    pantalla anuncie el contexto de sección además del mes seleccionado.
+11. **Fondo de color como tinte, nunca como color sólido pleno detrás de
+    texto** (rediseño de `CardDetailView.vue`, sección 4.1.1): se verificó con
+    la misma fórmula de contraste WCAG que usa `readableTextColor` que un
+    fondo sólido pleno de `card.color` no garantiza AA para el 100% de los 10
+    swatches de `COLOR_SWATCHES` (4 no llegan ni al umbral relajado de texto
+    grande, 3 más no llegan al de texto normal) — por eso el hero y el
+    resumen del mes usan `withAlpha(card.color, 0.16 / 0.08)` sobre la
+    superficie neutra, dejando el texto en sus tokens normales
+    (`text-muted-foreground`/foreground), nunca en `readableTextColor` sobre
+    esos fondos. `readableTextColor` se sigue usando, sin cambios, solo para
+    íconos sobre chips/avatares de color sólido pequeños (mini-visual de
+    tarjeta, avatar de persona) — superficie no textual, con precedente ya
+    shippeado en `CardsDashboardView.vue` antes de esta iteración.
 
 ---
 
@@ -1017,7 +1399,11 @@ Explícitamente descartado, no se construye nada de esto:
   sincronización.
 - **Campana de notificaciones** del header de la referencia — mismo
   criterio de exclusión ya aplicado en `dashboard-redesign-ux.md` (fuera de
-  alcance, no hay sistema de notificaciones).
+  alcance, no hay sistema de notificaciones). Aclaración de esta iteración
+  (rediseño del selector de mes, sección 2.0): sí se adopta de esa misma
+  referencia el patrón de "mes + chevron integrado en el header, sin caja de
+  formulario" — lo que se descarta es únicamente el ícono de notificaciones
+  contiguo a ese selector, no el patrón de header en sí.
 - **Barra de búsqueda (ícono lupa)** y el control **"Ordenar por: Tarjeta"**
   del listado de transacciones — no forman parte del encargo (que pide
   específicamente filtros de mes/tarjeta/persona y agrupado por tarjeta, sin
@@ -1026,6 +1412,16 @@ Explícitamente descartado, no se construye nada de esto:
   agregarlos es una extensión incremental simple sobre esta base.
 - **Avatar/foto de persona** — ya decidido explícitamente por el Product
   Owner (sección 6.3): solo nombre + color opcional, sin Storage.
+- **Fondo sólido pleno del color de la tarjeta en el hero de detalle**
+  (referencia "JEP" verde, rediseño de esta iteración, sección 4.1.1) — no
+  pasa el umbral de contraste WCAG para 4 de los 10 swatches reales de
+  `COLOR_SWATCHES`; se adopta el tinte de color (16%/8% de opacidad), no el
+  bloque sólido pleno.
+- **"% del total del mes" junto al monto del hero de detalle** (sección
+  4.1.3) — se difiere de forma consciente, no por ser inviable sino porque
+  exigiría una tercera query en una vista que ya prioriza carga rápida, y el
+  dato de comparación entre tarjetas ya vive en el dashboard
+  (`CardsDashboardView.vue` sección 2.3).
 
 ---
 
@@ -1086,3 +1482,23 @@ Explícitamente descartado, no se construye nada de esto:
    6.2); considerar renombrar `CategoryTotal`/`CategoryDonutChart` en
    `charts.ts` a un nombre más neutral ahora que tienen 3 consumidores de
    dominios distintos (sección 9).
+10. **Rediseño de esta iteración, acotado a `CardDetailView.vue` (sección
+    4)**: reemplaza por completo el markup de las secciones 4.1, 4.3 y 4.4
+    (hero con tinte de color propio + mini-visual, movimientos recientes con
+    avatar de persona + fecha + `Badge` de cuota, resumen del mes con tinte
+    leve). **No requiere ningún componente nuevo ni cambio en `colors.ts`/
+    `charts.ts`/`date.ts`** — reusa tal cual `withAlpha`/`readableTextColor`
+    (ya existentes), `formatExpenseDateHeading` (ya existente, sección 3.2),
+    `CategoryDonutChart` (sección 4.2, sin cambios) y el componente `Badge`
+    (ya instalado desde Fase 1, sección 3 del design system). Único código
+    nuevo en el propio archivo: el computed `limitAvailableLabel` (sección
+    4.1.3), derivado 100% de `limitProgress` ya existente, sin query nueva.
+    **No afecta** `CardsDashboardView.vue`, `CardTransactionsView.vue` ni
+    `ManageCardsView.vue` — ninguno de los tres se toca. Se decidió
+    explícitamente **no** agregar el "% del total del mes" de la referencia
+    (sección 4.1.3) por el costo de una tercera query en esta vista, y se
+    descartó el fondo sólido pleno de la referencia por no pasar el umbral de
+    contraste WCAG en 4 de los 10 swatches de `COLOR_SWATCHES` (sección
+    4.1.1, con los números de contraste documentados ahí) — a favor de un
+    tinte del 16%/8% de opacidad (hero/resumen) sobre la superficie neutra,
+    sin overrides de color de texto.

@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertCircle, ArrowLeft, Plus, RotateCcw } from '@lucide/vue'
-import { currentMonthLabel, formatDateOnly } from '@/lib/date'
+import { AlertCircle, ArrowLeft, CreditCard as CreditCardIcon, Plus, RotateCcw, User } from '@lucide/vue'
+import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
+import { readableTextColor, withAlpha } from '@/lib/colors'
 import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
 import { useCreditCardsStore } from '@/stores/creditCards'
 import { useCardPeopleStore } from '@/stores/cardPeople'
@@ -11,6 +12,7 @@ import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/ca
 import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
 import CardFormSheet from '@/components/CardFormSheet.vue'
 import CardExpenseFormSheet from '@/components/CardExpenseFormSheet.vue'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
@@ -79,7 +81,11 @@ const limitProgress = computed(() => {
   if (!limit) return 0
   return (cardMonthTotal.value / limit) * 100
 })
-const limitProgressLabel = computed(() => `${Math.round(limitProgress.value)}% usado`)
+// Sección 4.1.3: derivado 100% de `limitProgress`, sin dato ni query nueva.
+const limitAvailableLabel = computed(() => {
+  if (limitProgress.value <= 100) return `${Math.round(100 - limitProgress.value)}% disponible`
+  return `Superado por ${Math.round(limitProgress.value - 100)}%`
+})
 const limitBarColorClass = computed(() => {
   if (limitProgress.value > 100) return 'bg-destructive'
   if (limitProgress.value >= 80) return 'bg-warning'
@@ -142,9 +148,6 @@ function goToTransactions() {
       <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'cards' })">
         <ArrowLeft class="size-5" />
       </Button>
-      <h1 class="text-xl font-semibold">
-        {{ card?.name ?? 'Tarjeta' }}
-      </h1>
     </header>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -186,12 +189,31 @@ function goToTransactions() {
 
       <template v-else-if="card">
         <!-- Sección 4.1: hero + progreso contra límite sugerido -->
-        <Card>
-          <CardHeader>
-            <CardDescription>Total en {{ monthLabel }}</CardDescription>
-            <CardTitle class="text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
-              <span class="align-top text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(cardMonthTotal) }}
-            </CardTitle>
+        <Card :style="{ backgroundColor: withAlpha(card.color, 0.16) }">
+          <CardHeader class="gap-4">
+            <div class="flex items-center gap-3">
+              <span
+                class="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                :style="{ backgroundColor: card.color ?? 'hsl(var(--muted))' }"
+              >
+                <CreditCardIcon class="size-4.5" :style="{ color: readableTextColor(card.color) }" />
+              </span>
+              <div class="flex min-w-0 flex-col">
+                <p class="truncate text-sm font-semibold">
+                  {{ card.name }}
+                </p>
+                <p class="truncate text-xs text-muted-foreground">
+                  •••• {{ card.last_four_digits }}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <CardDescription>Total en {{ monthLabel }}</CardDescription>
+              <CardTitle class="text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
+                <span class="align-top text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(cardMonthTotal) }}
+              </CardTitle>
+            </div>
           </CardHeader>
 
           <div v-if="card.suggested_monthly_limit" class="flex flex-col gap-1.5 px-6 pb-6">
@@ -203,8 +225,8 @@ function goToTransactions() {
               />
             </div>
             <div class="flex items-center justify-between text-xs text-muted-foreground">
-              <span>Límite mensual sugerido: ${{ formatAmount(card.suggested_monthly_limit) }}</span>
-              <span>{{ limitProgressLabel }}</span>
+              <span>Límite mensual (sugerido): ${{ formatAmount(cardMonthTotal) }} / ${{ formatAmount(card.suggested_monthly_limit) }}</span>
+              <span>{{ limitAvailableLabel }}</span>
             </div>
             <p class="text-xs text-muted-foreground">
               Este límite es solo una referencia que vos definiste, no un límite real de tu tarjeta ni de tu banco.
@@ -257,29 +279,47 @@ function goToTransactions() {
           <div v-else class="flex flex-col">
             <template v-for="(expense, idx) in recentExpenses" :key="expense.id">
               <Separator v-if="idx > 0" />
-              <div class="flex items-center gap-3 px-4 py-3" :class="{ 'opacity-70': expense._pending }">
-                <span class="w-16 shrink-0 truncate text-sm font-semibold">
-                  {{ expense.person?.name ?? 'Sin persona' }}
-                </span>
-                <span class="min-w-0 flex-1 truncate text-sm text-muted-foreground">
-                  {{ expenseTitle(expense) }}
-                </span>
+              <div class="flex items-start gap-3 px-4 py-3" :class="{ 'opacity-70': expense._pending }">
                 <span
-                  v-if="expense.installment_total"
-                  class="shrink-0 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary tabular-nums"
+                  v-if="expense.person?.color"
+                  class="flex size-9 shrink-0 items-center justify-center rounded-full"
+                  :style="{ background: expense.person.color }"
                 >
-                  {{ expense.installment_number }}/{{ expense.installment_total }}
+                  <User class="size-4" :style="{ color: readableTextColor(expense.person.color) }" />
                 </span>
-                <span class="shrink-0 text-sm font-semibold tabular-nums">
-                  ${{ formatAmount(expense.amount) }}
+                <span v-else class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
+                  <User class="size-4 text-muted-foreground" />
                 </span>
+
+                <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <div class="flex items-start justify-between gap-2">
+                    <p class="truncate text-sm font-medium">
+                      {{ expenseTitle(expense) }}
+                    </p>
+                    <p class="shrink-0 text-sm font-semibold tabular-nums">
+                      ${{ formatAmount(expense.amount) }}
+                    </p>
+                  </div>
+                  <div class="flex items-center justify-between gap-2">
+                    <span class="truncate text-xs text-muted-foreground">
+                      {{ expense.person?.name ?? 'Sin persona asignada' }} · {{ formatExpenseDateHeading(expense.expense_date) }}
+                    </span>
+                    <Badge
+                      v-if="expense.installment_total"
+                      variant="secondary"
+                      class="shrink-0 px-1.5 py-0 text-[10px] tabular-nums"
+                    >
+                      {{ expense.installment_number }}/{{ expense.installment_total }}
+                    </Badge>
+                  </div>
+                </div>
               </div>
             </template>
           </div>
         </Card>
 
         <!-- Sección 4.4: resumen -->
-        <Card>
+        <Card :style="{ backgroundColor: withAlpha(card.color, 0.08) }">
           <CardHeader>
             <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Resumen del mes
