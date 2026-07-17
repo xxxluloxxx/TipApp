@@ -139,13 +139,20 @@ export const COLOR_SWATCHES = [
 ] as const
 
 /**
- * Paleta de color de cuentas (accounts-income-ux.md sección 4): 8 tonos
+ * Paleta de color de cuentas (accounts-income-ux.md sección 4): tonos
  * "jewel tone" nuevos y separados de `COLOR_SWATCHES` (no se amplía ese
  * array — sección 4.4 del doc explica por qué: son 3 consumidores ya
  * shippeados que no pidieron este cambio visual, y los tonos de cuenta
  * necesitan una noción de tema que `COLOR_SWATCHES` no tiene). `hex` es el
  * valor "claro" que se persiste en `accounts.color`; `darkHex` es solo de
  * presentación (ver `resolveAccountColor`), nunca se guarda en la base.
+ *
+ * Ampliada de 8 a 12 (pedido del usuario: faltaba un amarillo real —
+ * "Dorado" es más bronce/ámbar que amarillo). Los 4 nuevos siguen el mismo
+ * criterio de calibración que los 8 originales: `hex` ronda un 700 de
+ * Tailwind (tono profundo, legible con `readableTextColor`), `darkHex` es
+ * una variante a mano un poco más clara/saturada para seguir siendo nítida
+ * sobre el fondo oscuro real de la app.
  */
 export const ACCOUNT_COLOR_SWATCHES = [
   { hex: '#b45309', darkHex: '#df670b', label: 'Dorado' },
@@ -156,6 +163,10 @@ export const ACCOUNT_COLOR_SWATCHES = [
   { hex: '#0891b2', darkHex: '#099fc3', label: 'Cian' },
   { hex: '#047857', darkHex: '#06a87a', label: 'Esmeralda' },
   { hex: '#4d7c0f', darkHex: '#609b13', label: 'Oliva' },
+  { hex: '#a16207', darkHex: '#ca8a04', label: 'Amarillo' },
+  { hex: '#be185d', darkHex: '#e23a7c', label: 'Rosa' },
+  { hex: '#0f766e', darkHex: '#15a394', label: 'Turquesa' },
+  { hex: '#475569', darkHex: '#64748b', label: 'Pizarra' },
 ] as const
 
 /**
