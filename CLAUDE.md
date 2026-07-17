@@ -4,15 +4,21 @@ Contexto resumido del proyecto para futuras sesiones de Claude Code.
 
 ## Qué es TipApp
 
-TipApp v1 es una app de **control de gastos personales de un solo usuario**:
-cada usuario registra sus propios gastos, los clasifica en categorías
-(default o custom) y, opcionalmente, define presupuestos por categoría/mes.
-Ya es una **PWA instalable** (ver sección de estado actual).
+TipApp v1 es una app de **control de gastos e ingresos personales de un solo
+usuario**: cada usuario registra sus movimientos (gastos e ingresos),
+imputados a una **cuenta** propia (billetera, banco, efectivo, etc.) y, en el
+caso de los gastos, clasificados en categorías (default o custom). El saldo
+de cada cuenta es un acumulado all-time (saldo inicial + ingresos - gastos de
+esa cuenta), no un corte mensual. Opcionalmente define presupuestos por
+categoría/mes. Ya es una **PWA instalable** (ver sección de estado actual).
 
 **Fuera de alcance explícito en v1**: gastos compartidos/grupales tipo
 Splitwise — no hay grupos, miembros de grupo, splits de gasto entre personas,
-ni conceptos de deuda/settlement. Es una iteración futura, no confundir el
-modelo de datos actual (mono-usuario) con eso.
+ni conceptos de deuda/settlement. **Fase 2 prevista pero no implementada**:
+Deudas/Préstamos (yo presté / me prestaron) — hay un acceso rápido
+deshabilitado "Deudas" en el dashboard que anticipa esta fase futura, sin
+ninguna tabla ni lógica real todavía. No confundir el modelo de datos actual
+con ninguna de las dos.
 
 El proyecto se construye de forma incremental: primero se validó el pipeline
 de deploy con un esqueleto mínimo, luego backend (Supabase) y sistema de
@@ -40,6 +46,160 @@ Todo el stack se eligió priorizando permanecer dentro de los límites de los
 planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
+
+Se agregó **Cuentas + Ingresos (Fase 1 de 2)**: cada gasto y cada ingreso
+pasa a pertenecer a una cuenta propia del usuario (billetera, banco,
+efectivo, etc.), con saldo all-time (saldo inicial + ingresos - gastos)
+calculado en el servidor. La Fase 2 ("Deudas/Préstamos") es un encargo
+aparte, todavía no implementado — solo se dejó un acceso rápido
+deshabilitado en el dashboard que anticipa ese lugar. Trabajo de las tres
+capas (backend + UX + frontend) en esta iteración, con dos rondas de
+backend porque `ui-ux-designer` y `supabase-backend-expert` corrieron en
+paralelo y el doc de UX terminó pidiendo un campo (`initial_balance`) que la
+primera pasada de backend no había modelado — se resolvió con una migración
+adicional antes de pasar a frontend, ver detalle abajo.
+
+- **Backend** (`supabase-backend-expert`, dos rondas): 6 migraciones nuevas
+  en `supabase/migrations/` (`20260716142017` a `20260716142022`), todas
+  aplicadas al proyecto remoto real vía `supabase db push`.
+  - `accounts(id, user_id, name, color, icon, initial_balance numeric(12,2)
+    not null default 0, created_at, updated_at)` — mismo patrón que
+    `credit_cards` (sin fila "default del sistema", 100% del usuario);
+    `color`/`icon` son `text` libres sin `check` en BD (el frontend
+    restringe a paleta/set fijos, mismo criterio que `categories.color`).
+    `initial_balance` se agregó en una migración separada
+    (`20260716142022`) porque el doc de UX (sección 6.3 de
+    `accounts-income-ux.md`) lo pidió después de que la primera tanda de
+    migraciones ya estuviera en remoto — sin backfill manual necesario,
+    `default 0` ya cubre las filas existentes.
+  - `incomes(id, user_id, account_id not null → accounts, amount
+    numeric(12,2) check > 0, income_date, description, created_at,
+    updated_at)` — simétrica a `expenses` pero sin categoría (evaluado y
+    descartado explícitamente, ver doc de UX sección 7.2). Trigger
+    `incomes_validate_account_trigger` valida que `account_id` pertenezca al
+    mismo `user_id`.
+  - `expenses.account_id` (`uuid not null → accounts on delete restrict`)
+    agregada en 3 pasos (nullable → backfill de una cuenta "General" por
+    usuario existente con gastos, asignada a sus gastos → `not null`).
+    `expenses_validate_category_trigger`/`expenses_validate_category()` se
+    reemplazaron por `expenses_validate_owner_trigger`/
+    `expenses_validate_owner()`, que valida `category_id` **y** `account_id`
+    en una sola pasada (nombre alineado con `card_expenses_validate_owner`).
+  - **Cuenta "General" automática para usuarios nuevos**: se extendió
+    `handle_new_user()` (`20260716142005_profiles_init.sql`) para crear,
+    además del `profile`, una cuenta "General" (`#6b7280`, ícono `Wallet`) en
+    el mismo insert — se prefirió esto sobre forzar un flujo de "creá tu
+    primera cuenta" en el frontend, por consistencia con el patrón ya
+    existente y para no bloquear el alta del primer gasto/ingreso.
+  - **Saldo por cuenta**: vista `public.account_balances(account_id,
+    user_id, name, balance)` con `with (security_invoker = true)` —
+    `balance = accounts.initial_balance + Σincomes.amount -
+    Σexpenses.amount`, agregado en subqueries separadas por tabla antes del
+    join final (evita el fan-out cartesiano de unir dos tablas 1-a-muchos
+    directamente). Se eligió vista sobre función `rpc` porque no hace falta
+    bypassear RLS (`security_invoker` hereda automáticamente las policies
+    `select_own` de `accounts`/`incomes`/`expenses`) — más simple y sin el
+    riesgo de una `rpc security definer` mal filtrada. Consumida desde el
+    frontend como `supabase.from('account_balances').select('*')`, **nunca**
+    calculada sumando `expensesStore.expenses`/una lista de ingresos capada
+    en cliente (mismo argumento de escala/seguridad que ya motivó
+    `isMonthSafeToShow` en `dashboard-redesign-ux.md` y las queries acotadas
+    por rango de fecha de `credit-cards-ux.md`).
+  - RLS activo en `accounts`/`incomes`, mismo patrón exacto que el resto
+    (policies explícitas por operación, scoped a `user_id = auth.uid()`).
+  - `src/types/database.types.ts` regenerado dos veces (una por cada ronda
+    de migraciones) para reflejar el esquema final.
+- **Diseño** (`ui-ux-designer`): especificación completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/accounts-income-ux.md`
+  — consultar antes de tocar `AccountsView.vue`, `AccountFormSheet.vue`,
+  `TransactionFormSheet.vue`, `HomeView.vue` o `TrendAreaChart.vue`.
+  Decisiones clave:
+  - **El hero "Total del mes" de Inicio NO se convierte en "saldo total"**:
+    conviven. Son preguntas de naturaleza distinta (flujo mensual vs. stock
+    actual) y fusionarlas invertiría la semántica de color ya implementada
+    del delta "vs. mes anterior" (gastar más = malo; tener más saldo =
+    bueno) en un componente ya shippeado y coherente en toda la app. Se
+    agrega una sección nueva "Mis cuentas" (grid + saldo total + tile
+    "Agregar cuenta") y "Accesos rápidos" inmediatamente debajo del hero
+    existente, antes de la dona de categorías (que no cambia).
+  - **Paleta de cuentas calibrada y validada**: 8 tonos "jewel tone" nuevos,
+    con variante `darkHex` por swatch (`ACCOUNT_COLOR_SWATCHES` en
+    `src/lib/colors.ts`, separada de `COLOR_SWATCHES` a propósito — ver
+    justificación de "por qué no fragmentar vs. por qué no diluir" en el
+    doc, sección 4.4): `#b45309` dorado, `#1d4ed8` azul, `#be123c` granate,
+    `#7e22ce` violeta, `#86198f` ciruela, `#0891b2` cian, `#047857`
+    esmeralda, `#4d7c0f` oliva. Validada con el script
+    `validate_palette.js` de la skill de dataviz en ambos temas.
+  - **Set de íconos**: `Wallet`, `PiggyBank`, `Landmark`, `Building2`,
+    `ShieldCheck`, `Banknote` (los 6 sugeridos por el Product Owner,
+    confirmados en `@lucide/vue`, sin instalar nada).
+  - **Mejora de `TrendAreaChart.vue`** (pedido explícito): curva suavizada
+    (técnica de punto medio con `Q`, sin librería de spline) + relleno de
+    gradiente (antes opacidad plana) — sigue siendo SVG a mano, sin
+    dependencias nuevas.
+  - **`ExpenseFormSheet.vue` renombrado a `TransactionFormSheet.vue`**: se
+    extendió con un toggle Gasto/Ingreso (en vez de crear un Sheet nuevo,
+    por la simetría casi total entre ambos modelos) y un `Select` de Cuenta
+    nuevo, con default "la cuenta del movimiento más reciente" (no siempre
+    "General", para no forzar reselección manual en cada alta).
+  - **`/cuentas`** (ruta única, no dashboard/detalle propio como tarjetas):
+    listado + Sheet de alta/edición, con **dos guards de borrado** (conteo
+    de uso, igual que categorías/tarjetas, y "nunca la última cuenta del
+    usuario" — regla nueva, porque todo movimiento necesita una cuenta).
+  - **"Deudas" y "Pagos"** en los accesos rápidos: deshabilitados con copy
+    "Próximamente" explícito, sin `@click` ni ruta — nunca 404. Solo "Saldo"
+    es funcional (navega a `/cuentas`).
+- **Frontend** (`vue-frontend-expert`): `src/stores/accounts.ts` (CRUD
+  optimista + conteo de uso dedicado + lectura de `account_balances`, con
+  `adjustBalance(id, delta)` como único punto de mutación del saldo local
+  desde otros stores) y `src/stores/incomes.ts` (mismo patrón que
+  `expenses.ts`, sin `monthTotal`). `src/stores/expenses.ts` ahora incluye
+  `accountId` en el payload y ajusta el saldo optimista de la cuenta
+  correspondiente vía `accountsStore.adjustBalance` en alta/edición/
+  borrado. `src/components/TransactionFormSheet.vue` (reemplaza a
+  `ExpenseFormSheet.vue`, eliminado) y `src/components/AccountFormSheet.vue`
+  (nuevo) y `src/views/AccountsView.vue` (nuevo, ruta `/cuentas`).
+  `src/lib/colors.ts`: `ACCOUNT_COLOR_SWATCHES`/`resolveAccountColor`
+  agregados como exportaciones nuevas, sin tocar nada existente (en
+  particular, sin interferir con el selector de color de acento — ver nota
+  abajo). `src/lib/accountIcons.ts` (nuevo). `src/components/charts/
+  TrendAreaChart.vue`: curva suavizada + gradiente, mismo contrato de props.
+  `src/views/HomeView.vue`: "Mis cuentas" + "Accesos rápidos" + ítem de
+  drawer "Cuentas" (`Wallet`, 4ª posición) + "Transacciones recientes"
+  mezclando gasto/ingreso con indicador de signo. `src/views/
+  TransactionsView.vue`: mismo mezclado, conservando el layout de Card ya
+  shippeado (no se migró al estilo de fila plana del ejemplo del doc, que
+  solo aplica literal a "Transacciones recientes" de Inicio). `src/router/
+  index.ts`: ruta `/cuentas`. `npm run build` (`vue-tsc --build` + `vite
+  build`) verificado sin errores, tanto por el agente como de forma
+  independiente por el Product Owner (`rm -rf dist && npm run build`).
+  - **Nota sobre concurrencia con otra sesión**: mientras esta iteración
+    corría, otra sesión completó y **commiteó y pusheó a `main`** (commit
+    `6e3c30d`) un selector de color de acento en Ajustes (`docs/features/
+    accent-color-ux.md`, cambios en `src/lib/colors.ts`/`src/stores/
+    auth.ts`/`src/views/SettingsView.vue`/`index.html`), trabajo
+    completamente ajeno a este encargo. Se verificó que no hay conflicto
+    real: `ACCOUNT_COLOR_SWATCHES`/`resolveAccountColor` son exportaciones
+    nuevas y separadas de `hexToHslTriple` (que usa el color de acento), y
+    ningún archivo de esa feature fue tocado por esta iteración.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente contra el Supabase real en el navegador (mismo
+  caveat recurrente de todas las iteraciones previas) — en particular, no se
+  verificó a ojo el flujo completo crear cuenta → cargar ingreso → ver
+  reflejado el saldo en "Mis cuentas" → editar/eliminar cuenta con los dos
+  guards. Recomendado antes de dar la feature por cerrada en producción.
+- No existe `AccountDetailView` (historial de movimientos por cuenta,
+  análogo a `CardDetailView.vue`) — decisión explícita de alcance del doc de
+  UX, no un olvido; candidata natural para una futura sesión si se pide.
+- Sin categorías de ingreso (evaluado y descartado explícitamente, doc de
+  UX sección 7.2) — anotado como posible mejora de una fase futura.
+- El acceso rápido "Pagos" queda deshabilitado sin ningún plan confirmado
+  (a diferencia de "Deudas", que sí tiene una Fase 2 real prevista) —sin
+  ruta ni lógica, solo el placeholder.
+- El estado vacío de Inicio sigue gateado solo por
+  `expensesStore.expenses.length === 0` (no se amplió a "expenses o incomes
+  vacíos") — edge case aceptado, no pedido explícitamente por el doc.
 
 Se agregó **PWA instalable**: manifest válido, service worker con
 autoactualización e ícono placeholder. Alcance deliberadamente mínimo — nada
@@ -639,48 +799,66 @@ en todos los anchos).
    Transacciones → agregar/editar/eliminar gasto ahí → estado vacío de
    Inicio → `?new=1` hacia Transacciones → crear/editar/eliminar categoría
    propia desde `/categorias` → `/estadisticas` (dona completa, detalle de
-   "Otros", tendencia diaria, "Por mes") → `/ajustes` (cambiar tema,
-   refrescar y confirmar que persiste) → **`/tarjetas`: crear una tarjeta y
-   una persona desde `/tarjetas/gestionar`, cargar un gasto con y sin
-   cuotas/persona desde el Sheet, confirmar el total/dona/ranking del
+   "Otros", tendencia diaria, "Por mes") → `/ajustes` (cambiar tema, color de
+   acento, refrescar y confirmar que persiste) → **`/tarjetas`: crear una
+   tarjeta y una persona desde `/tarjetas/gestionar`, cargar un gasto con y
+   sin cuotas/persona desde el Sheet, confirmar el total/dona/ranking del
    dashboard de tarjetas, filtrar en `/tarjetas/transacciones` por mes/
    tarjeta/persona, revisar el detalle de una tarjeta (barra de límite
    sugerido, movimientos recientes, resumen) y confirmar que "Eliminar"
    queda deshabilitado en una tarjeta/persona con gastos asociados** →
-   drawer de 7 ítems (resaltado de ruta activa) → logout → refresh de
-   página (verificar que no hay flash de contenido ni de tema incorrecto) →
+   **`/cuentas`: crear una cuenta con saldo inicial distinto de 0, cargar un
+   ingreso y un gasto contra ella desde `TransactionFormSheet` (toggle
+   Gasto/Ingreso), confirmar que "Mis cuentas" y el saldo total de Inicio
+   reflejan el movimiento sin refrescar, confirmar los dos guards de
+   borrado (cuenta con movimientos, y "nunca la última cuenta")** → drawer
+   de 8 ítems (resaltado de ruta activa) → logout → refresh de página
+   (verificar que no hay flash de contenido ni de tema incorrecto) →
    **probar la instalación real como PWA en un celular** (Chrome Android:
    banner/menú "Instalar app"; Safari iOS: "Compartir" → "Agregar a
    pantalla de inicio") una vez deployado. No se hizo en esta iteración ni
    en las anteriores (la verificación fue build + revisión de código) —
    recomendado antes de dar estas features por cerradas en producción.
-2. **Estrategia offline real** (opcional, evaluar prioridad): hoy la PWA es
+2. **Fase 2: Deudas/Préstamos** (yo presté / me prestaron) — encargo aparte
+   ya anticipado por un acceso rápido deshabilitado en el dashboard de
+   Inicio (ver "Qué es TipApp" arriba). Requiere diseño de esquema nuevo
+   (probablemente una tabla de movimientos de deuda con contraparte
+   nombrada, sin login/invitación, mismo criterio "sin multi-usuario real"
+   ya usado para `card_people`) y UX propia — no empezar sin encargo
+   explícito del Product Owner.
+3. **Estrategia offline real** (opcional, evaluar prioridad): hoy la PWA es
    instalable pero no "offline-first" — decidir si vale la pena cachear
    algo de los datos de Supabase (p. ej. último snapshot de gastos) para
    una experiencia degradada sin conexión, o si no es prioritario para v1.
-3. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
+4. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
    presupuesto por categoría/mes y barra de progreso (componente `Progress`,
    Fase 2 del design system) — diseñar primero con `ui-ux-designer`.
-4. **Reportes reales**: reemplazar el estado "Próximamente" de `/reportes`
+5. **Reportes reales**: reemplazar el estado "Próximamente" de `/reportes`
    por funcionalidad real (exportar/filtrar) una vez que haya claridad de
    producto sobre qué formato/alcance tiene sentido — hoy es honestamente
    un placeholder, no un MVP recortado.
-5. **Revisar el orden de categorías default**: agregar columna `sort_order`
+6. **Revisar el orden de categorías default**: agregar columna `sort_order`
    en `categories` con `supabase-backend-expert` si el orden fijo de
    categorías (Comida, Transporte, ...) necesita quedar garantizado (ver
    deuda técnica arriba).
-6. **Revisar la paleta de colores de categorías** (hallazgo de esta
+7. **Revisar la paleta de colores de categorías** (hallazgo de esta
    iteración, ver arriba): el par Vivienda/Transporte no separa lo
    suficiente para daltonismo — evaluar una migración de colores con
    `supabase-backend-expert` + `ui-ux-designer`.
-7. **`AppShell` compartido**: si a futuro se quiere un sidebar persistente
+8. **`AppShell` compartido**: si a futuro se quiere un sidebar persistente
    en desktop (descartado en esta iteración por ser retrabajo grande sin un
    layout compartido hoy), es el momento de extraerlo — candidato natural
-   una vez que el número de secciones (hoy 6) se estabilice.
-8. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
-   grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement.
-   Requiere rediseño de esquema (tablas de grupos/miembros) y de UX; no
-   mezclar con el modelo mono-usuario actual.
+   una vez que el número de secciones (hoy 8) se estabilice.
+9. **`AccountDetailView`** (opcional, no pedido todavía): historial de
+   movimientos por cuenta, análogo a `CardDetailView.vue` — candidata
+   natural si el Product Owner pide poder ver el detalle de una cuenta
+   puntual (hoy las tiles de "Mis cuentas" y las filas de `/cuentas` son de
+   solo lectura/gestión, sin detalle).
+10. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
+    grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement.
+    Requiere rediseño de esquema (tablas de grupos/miembros) y de UX; no
+    mezclar con el modelo mono-usuario actual (distinto también de la Fase 2
+    de Deudas/Préstamos ya prevista arriba, que es 1:1 sin grupos).
 
 ## Convenciones y principios del proyecto
 

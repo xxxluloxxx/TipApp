@@ -45,6 +45,7 @@ export type Database = {
           created_at: string
           icon: string | null
           id: string
+          initial_balance: number
           name: string
           updated_at: string
           user_id: string
@@ -54,6 +55,7 @@ export type Database = {
           created_at?: string
           icon?: string | null
           id?: string
+          initial_balance?: number
           name: string
           updated_at?: string
           user_id: string
@@ -63,6 +65,7 @@ export type Database = {
           created_at?: string
           icon?: string | null
           id?: string
+          initial_balance?: number
           name?: string
           updated_at?: string
           user_id?: string

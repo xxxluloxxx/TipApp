@@ -3,27 +3,36 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
+  ArrowDownCircle,
   ArrowLeftRight,
   ArrowUp,
   ArrowDown,
   ChartPie,
+  CircleDollarSign,
   CreditCard,
   FileText,
+  HandCoins,
   Home,
   LogOut,
   Menu,
+  Plus,
   Receipt,
   RotateCcw,
+  Scale,
   Settings,
   Tag,
+  Wallet,
 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
+import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
-import { useExpensesStore } from '@/stores/expenses'
+import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
+import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
 import { currentMonthLabel, formatExpenseDateHeading, parseDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { withAlpha } from '@/lib/colors'
+import { resolveAccountColor, withAlpha } from '@/lib/colors'
+import { resolveAccountIcon } from '@/lib/accountIcons'
 import { buildCumulativeDailySeries, buildDonutSlices, isMonthSafeToShow, type CategoryTotal } from '@/lib/charts'
 import TrendAreaChart from '@/components/charts/TrendAreaChart.vue'
 import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
@@ -42,20 +51,31 @@ const router = useRouter()
 const route = useRoute()
 const authStore = useAuthStore()
 const expensesStore = useExpensesStore()
+const incomesStore = useIncomesStore()
 const categoriesStore = useCategoriesStore()
+const accountsStore = useAccountsStore()
+
+const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
 
 // Inicio sigue siendo dueño de su propio fetch (sección 2.5): sigue
 // necesitando gastos/categorías para el hero/dona/recientes, aunque ya no
-// renderice el listado completo.
+// renderice el listado completo. accounts-income-ux.md sección 2/7 agrega
+// cuentas/ingresos a este mismo fetch conjunto.
 async function loadAll() {
   loadError.value = false
   isInitialLoading.value = true
   try {
-    await Promise.all([categoriesStore.fetchCategories(), expensesStore.fetchAll()])
-    if (expensesStore.error) loadError.value = true
+    await Promise.all([
+      categoriesStore.fetchCategories(),
+      expensesStore.fetchAll(),
+      incomesStore.fetchAll(),
+      accountsStore.fetchAccounts(),
+      accountsStore.fetchBalances(),
+    ])
+    if (expensesStore.error || incomesStore.error) loadError.value = true
   } finally {
     isInitialLoading.value = false
   }
@@ -142,12 +162,51 @@ const donutSlices = computed(() => {
   return buildDonutSlices([...totals.values()], 5)
 })
 
-// Sección 2.4: últimas 5 transacciones, de solo lectura. La lista ya viene
-// ordenada `expense_date desc, created_at desc` desde el store.
-const recentExpenses = computed(() => expensesStore.expenses.slice(0, 5))
+// Sección 2.3 de accounts-income-ux.md: hasta 5 cuentas, ordenadas desc por
+// saldo (las más significativas primero, mismo criterio que `cardsRanking`
+// de credit-cards-ux.md) + siempre la tile "Agregar cuenta" al final
+// (manejada aparte en el template, no en este computed).
+const topAccounts = computed(() =>
+  [...accountsStore.accounts]
+    .sort((a, b) => accountsStore.balanceFor(b.id) - accountsStore.balanceFor(a.id))
+    .slice(0, 5),
+)
 
-function expenseTitle(expense: (typeof recentExpenses.value)[number]): string {
-  return expense.description || expense.category.name
+type TransactionItem =
+  | { kind: 'expense', id: string, date: string, data: ExpenseWithCategory }
+  | { kind: 'income', id: string, date: string, data: IncomeWithAccount }
+
+// Sección 7.5: "Transacciones recientes" mezcla gasto e ingreso, ordenadas
+// por fecha desc — mismo criterio de merge que `TransactionsView.vue`,
+// recortado a las últimas 5 (sección 2.4, sin cambios de alcance: sigue
+// siendo de solo lectura).
+const recentItems = computed<TransactionItem[]>(() => {
+  const expenseItems: TransactionItem[] = expensesStore.expenses.map(expense => ({
+    kind: 'expense',
+    id: expense.id,
+    date: expense.expense_date,
+    data: expense,
+  }))
+  const incomeItems: TransactionItem[] = incomesStore.incomes.map(income => ({
+    kind: 'income',
+    id: income.id,
+    date: income.income_date,
+    data: income,
+  }))
+  return [...expenseItems, ...incomeItems]
+    .sort((a, b) => {
+      if (a.date !== b.date) return a.date < b.date ? 1 : -1
+      return b.data.created_at.localeCompare(a.data.created_at)
+    })
+    .slice(0, 5)
+})
+
+function itemTitle(item: TransactionItem): string {
+  if (item.kind === 'expense') return item.data.description || item.data.category.name
+  return item.data.description || 'Ingreso'
+}
+function itemSubtitle(item: TransactionItem): string {
+  return item.kind === 'expense' ? item.data.category.name : item.data.account.name
 }
 
 const accountLabel = computed(() => authStore.profile?.display_name || authStore.user?.email || '')
@@ -164,7 +223,7 @@ async function onLogout() {
 // selector de tema, movido a Ajustes).
 const isDrawerOpen = ref(false)
 
-type NavRouteName = 'home' | 'transactions' | 'cards' | 'categories' | 'statistics' | 'reports' | 'settings'
+type NavRouteName = 'home' | 'transactions' | 'cards' | 'accounts' | 'categories' | 'statistics' | 'reports' | 'settings'
 
 function isActive(name: NavRouteName): boolean {
   return route.name === name
@@ -247,6 +306,16 @@ function goAddFirstExpense() {
             >
               <CreditCard class="size-5 shrink-0" />
               Tarjetas de crédito
+            </button>
+            <button
+              type="button"
+              class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="isActive('accounts') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+              :aria-current="isActive('accounts') ? 'page' : undefined"
+              @click="navigateFromDrawer('accounts')"
+            >
+              <Wallet class="size-5 shrink-0" />
+              Cuentas
             </button>
             <button
               type="button"
@@ -422,6 +491,89 @@ function goAddFirstExpense() {
           />
         </Card>
 
+        <!-- accounts-income-ux.md sección 2.3: "Mis cuentas" -->
+        <Card>
+          <CardHeader>
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex flex-col gap-0.5">
+                <CardTitle class="text-base font-semibold">
+                  Mis cuentas
+                </CardTitle>
+                <CardDescription>
+                  Saldo total: <span class="font-semibold tabular-nums text-foreground">${{ formatAmount(accountsStore.totalBalance) }}</span>
+                </CardDescription>
+              </div>
+              <CardAction>
+                <Button variant="link" size="sm" class="h-auto p-0" @click="router.push({ name: 'accounts' })">
+                  Ver todas
+                </Button>
+              </CardAction>
+            </div>
+          </CardHeader>
+
+          <div class="grid grid-cols-2 gap-3 px-4 pb-4 sm:px-6 sm:pb-6">
+            <button
+              v-for="account in topAccounts"
+              :key="account.id"
+              type="button"
+              class="flex flex-col gap-2 rounded-lg border border-border p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              disabled
+              aria-disabled="true"
+            >
+              <span
+                class="flex size-9 shrink-0 items-center justify-center rounded-full"
+                :style="{ backgroundColor: withAlpha(account.color, 0.15) }"
+              >
+                <component
+                  :is="resolveAccountIcon(account.icon)"
+                  class="size-5"
+                  :style="{ color: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                />
+              </span>
+              <div class="flex flex-col gap-0.5">
+                <p class="truncate text-sm font-medium">
+                  {{ account.name }}
+                </p>
+                <p
+                  class="text-sm font-semibold tabular-nums"
+                  :class="accountsStore.balanceFor(account.id) < 0 ? 'text-destructive' : 'text-foreground'"
+                >
+                  {{ accountsStore.balanceFor(account.id) < 0 ? '-' : '' }}${{ formatAmount(Math.abs(accountsStore.balanceFor(account.id))) }}
+                </p>
+              </div>
+            </button>
+
+            <button
+              type="button"
+              class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              @click="router.push({ name: 'accounts', query: { new: '1' } })"
+            >
+              <Plus class="size-5" />
+              Agregar cuenta
+            </button>
+          </div>
+        </Card>
+
+        <!-- accounts-income-ux.md sección 9: Accesos rápidos -->
+        <div class="flex gap-2">
+          <Button variant="outline" class="flex h-auto flex-1 flex-col gap-1 py-3" @click="router.push({ name: 'accounts' })">
+            <Scale class="size-5" />
+            <span class="text-xs font-medium">Saldo</span>
+          </Button>
+
+          <Button variant="outline" class="flex h-auto flex-1 flex-col gap-1 py-3" disabled aria-disabled="true">
+            <CircleDollarSign class="size-5" />
+            <span class="text-xs font-medium">Pagos</span>
+            <span class="text-[10px] text-muted-foreground">Próximamente</span>
+          </Button>
+
+          <Button variant="outline" class="flex h-auto flex-1 flex-col gap-1 py-3" disabled aria-disabled="true">
+            <HandCoins class="size-5" />
+            <span class="text-xs font-medium">Deudas</span>
+            <span class="text-[10px] text-muted-foreground">Próximamente</span>
+          </Button>
+        </div>
+
         <Card v-if="donutSlices.length">
           <CardHeader>
             <CardTitle class="text-base font-semibold">
@@ -461,29 +613,40 @@ function goAddFirstExpense() {
           </CardHeader>
 
           <div class="flex flex-col">
-            <template v-for="(expense, idx) in recentExpenses" :key="expense.id">
+            <template v-for="(item, idx) in recentItems" :key="`${item.kind}-${item.id}`">
               <Separator v-if="idx > 0" />
               <div class="flex items-center gap-3 px-6 py-3">
                 <span
+                  v-if="item.kind === 'expense'"
                   class="flex size-9 shrink-0 items-center justify-center rounded-full border"
-                  :style="{ backgroundColor: withAlpha(expense.category.color, 0.12), borderColor: expense.category.color ?? undefined }"
+                  :style="{ backgroundColor: withAlpha(item.data.category.color, 0.12), borderColor: item.data.category.color ?? undefined }"
                 >
-                  <span v-if="expense.category.icon" class="text-sm leading-none">{{ expense.category.icon }}</span>
+                  <span v-if="item.data.category.icon" class="text-sm leading-none">{{ item.data.category.icon }}</span>
+                </span>
+                <span
+                  v-else
+                  class="flex size-9 shrink-0 items-center justify-center rounded-full border"
+                  :style="{ backgroundColor: withAlpha(resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow), 0.12), borderColor: resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow) }"
+                >
+                  <ArrowDownCircle class="size-4" :style="{ color: resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow) }" />
                 </span>
                 <div class="flex min-w-0 flex-1 flex-col">
                   <p class="truncate text-sm font-medium">
-                    {{ expenseTitle(expense) }}
+                    {{ itemTitle(item) }}
                   </p>
                   <p class="truncate text-xs text-muted-foreground">
-                    {{ expense.category.name }}
+                    {{ itemSubtitle(item) }}
                   </p>
                 </div>
                 <div class="flex flex-col items-end gap-0.5">
-                  <p class="text-sm font-semibold tabular-nums">
-                    ${{ formatAmount(expense.amount) }}
+                  <p
+                    class="text-sm font-semibold tabular-nums"
+                    :class="item.kind === 'income' ? 'text-success' : 'text-foreground'"
+                  >
+                    {{ item.kind === 'income' ? '+' : '' }}${{ formatAmount(item.data.amount) }}
                   </p>
                   <p class="text-xs text-muted-foreground">
-                    {{ formatExpenseDateHeading(expense.expense_date) }}
+                    {{ formatExpenseDateHeading(item.date) }}
                   </p>
                 </div>
               </div>

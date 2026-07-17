@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
+  ArrowDownCircle,
   ArrowLeft,
   EllipsisVertical,
   Pencil,
@@ -11,12 +12,14 @@ import {
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
+import { useAccountsStore } from '@/stores/accounts'
 import { useCategoriesStore } from '@/stores/categories'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
+import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
 import { formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { readableTextColor } from '@/lib/colors'
-import ExpenseFormSheet from '@/components/ExpenseFormSheet.vue'
+import { readableTextColor, resolveAccountColor } from '@/lib/colors'
+import TransactionFormSheet from '@/components/TransactionFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
@@ -44,11 +47,23 @@ import {
 // mudado tal cual desde HomeView.vue (antes hacía de "todo" el dashboard).
 // Vista de "segundo nivel" (header con ArrowLeft, sin trigger de drawer),
 // mismo patrón que CategoriesView.
+//
+// accounts-income-ux.md sección 7.5: a partir de esta iteración mezcla filas
+// de gasto e ingreso (ordenadas por fecha desc, igual que hoy), cada una con
+// un indicador de tipo (signo + color, nunca solo color). Se mantiene el
+// layout de Card por ítem ya shippeado por dashboard-redesign-ux.md (no se
+// migra a la fila plana de icono+texto que usa "Transacciones recientes" de
+// Inicio) — desviación menor documentada en el reporte final de esta
+// iteración.
 
 const router = useRouter()
 const route = useRoute()
 const expensesStore = useExpensesStore()
+const incomesStore = useIncomesStore()
 const categoriesStore = useCategoriesStore()
+const accountsStore = useAccountsStore()
+
+const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
@@ -59,8 +74,14 @@ async function loadAll() {
   loadError.value = false
   isInitialLoading.value = true
   try {
-    await Promise.all([categoriesStore.fetchCategories(), expensesStore.fetchAll()])
-    if (expensesStore.error) loadError.value = true
+    await Promise.all([
+      categoriesStore.fetchCategories(),
+      accountsStore.fetchAccounts(),
+      accountsStore.fetchBalances(),
+      expensesStore.fetchAll(),
+      incomesStore.fetchAll(),
+    ])
+    if (expensesStore.error || incomesStore.error) loadError.value = true
   } finally {
     isInitialLoading.value = false
   }
@@ -74,22 +95,51 @@ onMounted(async () => {
 })
 
 // FAB / hero solo se muestran una vez resuelta la carga inicial, con datos
-// o vacío. En error se oculta también: sin categorías cargadas el Sheet de
-// alta quedaría roto.
+// o vacío. En error se oculta también: sin categorías/cuentas cargadas el
+// Sheet de alta quedaría roto.
 const showMainActions = computed(() => !isInitialLoading.value && !loadError.value)
 
-// Agrupación visual por encabezado de fecha (sección 3.1). La lista ya llega
-// ordenada `expense_date desc, created_at desc` desde el store.
-interface ExpenseGroup { heading: string, items: ExpenseWithCategory[] }
-const groupedExpenses = computed<ExpenseGroup[]>(() => {
-  const groups: ExpenseGroup[] = []
-  for (const expense of expensesStore.expenses) {
-    const heading = formatExpenseDateHeading(expense.expense_date)
+type TransactionItem =
+  | { kind: 'expense', id: string, date: string, data: ExpenseWithCategory }
+  | { kind: 'income', id: string, date: string, data: IncomeWithAccount }
+
+// Sección 7.5: gasto e ingreso conviven en una sola lista, ordenada
+// `date desc` (cada store ya trae su propia lista `expense_date`/
+// `income_date desc, created_at desc`, así que solo hace falta un merge +
+// re-orden por fecha).
+const mergedItems = computed<TransactionItem[]>(() => {
+  const expenseItems: TransactionItem[] = expensesStore.expenses.map(expense => ({
+    kind: 'expense',
+    id: expense.id,
+    date: expense.expense_date,
+    data: expense,
+  }))
+  const incomeItems: TransactionItem[] = incomesStore.incomes.map(income => ({
+    kind: 'income',
+    id: income.id,
+    date: income.income_date,
+    data: income,
+  }))
+  return [...expenseItems, ...incomeItems].sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? 1 : -1
+    return b.data.created_at.localeCompare(a.data.created_at)
+  })
+})
+
+const isEmpty = computed(() => mergedItems.value.length === 0)
+
+// Agrupación visual por encabezado de fecha (sección 3.1), ahora sobre la
+// lista mezclada.
+interface TransactionGroup { heading: string, items: TransactionItem[] }
+const groupedItems = computed<TransactionGroup[]>(() => {
+  const groups: TransactionGroup[] = []
+  for (const item of mergedItems.value) {
+    const heading = formatExpenseDateHeading(item.date)
     const last = groups.at(-1)
     if (last && last.heading === heading) {
-      last.items.push(expense)
+      last.items.push(item)
     } else {
-      groups.push({ heading, items: [expense] })
+      groups.push({ heading, items: [item] })
     }
   }
   return groups
@@ -97,20 +147,43 @@ const groupedExpenses = computed<ExpenseGroup[]>(() => {
 
 // Estado del Sheet de alta/edición.
 const isSheetOpen = ref(false)
-const editingExpense = ref<ExpenseWithCategory | null>(null)
+const editingTransaction = ref<
+  { kind: 'expense', expense: ExpenseWithCategory } | { kind: 'income', income: IncomeWithAccount } | null
+>(null)
 
 function openAddSheet() {
-  editingExpense.value = null
+  editingTransaction.value = null
   isSheetOpen.value = true
 }
-function openEditSheet(expense: ExpenseWithCategory) {
-  editingExpense.value = expense
+function openEditSheet(item: TransactionItem) {
+  editingTransaction.value = item.kind === 'expense'
+    ? { kind: 'expense', expense: item.data }
+    : { kind: 'income', income: item.data }
   isSheetOpen.value = true
 }
 
-function expenseTitle(expense: ExpenseWithCategory): string {
-  // Sin descripción, el nombre de la categoría hace de texto principal.
-  return expense.description || expense.category.name
+function deleteItem(item: TransactionItem) {
+  if (item.kind === 'expense') {
+    expensesStore.deleteExpense(item.id)
+  } else {
+    incomesStore.deleteIncome(item.id)
+  }
+}
+
+// Sección 7.5: título/subtítulo/estilo por tipo de fila.
+function itemTitle(item: TransactionItem): string {
+  if (item.kind === 'expense') return item.data.description || item.data.category.name
+  return item.data.description || 'Ingreso'
+}
+function itemSubtitle(item: TransactionItem): string {
+  return item.kind === 'expense' ? item.data.category.name : item.data.account.name
+}
+function itemBadgeColor(item: TransactionItem): string | undefined {
+  if (item.kind === 'expense') return item.data.category.color ?? undefined
+  return resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow.value)
+}
+function itemDeleteTitle(item: TransactionItem): string {
+  return item.kind === 'expense' ? '¿Eliminar este gasto?' : '¿Eliminar este ingreso?'
 }
 </script>
 
@@ -146,7 +219,7 @@ function expenseTitle(expense: ExpenseWithCategory): string {
         <div class="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
           <AlertCircle class="size-12 text-destructive" />
           <h2 class="text-lg font-semibold">
-            No pudimos cargar tus gastos
+            No pudimos cargar tus movimientos
           </h2>
           <p class="text-sm text-muted-foreground">
             Revisá tu conexión e intentá de nuevo.
@@ -159,63 +232,69 @@ function expenseTitle(expense: ExpenseWithCategory): string {
       </template>
 
       <!-- Estado vacío -->
-      <template v-else-if="expensesStore.expenses.length === 0">
+      <template v-else-if="isEmpty">
         <div class="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
           <Receipt class="size-12 text-muted-foreground" />
           <h2 class="text-lg font-semibold">
-            Todavía no registraste ningún gasto
+            Todavía no registraste ningún movimiento
           </h2>
           <p class="max-w-xs text-center text-sm text-muted-foreground">
-            Empezá a registrar tus gastos para ver acá tu resumen y tu historial.
+            Empezá a registrar tus gastos e ingresos para ver acá tu historial.
           </p>
           <Button @click="openAddSheet">
-            Agregar tu primer gasto
+            Agregar tu primer movimiento
           </Button>
         </div>
       </template>
 
-      <!-- Listado agrupado por fecha -->
+      <!-- Listado agrupado por fecha, mezclando gasto/ingreso -->
       <template v-else>
         <section class="flex flex-col gap-3">
-          <template v-for="(group, idx) in groupedExpenses" :key="`${group.heading}-${idx}`">
+          <template v-for="(group, idx) in groupedItems" :key="`${group.heading}-${idx}`">
             <Separator v-if="idx > 0" />
             <span class="text-xs font-medium text-muted-foreground">{{ group.heading }}</span>
 
             <Card
-              v-for="expense in group.items"
-              :key="expense.id"
+              v-for="item in group.items"
+              :key="`${item.kind}-${item.id}`"
               class="p-4 sm:p-6"
-              :class="{ 'opacity-70': expense._pending }"
+              :class="{ 'opacity-70': item.data._pending }"
             >
               <div class="flex items-start justify-between gap-3">
                 <div class="flex flex-col gap-1.5">
-                  <p class="font-medium">
-                    {{ expenseTitle(expense) }}
-                  </p>
+                  <div class="flex items-center gap-1.5">
+                    <ArrowDownCircle v-if="item.kind === 'income'" class="size-4 shrink-0 text-success" />
+                    <p class="font-medium">
+                      {{ itemTitle(item) }}
+                    </p>
+                  </div>
                   <Badge
                     class="w-fit border-transparent"
                     :style="{
-                      backgroundColor: expense.category.color ?? undefined,
-                      color: readableTextColor(expense.category.color),
+                      backgroundColor: itemBadgeColor(item),
+                      color: readableTextColor(itemBadgeColor(item)),
                     }"
                   >
-                    {{ expense.category.name }}
+                    {{ itemSubtitle(item) }}
                   </Badge>
                 </div>
 
                 <div class="flex items-center gap-2">
-                  <p class="text-right text-base font-semibold tabular-nums">
-                    <span class="text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(expense.amount) }}
+                  <p
+                    class="text-right text-base font-semibold tabular-nums"
+                    :class="item.kind === 'income' ? 'text-success' : 'text-foreground'"
+                  >
+                    <span class="text-sm font-normal text-muted-foreground">{{ item.kind === 'income' ? '+$' : '$' }}</span>{{ formatAmount(item.data.amount) }}
                   </p>
 
                   <DropdownMenu>
                     <DropdownMenuTrigger as-child>
-                      <Button variant="ghost" size="icon" aria-label="Más acciones para este gasto">
+                      <Button variant="ghost" size="icon" aria-label="Más acciones para este movimiento">
                         <EllipsisVertical class="size-5" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem @select="openEditSheet(expense)">
+                      <DropdownMenuItem @select="openEditSheet(item)">
                         <Pencil class="size-4" />
                         Editar
                       </DropdownMenuItem>
@@ -228,14 +307,14 @@ function expenseTitle(expense: ExpenseWithCategory): string {
                         </AlertDialogTrigger>
                         <AlertDialogContent>
                           <AlertDialogHeader>
-                            <AlertDialogTitle>¿Eliminar este gasto?</AlertDialogTitle>
+                            <AlertDialogTitle>{{ itemDeleteTitle(item) }}</AlertDialogTitle>
                             <AlertDialogDescription>
-                              Esta acción no se puede deshacer. Se eliminará "{{ expenseTitle(expense) }}" permanentemente.
+                              Esta acción no se puede deshacer. Se eliminará "{{ itemTitle(item) }}" permanentemente.
                             </AlertDialogDescription>
                           </AlertDialogHeader>
                           <AlertDialogFooter>
                             <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction @click="expensesStore.deleteExpense(expense.id)">
+                            <AlertDialogAction @click="deleteItem(item)">
                               Eliminar
                             </AlertDialogAction>
                           </AlertDialogFooter>
@@ -256,12 +335,12 @@ function expenseTitle(expense: ExpenseWithCategory): string {
       size="icon"
       class="fixed right-4 h-14 w-14 rounded-full shadow-[var(--shadow-elevated)] sm:right-6"
       style="bottom: calc(1.5rem + env(safe-area-inset-bottom))"
-      aria-label="Agregar gasto"
+      aria-label="Agregar movimiento"
       @click="openAddSheet"
     >
       <Plus class="size-6" />
     </Button>
 
-    <ExpenseFormSheet v-model:open="isSheetOpen" :expense="editingExpense" />
+    <TransactionFormSheet v-model:open="isSheetOpen" :transaction="editingTransaction" />
   </div>
 </template>

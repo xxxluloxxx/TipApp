@@ -35,6 +35,12 @@ const router = createRouter({
       component: () => import('@/views/CategoriesView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/cuentas',
+      name: 'accounts',
+      component: () => import('@/views/AccountsView.vue'),
+      meta: { requiresAuth: true },
+    },
     // Sección 8 de credit-cards-ux.md: las rutas literales
     // (/tarjetas/transacciones, /tarjetas/gestionar) van antes que la
     // dinámica (/tarjetas/:id), práctica defensiva estándar.

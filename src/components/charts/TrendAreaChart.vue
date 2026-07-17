@@ -2,7 +2,7 @@
 // Sección 5.1 de dashboard-redesign-ux.md. Presentacional: recibe los puntos
 // ya calculados (buildCumulativeDailySeries / buildDailySeries de
 // src/lib/charts.ts) y no llama a ningún store.
-import { computed } from 'vue'
+import { computed, useId } from 'vue'
 
 export interface TrendPoint {
   date: string
@@ -40,21 +40,55 @@ const coords = computed(() => {
   })
 })
 
+// Mejora de dashboard-redesign-ux.md/accounts-income-ux.md sección 3.2:
+// "midpoint smoothing" — en vez de una recta (`L`) hasta cada punto, una
+// curva cuadrática (`Q`) cuyo control es el dato real y cuyo destino es el
+// punto medio hacia el siguiente dato. Redondea cada vértice sin overshoot
+// (el punto de control real acota la curva entre ambos puntos), sin
+// necesitar ninguna librería de splines. Factorizado como helper (en vez del
+// `.replace` con regex que sugiere el doc) para que tanto `linePath` como
+// `areaPath` lo reusen sin duplicar la lógica de suavizado.
+function buildSmoothCurve(pts: { x: number, y: number }[]): string {
+  if (pts.length === 0) return ''
+  if (pts.length === 1) return ''
+
+  let d = ''
+  for (let i = 1; i < pts.length; i++) {
+    const prev = pts[i - 1]!
+    const curr = pts[i]!
+    const midX = (prev.x + curr.x) / 2
+    const midY = (prev.y + curr.y) / 2
+    d += ` Q${prev.x},${prev.y} ${midX},${midY}`
+  }
+  const last = pts[pts.length - 1]!
+  d += ` L${last.x},${last.y}` // cierra el último tramo hasta el dato real
+  return d
+}
+
 const linePath = computed(() => {
-  if (coords.value.length === 0) return ''
-  return coords.value.map((c, idx) => `${idx === 0 ? 'M' : 'L'}${c.x},${c.y}`).join(' ')
+  const pts = coords.value
+  if (pts.length === 0) return ''
+  if (pts.length === 1) return `M${pts[0]!.x},${pts[0]!.y}`
+  return `M${pts[0]!.x},${pts[0]!.y}${buildSmoothCurve(pts)}`
 })
 
 const areaPath = computed(() => {
-  const list = coords.value
-  if (list.length === 0) return ''
-  const first = list[0]!
-  const last = list[list.length - 1]!
-  const middle = list.map(c => `L${c.x},${c.y}`).join(' ')
-  return `M${first.x},${VIEW_HEIGHT} ${middle} L${last.x},${VIEW_HEIGHT} Z`
+  const pts = coords.value
+  if (pts.length === 0) return ''
+  const first = pts[0]!
+  const last = pts[pts.length - 1]!
+  if (pts.length === 1) return `M${first.x},${VIEW_HEIGHT} L${first.x},${first.y} L${last.x},${VIEW_HEIGHT} Z`
+  return `M${first.x},${VIEW_HEIGHT} L${first.x},${first.y}${buildSmoothCurve(pts)} L${last.x},${VIEW_HEIGHT} Z`
 })
 
 const lastPoint = computed(() => coords.value.at(-1) ?? null)
+
+// Relleno de gradiente (sección 3.3): `id` único por instancia vía `useId()`
+// para que dos SVG de este componente en la misma página nunca pisen la
+// misma referencia `url(#...)` (no ocurre hoy — Inicio/Estadísticas nunca
+// montan dos instancias a la vez — pero es una salvaguarda barata si a
+// futuro alguna vista necesitara comparar dos series lado a lado).
+const gradientId = `trend-gradient-${useId()}`
 
 // Nota de implementación (deviación menor del doc, sección 5.1): el doc pide
 // 3 `<text>` de eje X dentro del propio SVG. Como el `viewBox` no es 1:1
@@ -89,6 +123,12 @@ function formatAxisLabel(dateStr: string): string {
       width="100%"
       :height="height"
     >
+      <defs>
+        <linearGradient :id="gradientId" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="hsl(var(--primary))" stop-opacity="0.28" />
+          <stop offset="100%" stop-color="hsl(var(--primary))" stop-opacity="0" />
+        </linearGradient>
+      </defs>
       <line
         v-if="showAxis"
         x1="0"
@@ -99,7 +139,7 @@ function formatAxisLabel(dateStr: string): string {
         stroke-width="1"
         vector-effect="non-scaling-stroke"
       />
-      <path :d="areaPath" fill="hsl(var(--primary))" fill-opacity="0.1" stroke="none" />
+      <path :d="areaPath" :fill="`url(#${gradientId})`" stroke="none" />
       <path
         :d="linePath"
         fill="none"

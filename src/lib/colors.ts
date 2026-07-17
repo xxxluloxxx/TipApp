@@ -137,3 +137,37 @@ export const COLOR_SWATCHES = [
   { hex: '#22c55e', label: 'Verde' },
   { hex: '#6b7280', label: 'Gris' },
 ] as const
+
+/**
+ * Paleta de color de cuentas (accounts-income-ux.md sección 4): 8 tonos
+ * "jewel tone" nuevos y separados de `COLOR_SWATCHES` (no se amplía ese
+ * array — sección 4.4 del doc explica por qué: son 3 consumidores ya
+ * shippeados que no pidieron este cambio visual, y los tonos de cuenta
+ * necesitan una noción de tema que `COLOR_SWATCHES` no tiene). `hex` es el
+ * valor "claro" que se persiste en `accounts.color`; `darkHex` es solo de
+ * presentación (ver `resolveAccountColor`), nunca se guarda en la base.
+ */
+export const ACCOUNT_COLOR_SWATCHES = [
+  { hex: '#b45309', darkHex: '#df670b', label: 'Dorado' },
+  { hex: '#1d4ed8', darkHex: '#426de6', label: 'Azul' },
+  { hex: '#be123c', darkHex: '#ea1f51', label: 'Granate' },
+  { hex: '#7e22ce', darkHex: '#9947e1', label: 'Violeta' },
+  { hex: '#86198f', darkHex: '#b321bf', label: 'Ciruela' },
+  { hex: '#0891b2', darkHex: '#099fc3', label: 'Cian' },
+  { hex: '#047857', darkHex: '#06a87a', label: 'Esmeralda' },
+  { hex: '#4d7c0f', darkHex: '#609b13', label: 'Oliva' },
+] as const
+
+/**
+ * Resuelve el hex a pintar según el tema activo (sección 4.3): en modo
+ * claro se pinta tal cual (el valor guardado en `accounts.color`); en modo
+ * oscuro se busca la variante `darkHex` calibrada para seguir siendo legible
+ * contra el fondo oscuro real de TipApp. Si `hex` no matchea ningún swatch
+ * conocido (dato legado/manual), se devuelve tal cual sin intentar oscurecer
+ * nada — mismo criterio defensivo que el resto de este archivo.
+ */
+export function resolveAccountColor(hex: string, isDark: boolean): string {
+  if (!isDark) return hex
+  const swatch = ACCOUNT_COLOR_SWATCHES.find(s => s.hex === hex)
+  return swatch?.darkHex ?? hex
+}

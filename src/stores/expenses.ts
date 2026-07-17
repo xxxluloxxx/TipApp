@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { formatAmount } from '@/lib/currency'
 import { supabase } from '@/lib/supabase'
+import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
 import type { Category } from '@/stores/categories'
@@ -20,6 +21,10 @@ export type ExpenseWithCategory = Tables<'expenses'> & {
 export interface ExpensePayload {
   amount: number
   categoryId: string
+  /** accounts-income-ux.md sección 8: todo gasto pertenece a una cuenta
+   * (`expenses.account_id NOT NULL`) — campo nuevo, tan obligatorio como
+   * `categoryId`. */
+  accountId: string
   description: string | null
   expenseDate: string
 }
@@ -92,6 +97,7 @@ export const useExpensesStore = defineStore('expenses', () => {
    * plano y se resuelve vía toast. */
   function addExpense(payload: ExpensePayload): void {
     const categoriesStore = useCategoriesStore()
+    const accountsStore = useAccountsStore()
     const category = categoriesStore.categoryById(payload.categoryId)
     const authStore = useAuthStore()
     const userId = authStore.user?.id
@@ -109,6 +115,7 @@ export const useExpensesStore = defineStore('expenses', () => {
       id: tempId,
       amount: payload.amount,
       category_id: payload.categoryId,
+      account_id: payload.accountId,
       description: payload.description,
       expense_date: payload.expenseDate,
       user_id: userId,
@@ -119,6 +126,10 @@ export const useExpensesStore = defineStore('expenses', () => {
     }
 
     expenses.value = sortExpenses([optimistic, ...expenses.value])
+    // Sección 1 de accounts-income-ux.md: un gasto reduce el saldo de su
+    // cuenta. El saldo real sigue viniendo de `account_balances`; esto solo
+    // ajusta el número ya cargado para que "Mis cuentas" se sienta "vivo".
+    accountsStore.adjustBalance(payload.accountId, -payload.amount)
 
     const persist = async (): Promise<void> => {
       const { data, error: insertError } = await supabase
@@ -126,6 +137,7 @@ export const useExpensesStore = defineStore('expenses', () => {
         .insert({
           amount: payload.amount,
           category_id: payload.categoryId,
+          account_id: payload.accountId,
           description: payload.description,
           expense_date: payload.expenseDate,
           user_id: userId,
@@ -135,12 +147,14 @@ export const useExpensesStore = defineStore('expenses', () => {
 
       if (insertError || !data) {
         expenses.value = expenses.value.filter(expense => expense.id !== tempId)
+        accountsStore.adjustBalance(payload.accountId, payload.amount)
         toast.error('No se pudo guardar el gasto', {
           description: 'Revisá tu conexión e intentá de nuevo.',
           action: {
             label: 'Reintentar',
             onClick: () => {
               expenses.value = sortExpenses([optimistic, ...expenses.value])
+              accountsStore.adjustBalance(payload.accountId, -payload.amount)
               void persist()
             },
           },
@@ -161,6 +175,7 @@ export const useExpensesStore = defineStore('expenses', () => {
    * rollback al valor previo si falla el `update()`. */
   function updateExpense(id: string, payload: ExpensePayload): void {
     const categoriesStore = useCategoriesStore()
+    const accountsStore = useAccountsStore()
     const previous = expenses.value.find(expense => expense.id === id)
     const category = categoriesStore.categoryById(payload.categoryId)
     if (!previous || !category) return
@@ -169,6 +184,7 @@ export const useExpensesStore = defineStore('expenses', () => {
       ...previous,
       amount: payload.amount,
       category_id: payload.categoryId,
+      account_id: payload.accountId,
       description: payload.description,
       expense_date: payload.expenseDate,
       category,
@@ -176,6 +192,11 @@ export const useExpensesStore = defineStore('expenses', () => {
     }
 
     replaceById(id, optimistic)
+    // Revierte el impacto del monto/cuenta anteriores y aplica el nuevo
+    // (posiblemente una cuenta distinta), mismo criterio que
+    // `incomesStore.updateIncome`.
+    accountsStore.adjustBalance(previous.account_id, previous.amount)
+    accountsStore.adjustBalance(payload.accountId, -payload.amount)
 
     const persist = async (): Promise<void> => {
       const { data, error: updateError } = await supabase
@@ -183,6 +204,7 @@ export const useExpensesStore = defineStore('expenses', () => {
         .update({
           amount: payload.amount,
           category_id: payload.categoryId,
+          account_id: payload.accountId,
           description: payload.description,
           expense_date: payload.expenseDate,
         })
@@ -192,6 +214,8 @@ export const useExpensesStore = defineStore('expenses', () => {
 
       if (updateError || !data) {
         replaceById(id, previous)
+        accountsStore.adjustBalance(payload.accountId, payload.amount)
+        accountsStore.adjustBalance(previous.account_id, -previous.amount)
         toast.error('No se pudieron guardar los cambios', {
           description: 'Revisá tu conexión e intentá de nuevo.',
           action: {
@@ -216,22 +240,26 @@ export const useExpensesStore = defineStore('expenses', () => {
    * por el design system: AlertDialog de confirmación + remover de la
    * lista local, con rollback si falla). */
   function deleteExpense(id: string): void {
+    const accountsStore = useAccountsStore()
     const removed = expenses.value.find(expense => expense.id === id)
     if (!removed) return
 
     expenses.value = expenses.value.filter(expense => expense.id !== id)
+    accountsStore.adjustBalance(removed.account_id, removed.amount)
 
     const persist = async (): Promise<void> => {
       const { error: deleteError } = await supabase.from('expenses').delete().eq('id', id)
 
       if (deleteError) {
         expenses.value = sortExpenses([...expenses.value, removed])
+        accountsStore.adjustBalance(removed.account_id, -removed.amount)
         toast.error('No se pudo eliminar el gasto', {
           description: 'Revisá tu conexión e intentá de nuevo.',
           action: {
             label: 'Reintentar',
             onClick: () => {
               expenses.value = expenses.value.filter(expense => expense.id !== id)
+              accountsStore.adjustBalance(removed.account_id, removed.amount)
               void persist()
             },
           },
