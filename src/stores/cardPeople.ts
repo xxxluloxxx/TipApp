@@ -46,6 +46,10 @@ export const useCardPeopleStore = defineStore('cardPeople', () => {
     return true
   }
 
+  /** Conteo combinado `card_expenses(count) + debts(count)` por persona
+   * (debts-ux.md sección 1.5/4.3: con Deudas, una persona también puede ser
+   * la contraparte de un hilo de deuda, no solo tener gastos de tarjeta —
+   * el guard de borrado debe contemplar ambos). */
   async function fetchExpenseCounts(): Promise<boolean> {
     const authStore = useAuthStore()
     const userId = authStore.user?.id
@@ -56,7 +60,7 @@ export const useCardPeopleStore = defineStore('cardPeople', () => {
 
     const { data, error: fetchError } = await supabase
       .from('card_people')
-      .select('id, card_expenses(count)')
+      .select('id, card_expenses(count), debts(count)')
       .eq('user_id', userId)
 
     if (fetchError) {
@@ -65,8 +69,14 @@ export const useCardPeopleStore = defineStore('cardPeople', () => {
     }
 
     const counts: Record<string, number> = {}
-    for (const row of (data ?? []) as unknown as Array<{ id: string, card_expenses: Array<{ count: number }> }>) {
-      counts[row.id] = row.card_expenses[0]?.count ?? 0
+    for (const row of (data ?? []) as unknown as Array<{
+      id: string
+      card_expenses: Array<{ count: number }>
+      debts: Array<{ count: number }>
+    }>) {
+      const expenseCount = row.card_expenses[0]?.count ?? 0
+      const debtCount = row.debts[0]?.count ?? 0
+      counts[row.id] = expenseCount + debtCount
     }
     expenseCounts.value = counts
     return true

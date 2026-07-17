@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowLeft,
@@ -44,6 +44,7 @@ import {
 // + personas), mismo layout que CategoriesView.
 
 const router = useRouter()
+const route = useRoute()
 const creditCardsStore = useCreditCardsStore()
 const cardPeopleStore = useCardPeopleStore()
 
@@ -66,7 +67,15 @@ async function loadAll() {
   }
 }
 
-onMounted(loadAll)
+onMounted(async () => {
+  await loadAll()
+  // debts-ux.md sección 4.2/4.3: soporte de `?new=person`, llegada desde el
+  // atajo "Agregar persona nueva" del alta de deuda — mismo patrón que
+  // `?new=1` ya usado en Transacciones/Cuentas, con un valor de query
+  // distinto para desambiguar cuál de las dos secciones de esta pantalla
+  // abrir (acá hay dos Sheets posibles, tarjeta o persona).
+  if (route.query.new === 'person') openAddPerson()
+})
 
 function cardUsageLabel(cardId: string): string {
   const count = creditCardsStore.countFor(cardId)

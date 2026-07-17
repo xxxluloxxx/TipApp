@@ -257,6 +257,109 @@ export type Database = {
         }
         Relationships: []
       }
+      debt_movements: {
+        Row: {
+          account_id: string | null
+          amount: number
+          created_at: string
+          debt_id: string
+          description: string | null
+          id: string
+          movement_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          account_id?: string | null
+          amount: number
+          created_at?: string
+          debt_id: string
+          description?: string | null
+          id?: string
+          movement_date?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          account_id?: string | null
+          amount?: number
+          created_at?: string
+          debt_id?: string
+          description?: string | null
+          id?: string
+          movement_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "debt_movements_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "account_balances"
+            referencedColumns: ["account_id"]
+          },
+          {
+            foreignKeyName: "debt_movements_account_id_fkey"
+            columns: ["account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "debt_movements_debt_id_fkey"
+            columns: ["debt_id"]
+            isOneToOne: false
+            referencedRelation: "debt_balances"
+            referencedColumns: ["debt_id"]
+          },
+          {
+            foreignKeyName: "debt_movements_debt_id_fkey"
+            columns: ["debt_id"]
+            isOneToOne: false
+            referencedRelation: "debts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      debts: {
+        Row: {
+          created_at: string
+          description: string | null
+          direction: string
+          id: string
+          person_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          direction: string
+          id?: string
+          person_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          direction?: string
+          id?: string
+          person_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "debts_person_id_fkey"
+            columns: ["person_id"]
+            isOneToOne: false
+            referencedRelation: "card_people"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       expenses: {
         Row: {
           account_id: string
@@ -404,11 +507,31 @@ export type Database = {
         }
         Relationships: []
       }
+      debt_balances: {
+        Row: {
+          balance: number | null
+          debt_id: string | null
+          direction: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       category_is_accessible: {
         Args: { p_category_id: string; p_user_id: string }
         Returns: boolean
+      }
+      create_debt: {
+        Args: {
+          p_account_id?: string
+          p_amount: number
+          p_description?: string
+          p_direction: string
+          p_movement_date?: string
+          p_person_id: string
+        }
+        Returns: string
       }
     }
     Enums: {

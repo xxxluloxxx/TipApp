@@ -74,6 +74,21 @@ const router = createRouter({
       component: () => import('@/views/TransactionsView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 2 de debts-ux.md: dashboard + detalle, sin colisión de
+    // segmento literal-vs-dinámico (a diferencia de /tarjetas), no hace
+    // falta ningún orden especial.
+    {
+      path: '/deudas',
+      name: 'debts',
+      component: () => import('@/views/DebtsDashboardView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/deudas/:id',
+      name: 'debt-detail',
+      component: () => import('@/views/DebtDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
     {
       path: '/estadisticas',
       name: 'statistics',

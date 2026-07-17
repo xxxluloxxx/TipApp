@@ -4,21 +4,25 @@ Contexto resumido del proyecto para futuras sesiones de Claude Code.
 
 ## Qué es TipApp
 
-TipApp v1 es una app de **control de gastos e ingresos personales de un solo
-usuario**: cada usuario registra sus movimientos (gastos e ingresos),
+TipApp v1 es una app de **control de gastos, ingresos y deudas personales de
+un solo usuario**: cada usuario registra sus movimientos (gastos e ingresos),
 imputados a una **cuenta** propia (billetera, banco, efectivo, etc.) y, en el
 caso de los gastos, clasificados en categorías (default o custom). El saldo
 de cada cuenta es un acumulado all-time (saldo inicial + ingresos - gastos de
-esa cuenta), no un corte mensual. Opcionalmente define presupuestos por
-categoría/mes. Ya es una **PWA instalable** (ver sección de estado actual).
+esa cuenta, más el impacto de caja de cualquier deuda vinculada a esa cuenta,
+ver "Deudas/Préstamos" abajo), no un corte mensual. Además, el usuario puede
+llevar un registro personal de **deudas/préstamos** (a quién le prestó plata
+o quién le prestó a él) con saldo corriente por contraparte+dirección.
+Opcionalmente define presupuestos por categoría/mes. Ya es una **PWA
+instalable** (ver sección de estado actual).
 
 **Fuera de alcance explícito en v1**: gastos compartidos/grupales tipo
 Splitwise — no hay grupos, miembros de grupo, splits de gasto entre personas,
-ni conceptos de deuda/settlement. **Fase 2 prevista pero no implementada**:
-Deudas/Préstamos (yo presté / me prestaron) — hay un acceso rápido
-deshabilitado "Deudas" en el dashboard que anticipa esta fase futura, sin
-ninguna tabla ni lógica real todavía. No confundir el modelo de datos actual
-con ninguna de las dos.
+ni settlement automático entre usuarios reales de TipApp. "Deudas/Préstamos"
+(ver arriba) **no es** eso: es un registro personal 1:1 sin login/invitación
+de la contraparte, mismo criterio "sin multi-usuario real" ya usado para
+`card_people`. No confundir el modelo de datos actual con gastos
+compartidos/grupales.
 
 El proyecto se construye de forma incremental: primero se validó el pipeline
 de deploy con un esqueleto mínimo, luego backend (Supabase) y sistema de
@@ -46,6 +50,197 @@ Todo el stack se eligió priorizando permanecer dentro de los límites de los
 planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
+
+Se agregó **Deudas/Préstamos (Fase 2 de 2)**, completando la feature de
+Cuentas que empezó en la iteración anterior (Fase 1: Cuentas + Ingresos, ver
+más abajo). El usuario ahora puede registrar a quién le prestó plata o quién
+le prestó a él, con saldo corriente por contraparte+dirección que se puede
+"subir" (ampliar el préstamo) o "bajar" (abonar/pagar) — a diferencia de un
+gasto, no es un monto fijo. Trabajo de las tres capas (backend + UX +
+frontend), backend y diseño corrieron en paralelo (ambos partieron del mismo
+modelo de datos ya decidido por el Product Owner antes de delegar, así que no
+hubo idas y vueltas de re-sincronización entre ellos como en la iteración de
+Cuentas).
+
+Dos decisiones de arquitectura, tomadas por el Product Owner antes de
+delegar (no las tomó ningún agente por su cuenta):
+
+1. **Las contrapartes de una deuda son las mismas `card_people` que ya usa la
+   feature de Tarjetas — no se creó una tabla ni una pantalla de gestión de
+   personas nueva.** El guard de borrado de una persona en
+   `/tarjetas/gestionar` ahora suma `card_expenses(count) + debts(count)`.
+2. **El vínculo opcional a una cuenta en un movimiento de deuda NO genera
+   ninguna fila en `expenses`/`incomes`.** Motivo: `expenses.category_id` es
+   `not null` y prestar plata no es, conceptualmente, un gasto (sigue siendo
+   plata del usuario, solo que en manos de otra persona) — forzar una
+   categoría sintética tipo "Préstamos" habría contaminado categorías/
+   presupuestos/`monthTotal`/estadísticas. En cambio, la vista
+   `account_balances` (la misma de Fase 1) se extendió para incorporar el
+   efectivo real que sale/entra de una cuenta vinculada, con una fórmula de
+   signo derivada de la dirección de la deuda (ver detalle en la sección de
+   backend abajo). El usuario ve el saldo de su cuenta reflejar la plata
+   prestada/recibida, pero **nunca** aparece como una transacción visible en
+   ningún listado — el frontend explica esto explícitamente en el formulario
+   (ver sección de diseño abajo), porque es contraintuitivo si no se avisa
+   antes de usarlo.
+
+- **Backend** (`supabase-backend-expert`): 6 migraciones nuevas en
+  `supabase/migrations/` (`20260716142023` a `20260716142028`), aplicadas al
+  proyecto remoto real vía `supabase db push` y verificadas con un set de
+  pruebas funcionales completo contra un Postgres local (RLS entre dos
+  usuarios, triggers de ownership, checks, `on delete cascade`/`restrict`) —
+  no solo compilación.
+  - `debts(id, user_id, person_id not null → card_people, direction text
+    check in ('lent','borrowed'), description, created_at, updated_at)` —
+    `'lent'` = yo presté/me deben, `'borrowed'` = me prestaron/yo debo
+    (mapeo documentado en `comment on column`, no es obvio del nombre del
+    valor).
+  - `debt_movements(id, user_id, debt_id not null → debts on delete cascade,
+    account_id nullable → accounts on delete restrict, amount numeric(12,2)
+    check <> 0, movement_date, description, created_at, updated_at)` —
+    `amount` con signo: positivo sube la deuda (incluye el monto inicial al
+    crear), negativo la baja (abono/pago). A diferencia del resto del
+    esquema (`on delete restrict` en casi todas las FK), acá `debt_id` es
+    `on delete cascade` a propósito: un movimiento no tiene sentido de
+    existir sin su deuda, y borrar un hilo completo es una operación
+    intencional del usuario, no un caso a bloquear.
+  - Vista `debt_balances(debt_id, user_id, direction, balance)` —
+    `balance = sum(debt_movements.amount)`, `security_invoker = true`, mismo
+    patrón que `account_balances`. El saldo de un hilo de deuda **siempre**
+    sale de acá, nunca de sumar `debt_movements` en cliente.
+  - `account_balances` (la vista de Fase 1) se extendió con un tercer
+    subquery agregado por `account_id` sobre `debt_movements` con `account_id
+    is not null`, sumado a la fórmula existente
+    (`initial_balance + incomes - expenses + debt_cash_impact`). Fórmula de
+    signo (derivable de la dirección, sin ambigüedad):
+    `direction = 'lent'` → `cash_delta = -amount` (prestar más saca plata de
+    la cuenta; cobrar/abonar la devuelve); `direction = 'borrowed'` →
+    `cash_delta = amount` (que te presten más mete plata a la cuenta; pagar/
+    abonar la saca).
+  - Función `create_debt(p_person_id, p_direction, p_amount, p_account_id
+    default null, p_movement_date default hoy, p_description default null)
+    returns uuid` — `security invoker` (respeta RLS del que llama, sin
+    bypass), inserta la cabecera (`debts`) + el primer movimiento
+    (`debt_movements`, `amount > 0` forzado) en una única transacción
+    implícita, evitando que el frontend haga 2 inserts sueltos y deje una
+    cabecera huérfana si el segundo falla.
+  - RLS activo en `debts`/`debt_movements`, mismo patrón exacto (policies
+    explícitas `select/insert/update/delete`, `user_id = auth.uid()`).
+  - Índices agregados pensando en los guards del frontend:
+    `debt_movements(account_id)` (para el ajuste de `account_balances` y un
+    futuro guard de borrado de cuenta), `debts(person_id)` (para el guard de
+    borrado de persona, ver punto 1 arriba).
+  - Caso borde señalado a propósito, sin resolver: un abono mayor al saldo
+    pendiente deja `debt_balances.balance` negativo — sin constraint que lo
+    impida (documentado en `comment on view`), se muestra igual como
+    "Saldada" en el frontend, sin un tercer estado especial.
+  - `src/types/database.types.ts` regenerado.
+- **Diseño** (`ui-ux-designer`): especificación completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/debts-ux.md` —
+  consultar antes de tocar `/deudas`, `/deudas/:id` o los Sheets de deuda.
+  Decisiones clave:
+  - **2 rutas, ni 1 ni 4** (calibrado con el mismo criterio de complejidad
+    que Cuentas/Tarjetas): `/deudas` (dashboard: cards resumen, saldo neto,
+    `Tabs` Yo presté/Me prestaron/Historial, resumen rápido del mes,
+    gráfico) + `/deudas/:id` (detalle de un hilo: ledger completo,
+    editar/borrar movimientos, editar/borrar el hilo) — no alcanza con 1
+    (a diferencia de Cuentas) porque el encargo pide explícitamente ver/
+    editar/borrar movimientos individuales; no hace falta llegar a 4 (como
+    Tarjetas) porque no hay una segunda entidad que gestionar ni cruces de
+    filtros reales (la única dimensión de filtro es la dirección, resuelta
+    por los tabs).
+  - **Primer uso real de `Tabs`** de shadcn-vue en el proyecto (estaba
+    anotado desde Fase 1 del design system para "cuando exista el primer
+    caso genuino") — se distingue del patrón `radiogroup` ya usado en el
+    proyecto porque acá son paneles de contenido completos, no un campo de
+    formulario.
+  - **Selector de contraparte**: `Select` simple sobre
+    `cardPeopleStore.people` (sin pantalla nueva), con un link de texto
+    siempre visible "Agregar persona nueva" → navega a
+    `/tarjetas/gestionar?new=person` (trade-off aceptado: se pierde el
+    progreso del Sheet de deuda en curso, aceptado porque Contraparte es el
+    segundo campo del formulario).
+  - **Copy del vínculo a cuenta** (la parte más delicada, mismo texto en
+    alta y en abono/ampliación, siempre visible, no condicional a haber
+    elegido cuenta): *"Si vinculás una cuenta, ajustamos su saldo
+    automáticamente por la plata real que sale o entra — pero este
+    movimiento **no va a aparecer como gasto ni ingreso** en tus listados,
+    solo acá en Deudas."* Cada movimiento vinculado a una cuenta muestra
+    además un badge (`Wallet` + nombre) en el ledger para que quede
+    trazable después de guardado.
+  - **Alta de deuda nueva: única excepción NO optimista del proyecto por un
+    motivo nuevo** (distinto del de `CategoryFormSheet`, que es un índice
+    único server-only): acá es una dependencia atómica entre 2 inserts vía
+    RPC — el cliente no puede insertar optimistamente sin ya tener el
+    `debt_id` real que devuelve el servidor. "Subir/bajar" una deuda
+    existente sí es 100% optimista, con un mecanismo de "delta seguro"
+    (sumar/restar un movimiento sobre un balance ya confirmado por el
+    servidor, nunca resumir `debt_movements` desde cero).
+  - **`DualTrendChart.vue`, componente nuevo** (no una extensión de
+    `TrendAreaChart.vue`): dos líneas con color fijo (`success`/
+    `destructive`), mismo Y-scale compartido, granularidad mensual (no
+    diaria) — se evaluó extender `TrendAreaChart` y se descartó por 3
+    motivos concretos documentados en el doc (contrato de color,
+    normalización de eje compartida, granularidad).
+  - **Derivación del "saldo de arranque" de la ventana de 12 meses sin sumar
+    historial completo**: `saldo_arranque = balance_actual_agregado −
+    neto_de_movimientos_dentro_de_la_ventana` (ambos números ya seguros:
+    uno agregado server-side sin límite de fecha, el otro acotado por
+    fecha) — evita necesitar una función RPC nueva de "saldo a una fecha X".
+  - **Borrado de un hilo de deuda completo: sin guard de conteo**, a
+    diferencia de categorías/cuentas/tarjetas/personas — un hilo no es
+    referenciado por ningún otro recurso (sus movimientos son hijos propios
+    en cascada), es equivalente a borrar un gasto/ingreso propio, no un
+    recurso de clasificación compartido.
+  - Ítem de drawer "Deudas" (`HandCoins`, ya importado en `HomeView.vue`
+    desde Fase 1) en 5ª posición, al final del bloque de "dominios de
+    movimientos de dinero" (Transacciones/Tarjetas/Cuentas/Deudas) — última
+    porque es la de uso esperado menos frecuente de las cuatro.
+- **Frontend** (`vue-frontend-expert`): `src/stores/debts.ts` (nuevo) —
+  `fetchBalances()` trae todas las filas de `debt_balances` en una query
+  (seguro: cardinalidad de "hilos", no de "movimientos"), `createDebt` vía
+  RPC (no optimista), `addMovement`/`updateMovement`/`deleteMovement` (100%
+  optimistas, mecanismo de delta sobre `balances: Record<string, number>`),
+  `deleteDebt` (optimista, sin guard). Incluye `accountDeltaFor(direction,
+  amount)` como espejo client-side exacto de la fórmula de signo del backend,
+  usado para ajustar optimistamente el saldo cacheado de la cuenta vinculada
+  vía `accountsStore.adjustBalance` (mismo mecanismo ya usado por
+  `expenses.ts`/`incomes.ts` desde Fase 1). Vistas nuevas:
+  `DebtsDashboardView.vue` (`/deudas`), `DebtDetailView.vue` (`/deudas/:id`).
+  Componentes nuevos: `DebtFormSheet.vue`, `DebtMovementFormSheet.vue`,
+  `src/components/charts/DualTrendChart.vue`. `src/lib/charts.ts`:
+  `buildDebtBalanceEvolution` (la derivación de saldo de arranque). `Tabs` de
+  shadcn-vue instalado (`npx shadcn-vue add tabs`). `src/stores/
+  cardPeople.ts`: `fetchExpenseCounts` ahora suma `card_expenses(count) +
+  debts(count)`. `src/views/ManageCardsView.vue`: soporta `?new=person`.
+  `src/router/index.ts`: rutas `/deudas`, `/deudas/:id`. `src/views/
+  HomeView.vue`: acceso rápido "Deudas" activado (se quitó `disabled`/
+  "Próximamente") + ítem de drawer nuevo.
+  - **Regresión de `npx shadcn-vue add tabs` detectada y corregida** (mismo
+    problema ya visto en la iteración de Tarjetas con `switch`/`textarea`):
+    el comando volvió a tocar `src/assets/main.css` sin que se le pidiera
+    (`@import` de Google Fonts + `@layer base` duplicado) — se revirtió con
+    `git checkout` antes de terminar, dejando `main.css` intacto. Confirma
+    la nota ya anotada en la iteración anterior: siempre revisar el diff de
+    `main.css` después de `npx shadcn-vue add <lo que sea>`.
+  - `npm run build` (`vue-tsc --build` + `vite build`) verificado sin
+    errores, tanto por el agente como de forma independiente por el Product
+    Owner.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente contra el Supabase real en el navegador (mismo
+  caveat recurrente de todas las iteraciones previas) — en particular, no se
+  verificó a ojo el flujo completo crear deuda → prestar vinculando una
+  cuenta → confirmar que el saldo de esa cuenta bajó sin que aparezca
+  ninguna fila nueva en Transacciones → abonar parcialmente → editar/borrar
+  un movimiento → borrar el hilo completo. La fórmula de signo del ajuste de
+  cuenta (`accountDeltaFor`) se verificó por revisión de código en ambas
+  capas (coincide exactamente entre backend y frontend) pero no con datos
+  reales de punta a punta. Recomendado antes de dar la feature por cerrada
+  en producción.
+- El sobrepago (abono mayor al saldo pendiente) queda sin ninguna
+  restricción a nivel de BD ni de UI más allá de mostrar "Saldada" — decisión
+  deliberada, no un olvido (ver sección de backend arriba).
 
 Se agregó **Cuentas + Ingresos (Fase 1 de 2)**: cada gasto y cada ingreso
 pasa a pertenecer a una cuenta propia del usuario (billetera, banco,
@@ -811,54 +1006,58 @@ en todos los anchos).
    ingreso y un gasto contra ella desde `TransactionFormSheet` (toggle
    Gasto/Ingreso), confirmar que "Mis cuentas" y el saldo total de Inicio
    reflejan el movimiento sin refrescar, confirmar los dos guards de
-   borrado (cuenta con movimientos, y "nunca la última cuenta")** → drawer
-   de 8 ítems (resaltado de ruta activa) → logout → refresh de página
-   (verificar que no hay flash de contenido ni de tema incorrecto) →
-   **probar la instalación real como PWA en un celular** (Chrome Android:
-   banner/menú "Instalar app"; Safari iOS: "Compartir" → "Agregar a
-   pantalla de inicio") una vez deployado. No se hizo en esta iteración ni
-   en las anteriores (la verificación fue build + revisión de código) —
-   recomendado antes de dar estas features por cerradas en producción.
-2. **Fase 2: Deudas/Préstamos** (yo presté / me prestaron) — encargo aparte
-   ya anticipado por un acceso rápido deshabilitado en el dashboard de
-   Inicio (ver "Qué es TipApp" arriba). Requiere diseño de esquema nuevo
-   (probablemente una tabla de movimientos de deuda con contraparte
-   nombrada, sin login/invitación, mismo criterio "sin multi-usuario real"
-   ya usado para `card_people`) y UX propia — no empezar sin encargo
-   explícito del Product Owner.
-3. **Estrategia offline real** (opcional, evaluar prioridad): hoy la PWA es
+   borrado (cuenta con movimientos, y "nunca la última cuenta")** →
+   **`/deudas`: crear una deuda "Yo le presto" y otra "Me presta" (con y sin
+   contraparte nueva vía `?new=person`), crear un movimiento vinculado a una
+   cuenta y confirmar que el saldo de esa cuenta se ajusta pero NO aparece
+   ninguna fila nueva en Transacciones, abonar/ampliar desde el detalle,
+   editar/borrar un movimiento individual (y confirmar el guard del "último
+   movimiento"), borrar un hilo completo, revisar las cards resumen/saldo
+   neto/resumen rápido/gráfico "Evolución de saldos" con datos reales, y el
+   ajuste del guard de borrado de persona en `/tarjetas/gestionar`
+   (`card_expenses(count) + debts(count)`)** → drawer de 9 ítems (resaltado
+   de ruta activa) → logout → refresh de página (verificar que no hay flash
+   de contenido ni de tema incorrecto) → **probar la instalación real como
+   PWA en un celular** (Chrome Android: banner/menú "Instalar app"; Safari
+   iOS: "Compartir" → "Agregar a pantalla de inicio") una vez deployado. No
+   se hizo en esta iteración ni en las anteriores (la verificación fue build
+   + revisión de código) — recomendado antes de dar estas features por
+   cerradas en producción.
+2. **Estrategia offline real** (opcional, evaluar prioridad): hoy la PWA es
    instalable pero no "offline-first" — decidir si vale la pena cachear
    algo de los datos de Supabase (p. ej. último snapshot de gastos) para
    una experiencia degradada sin conexión, o si no es prioritario para v1.
-4. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
+3. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
    presupuesto por categoría/mes y barra de progreso (componente `Progress`,
    Fase 2 del design system) — diseñar primero con `ui-ux-designer`.
-5. **Reportes reales**: reemplazar el estado "Próximamente" de `/reportes`
+4. **Reportes reales**: reemplazar el estado "Próximamente" de `/reportes`
    por funcionalidad real (exportar/filtrar) una vez que haya claridad de
    producto sobre qué formato/alcance tiene sentido — hoy es honestamente
    un placeholder, no un MVP recortado.
-6. **Revisar el orden de categorías default**: agregar columna `sort_order`
+5. **Revisar el orden de categorías default**: agregar columna `sort_order`
    en `categories` con `supabase-backend-expert` si el orden fijo de
    categorías (Comida, Transporte, ...) necesita quedar garantizado (ver
    deuda técnica arriba).
-7. **Revisar la paleta de colores de categorías** (hallazgo de esta
+6. **Revisar la paleta de colores de categorías** (hallazgo de esta
    iteración, ver arriba): el par Vivienda/Transporte no separa lo
    suficiente para daltonismo — evaluar una migración de colores con
    `supabase-backend-expert` + `ui-ux-designer`.
-8. **`AppShell` compartido**: si a futuro se quiere un sidebar persistente
+7. **`AppShell` compartido**: si a futuro se quiere un sidebar persistente
    en desktop (descartado en esta iteración por ser retrabajo grande sin un
    layout compartido hoy), es el momento de extraerlo — candidato natural
-   una vez que el número de secciones (hoy 8) se estabilice.
-9. **`AccountDetailView`** (opcional, no pedido todavía): historial de
+   una vez que el número de secciones (hoy 9) se estabilice.
+8. **`AccountDetailView`** (opcional, no pedido todavía): historial de
    movimientos por cuenta, análogo a `CardDetailView.vue` — candidata
    natural si el Product Owner pide poder ver el detalle de una cuenta
    puntual (hoy las tiles de "Mis cuentas" y las filas de `/cuentas` son de
-   solo lectura/gestión, sin detalle).
-10. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
-    grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement.
-    Requiere rediseño de esquema (tablas de grupos/miembros) y de UX; no
-    mezclar con el modelo mono-usuario actual (distinto también de la Fase 2
-    de Deudas/Préstamos ya prevista arriba, que es 1:1 sin grupos).
+   solo lectura/gestión, sin detalle; `/deudas/:id` sí tiene detalle propio,
+   ver arriba).
+9. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
+   grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement
+   automático entre usuarios reales. Requiere rediseño de esquema (tablas de
+   grupos/miembros) y de UX; no mezclar con el modelo mono-usuario actual
+   (distinto también de Deudas/Préstamos, ya implementado arriba, que es
+   1:1 sin grupos ni multi-usuario real).
 
 ## Convenciones y principios del proyecto
 

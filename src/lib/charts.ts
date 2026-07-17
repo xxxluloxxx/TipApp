@@ -164,3 +164,74 @@ export function buildDonutSlices(categoryTotals: CategoryTotal[], maxSlices = 5)
 
   return slices
 }
+
+export interface DualTrendPoint {
+  /** Etiqueta corta de mes, ej. "Ene", "Feb" — ya formateada (contrato de
+   * `DualTrendChart.vue`, debts-ux.md sección 3.8). */
+  label: string
+  lent: number
+  borrowed: number
+}
+
+const MONTHS_ES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+
+/** Forma mínima que necesita `buildDebtBalanceEvolution` de un `debt_balances`
+ * — desacoplado del tipo real del store (este archivo no depende de stores,
+ * ver comentario de cabecera). */
+export interface DebtBalanceInput {
+  direction: string
+  balance: number
+}
+
+/** Forma mínima de un `debt_movements` ya acotado por rango de fecha (sección
+ * 1.3 de debts-ux.md), con la dirección de su hilo ya resuelta. */
+export interface DebtMovementInput {
+  amount: number
+  movementDate: string
+  direction: string
+}
+
+/**
+ * Deriva los 12 puntos mensuales de "Evolución de saldos" (debts-ux.md
+ * sección 1.4, el cálculo más delicado del documento): el saldo "de
+ * arranque" de la ventana es el saldo actual (agregado server-side, siempre
+ * seguro — sección 1.2) menos el neto de movimientos QUE YA CAYERON dentro de
+ * esa ventana (acotados por fecha, sección 1.3) — nunca se suma historial
+ * completo. A partir de ahí se camina mes a mes acumulando, sobre datos que
+ * ya están 100% en memoria.
+ */
+export function buildDebtBalanceEvolution(
+  debtBalances: DebtBalanceInput[],
+  windowMovements: DebtMovementInput[],
+  reference: Date = new Date(),
+  months = 12,
+): DualTrendPoint[] {
+  const totalLentNow = debtBalances.filter(b => b.direction === 'lent').reduce((sum, b) => sum + b.balance, 0)
+  const totalBorrowedNow = debtBalances.filter(b => b.direction === 'borrowed').reduce((sum, b) => sum + b.balance, 0)
+
+  const netWindowLent = windowMovements.filter(m => m.direction === 'lent').reduce((sum, m) => sum + m.amount, 0)
+  const netWindowBorrowed = windowMovements.filter(m => m.direction === 'borrowed').reduce((sum, m) => sum + m.amount, 0)
+
+  let runningLent = totalLentNow - netWindowLent
+  let runningBorrowed = totalBorrowedNow - netWindowBorrowed
+
+  const monthKeys: { year: number, month: number }[] = []
+  for (let i = months - 1; i >= 0; i--) {
+    const monthDate = new Date(reference.getFullYear(), reference.getMonth() - i, 1)
+    monthKeys.push({ year: monthDate.getFullYear(), month: monthDate.getMonth() })
+  }
+
+  return monthKeys.map(({ year, month }) => {
+    let monthLent = 0
+    let monthBorrowed = 0
+    for (const movement of windowMovements) {
+      const date = parseDateOnly(movement.movementDate)
+      if (date.getFullYear() !== year || date.getMonth() !== month) continue
+      if (movement.direction === 'lent') monthLent += movement.amount
+      else if (movement.direction === 'borrowed') monthBorrowed += movement.amount
+    }
+    runningLent += monthLent
+    runningBorrowed += monthBorrowed
+    return { label: MONTHS_ES_SHORT[month]!, lent: runningLent, borrowed: runningBorrowed }
+  })
+}

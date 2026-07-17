@@ -223,7 +223,7 @@ async function onLogout() {
 // selector de tema, movido a Ajustes).
 const isDrawerOpen = ref(false)
 
-type NavRouteName = 'home' | 'transactions' | 'cards' | 'accounts' | 'categories' | 'statistics' | 'reports' | 'settings'
+type NavRouteName = 'home' | 'transactions' | 'cards' | 'accounts' | 'debts' | 'categories' | 'statistics' | 'reports' | 'settings'
 
 function isActive(name: NavRouteName): boolean {
   return route.name === name
@@ -316,6 +316,16 @@ function goAddFirstExpense() {
             >
               <Wallet class="size-5 shrink-0" />
               Cuentas
+            </button>
+            <button
+              type="button"
+              class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="isActive('debts') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+              :aria-current="isActive('debts') ? 'page' : undefined"
+              @click="navigateFromDrawer('debts')"
+            >
+              <HandCoins class="size-5 shrink-0" />
+              Deudas
             </button>
             <button
               type="button"
@@ -567,10 +577,9 @@ function goAddFirstExpense() {
             <span class="text-[10px] text-muted-foreground">Próximamente</span>
           </Button>
 
-          <Button variant="outline" class="flex h-auto flex-1 flex-col gap-1 py-3" disabled aria-disabled="true">
+          <Button variant="outline" class="flex h-auto flex-1 flex-col gap-1 py-3" @click="router.push({ name: 'debts' })">
             <HandCoins class="size-5" />
             <span class="text-xs font-medium">Deudas</span>
-            <span class="text-[10px] text-muted-foreground">Próximamente</span>
           </Button>
         </div>
 
