@@ -42,7 +42,13 @@ const isLoadingMonth = ref(false)
 const loadError = ref(false)
 
 const monthExpenses = ref<CardExpenseWithRelations[]>([])
-const recentExpenses = ref<CardExpenseWithRelations[]>([])
+
+// "Movimientos recientes" (sección 4.3) se derivan del mismo mes seleccionado
+// (ya viene ordenado desc por fecha desde `fetchByDateRange`/las mutaciones
+// optimistas, ver `sortDesc` en cardExpenses.ts), no de un fetch aparte
+// "últimos 5 sin importar el mes" — con el selector de mes visible en el
+// header, mostrar un movimiento de otro mes ahí se leía como un bug.
+const recentExpenses = computed(() => monthExpenses.value.slice(0, 5))
 
 interface MonthOption { value: string, label: string, start: Date, end: Date }
 
@@ -70,6 +76,8 @@ const selectedMonth = computed(() => monthOptions.value.find(o => o.value === fi
 
 // A diferencia del dashboard, acá no hay badge de variación: solo se trae el
 // rango del mes seleccionado para esta tarjeta, sin mes anterior ni delta.
+// `recentExpenses` (computed) se deriva de este mismo array, así que no hace
+// falta ninguna otra query para tenerlo actualizado.
 async function loadMonthData(): Promise<boolean> {
   const cur = selectedMonth.value
   const monthRes = await cardExpensesStore.fetchByDateRange({
@@ -86,28 +94,24 @@ async function loadAll() {
   loadError.value = false
   isInitialLoading.value = true
   try {
-    // `recentExpenses` es independiente del mes elegido (últimos movimientos,
-    // sección 4.3): se trae una única vez acá, no en el refetch por mes.
-    const [cardsOk, peopleOk, monthOk, recentRes] = await Promise.all([
+    const [cardsOk, peopleOk, monthOk] = await Promise.all([
       creditCardsStore.fetchCards(),
       cardPeopleStore.fetchPeople(),
       loadMonthData(),
-      cardExpensesStore.fetchRecentForCard(cardId.value, 5),
     ])
 
-    if (!cardsOk || !peopleOk || !monthOk || recentRes === null || !card.value) {
+    if (!cardsOk || !peopleOk || !monthOk || !card.value) {
       loadError.value = true
       return
     }
-
-    recentExpenses.value = recentRes
   } finally {
     isInitialLoading.value = false
   }
 }
 
 // Al cambiar el mes seleccionado, refetchear solo `monthExpenses` (las
-// tarjetas/personas y `recentExpenses` ya están cargadas y no dependen del mes).
+// tarjetas/personas ya están cargadas; `recentExpenses` se recalcula solo,
+// es un computed derivado de `monthExpenses`).
 async function reloadMonth() {
   loadError.value = false
   isLoadingMonth.value = true
@@ -185,10 +189,11 @@ function openNewExpense() {
 
 // Definido acá, no inline en el template: un `ref` referenciado por su
 // nombre dentro de una expresión de template se auto-desenvuelve, así que
-// `[monthExpenses, recentExpenses]` en el template pasaría los *valores*
-// desenvueltos, no los `ref`s en sí (ver mismo comentario en
-// CardTransactionsView.vue).
-const expenseSyncTargets = [monthExpenses, recentExpenses]
+// `[monthExpenses]` en el template pasaría el *valor* desenvuelto, no el
+// `ref` en sí (ver mismo comentario en CardTransactionsView.vue). Un solo
+// target ahora: `recentExpenses` es un computed derivado de `monthExpenses`,
+// se actualiza solo.
+const expenseSyncTargets = [monthExpenses]
 
 function goToTransactions() {
   router.push({ name: 'card-transactions', query: { cardId: cardId.value } })
@@ -372,7 +377,7 @@ function goToTransactions() {
           </CardHeader>
 
           <p v-if="recentExpenses.length === 0" class="px-6 pb-4 text-sm text-muted-foreground">
-            Todavía no registraste gastos con esta tarjeta.
+            No registraste gastos con esta tarjeta en {{ monthLabel }}.
           </p>
           <div v-else class="flex flex-col">
             <template v-for="(expense, idx) in recentExpenses" :key="expense.id">
