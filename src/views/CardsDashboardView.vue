@@ -208,33 +208,39 @@ const dashboardSyncTargets = [monthExpenses]
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-4 sm:px-6 lg:px-8">
+    <!-- Header con selector de mes integrado (credit-cards-ux.md sección 2.0):
+    "Tarjetas de crédito" baja a eyebrow chico y el mes elegido (mismo
+    filters.month/monthOptions/Select de siempre, solo cambia la presentación)
+    pasa a ser el texto grande, sin caja/borde de campo de formulario. -->
+    <header class="flex items-center gap-2 border-b border-border px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:px-8">
       <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
         <ArrowLeft class="size-5" />
       </Button>
-      <h1 class="flex-1 text-xl font-semibold">
-        Tarjetas de crédito
-      </h1>
+
+      <div class="min-w-0 flex-1">
+        <p id="cards-dashboard-eyebrow" class="truncate text-xs font-medium text-muted-foreground">
+          Tarjetas de crédito
+        </p>
+
+        <Select v-model="filters.month">
+          <SelectTrigger
+            aria-describedby="cards-dashboard-eyebrow"
+            class="!h-11 !w-fit !max-w-full !gap-1.5 !border-0 !bg-transparent !py-0 !pl-2 !pr-2 !shadow-none -ml-2 rounded-md text-xl font-semibold tracking-tight text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
+          >
+            <SelectValue class="truncate" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
       <Button variant="ghost" size="icon" aria-label="Gestionar tarjetas y personas" @click="router.push({ name: 'manage-cards' })">
         <Settings class="size-5" />
       </Button>
     </header>
-
-    <!-- Filtro por mes (mismo patrón que la fila de filtros de
-    CardTransactionsView.vue): el total, el badge "vs. mes anterior", la dona y
-    la lista "Tus tarjetas" reflejan el mes elegido, no siempre el actual. -->
-    <div v-if="hasCards" class="flex gap-2 overflow-x-auto px-4 py-3 sm:px-6 lg:px-8">
-      <Select v-model="filters.month">
-        <SelectTrigger class="h-11 w-auto min-w-32">
-          <SelectValue />
-        </SelectTrigger>
-        <SelectContent>
-          <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
-            {{ option.label }}
-          </SelectItem>
-        </SelectContent>
-      </Select>
-    </div>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
       <!-- Estado de carga -->
