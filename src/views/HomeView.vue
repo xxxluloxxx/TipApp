@@ -31,7 +31,7 @@ import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
 import { currentMonthLabel, formatExpenseDateHeading, parseDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { resolveAccountColor, withAlpha } from '@/lib/colors'
+import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { buildCumulativeDailySeries, buildDonutSlices, isMonthSafeToShow, type CategoryTotal } from '@/lib/charts'
 import TrendAreaChart from '@/components/charts/TrendAreaChart.vue'
@@ -531,13 +531,13 @@ function goAddFirstExpense() {
               aria-disabled="true"
             >
               <span
-                class="flex size-9 shrink-0 items-center justify-center rounded-full"
-                :style="{ backgroundColor: withAlpha(account.color, 0.15) }"
+                class="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
               >
                 <component
                   :is="resolveAccountIcon(account.icon)"
                   class="size-5"
-                  :style="{ color: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                  :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
                 />
               </span>
               <div class="flex flex-col gap-0.5">

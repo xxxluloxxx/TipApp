@@ -274,10 +274,14 @@ const dashboardSyncTargets = [monthExpenses]
           </div>
         </Card>
 
-        <!-- Sección 2.3: Lista de tarjetas — cada fila usa el color propio de
-        la tarjeta como fondo completo (no solo un swatch chico), con el texto
-        en el color que mejor contraste dé (mismo criterio que
-        `readableTextColor` ya usa para los badges de categoría). -->
+        <!-- Sección 2.3: Lista de tarjetas — fondo de fila neutro (igual que
+        cualquier otra card de la app); el color propio de la tarjeta vive
+        solo en el chip cuadrado con esquinas redondeadas a la izquierda del
+        nombre (icon-color-chip-ux.md), mismo tratamiento que "Mis cuentas"
+        en Inicio/AccountsView.vue. `readableTextColor` decide si el ícono va
+        blanco o casi negro según el hex de la tarjeta (mismo helper que ya
+        resolvía el texto sobre el fondo completo, reusado acá para el ícono
+        sobre el chip). -->
         <Card>
           <CardHeader>
             <CardTitle class="text-base font-semibold">
@@ -289,18 +293,20 @@ const dashboardSyncTargets = [monthExpenses]
               v-for="card in cardsRanking"
               :key="card.id"
               type="button"
-              class="flex min-h-14 w-full items-center gap-3 rounded-lg px-4 py-3 text-left transition-opacity hover:opacity-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              :style="{ background: card.color ?? 'hsl(var(--muted))', color: readableTextColor(card.color) }"
+              class="flex min-h-14 w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               @click="router.push({ name: 'card-detail', params: { id: card.id } })"
             >
-              <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-black/15">
-                <CreditCardIcon class="size-4.5" />
+              <span
+                class="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                :style="{ backgroundColor: card.color ?? 'hsl(var(--muted))' }"
+              >
+                <CreditCardIcon class="size-4.5" :style="{ color: readableTextColor(card.color) }" />
               </span>
               <div class="flex min-w-0 flex-1 flex-col">
                 <p class="truncate text-sm font-semibold">
                   {{ card.name }}
                 </p>
-                <p class="truncate text-xs opacity-80">
+                <p class="truncate text-xs text-muted-foreground">
                   •••• {{ card.lastFourDigits }}
                 </p>
               </div>
@@ -308,11 +314,11 @@ const dashboardSyncTargets = [monthExpenses]
                 <p class="text-sm font-semibold tabular-nums">
                   ${{ formatAmount(card.monthTotal) }}
                 </p>
-                <p class="text-xs opacity-80">
+                <p class="text-xs text-muted-foreground">
                   {{ card.percentLabel }} del total
                 </p>
               </div>
-              <ChevronRight class="size-4 shrink-0 opacity-70" />
+              <ChevronRight class="size-4 shrink-0 text-muted-foreground" />
             </button>
           </div>
           <p v-if="!showDistribution" class="px-6 pb-4 text-sm text-muted-foreground">

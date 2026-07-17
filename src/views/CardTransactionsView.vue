@@ -302,16 +302,21 @@ const transactionsSyncTargets = [transactions]
       </template>
 
       <template v-else>
-        <!-- Sección 3.2: agrupado por tarjeta — header de grupo con el color
-        propio de la tarjeta a todo lo ancho (mismo criterio de contraste que
-        la lista de "Tus tarjetas" del dashboard), y cada fila con la persona
-        en negrita primero, luego descripción, badge de cuota y monto. -->
+        <!-- Sección 3.2: agrupado por tarjeta — header de grupo con fondo
+        neutro (igual que el resto de la card); el color propio de la
+        tarjeta vive solo en el chip cuadrado a la izquierda del nombre,
+        mismo tratamiento que la lista "Tus tarjetas" del dashboard y "Mis
+        cuentas" de Inicio/AccountsView.vue (icon-color-chip-ux.md). Cada
+        fila sigue con la persona en negrita primero, luego descripción,
+        badge de cuota y monto. -->
         <Card v-for="group in groupedByCard" :key="group.card.id" class="overflow-hidden py-0">
-          <div
-            class="flex items-center gap-2 px-4 py-3"
-            :style="{ background: group.card.color ?? 'hsl(var(--muted))', color: readableTextColor(group.card.color) }"
-          >
-            <CreditCardIcon class="size-4 shrink-0 opacity-90" />
+          <div class="flex items-center gap-2 border-b border-border px-4 py-3">
+            <span
+              class="flex size-8 shrink-0 items-center justify-center rounded-lg"
+              :style="{ backgroundColor: group.card.color ?? 'hsl(var(--muted))' }"
+            >
+              <CreditCardIcon class="size-4" :style="{ color: readableTextColor(group.card.color) }" />
+            </span>
             <span class="flex-1 truncate text-sm font-semibold">
               {{ group.card.name }} (•••• {{ group.card.last_four_digits }})
             </span>

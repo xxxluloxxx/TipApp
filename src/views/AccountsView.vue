@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlertCircle, ArrowLeft, EllipsisVertical, Pencil, Plus, RotateCcw, Trash2, Wallet } from '@lucide/vue'
-import { resolveAccountColor, withAlpha } from '@/lib/colors'
+import { readableTextColor, resolveAccountColor } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { formatAmount } from '@/lib/currency'
 import { useAccountsStore, type Account } from '@/stores/accounts'
@@ -116,7 +116,7 @@ function openEditSheet(account: Account) {
             <template v-for="i in 3" :key="i">
               <Separator v-if="i > 1" />
               <div class="flex items-center gap-3 px-4 py-3">
-                <Skeleton class="size-9 rounded-full" />
+                <Skeleton class="size-10 rounded-lg" />
                 <div class="flex flex-1 flex-col gap-1.5">
                   <Skeleton class="h-4 w-32" />
                   <Skeleton class="h-3 w-20" />
@@ -176,13 +176,13 @@ function openEditSheet(account: Account) {
               <Separator v-if="idx > 0" />
               <div class="flex items-center gap-3 px-4 py-3">
                 <span
-                  class="flex size-9 shrink-0 items-center justify-center rounded-full"
-                  :style="{ backgroundColor: withAlpha(account.color, 0.15) }"
+                  class="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                  :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
                 >
                   <component
                     :is="resolveAccountIcon(account.icon)"
                     class="size-4.5"
-                    :style="{ color: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                    :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
                   />
                 </span>
                 <div class="flex min-w-0 flex-1 flex-col">
