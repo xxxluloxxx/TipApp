@@ -116,7 +116,7 @@ function openEditPerson(person: CardPerson) {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-4 sm:px-6 lg:px-8">
+    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
       <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'cards' })">
         <ArrowLeft class="size-5" />
       </Button>

@@ -206,7 +206,7 @@ function goToTransactions() {
     CardsDashboardView.vue): el nombre de la tarjeta baja a eyebrow chico y el
     mes elegido pasa a ser el texto grande, sin caja/borde de campo. El bloque
     central queda centrado entre el botón Volver y un spacer del mismo tamaño. -->
-    <header class="flex items-center gap-2 border-b border-border px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:px-8">
+    <header class="flex items-center gap-2 border-b border-border px-4 py-1.5 sm:gap-3 sm:px-6 lg:px-8">
       <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'cards' })">
         <ArrowLeft class="size-5" />
       </Button>
