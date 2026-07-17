@@ -251,7 +251,7 @@ function goAddFirstExpense() {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center justify-between border-b border-border px-4 py-4 sm:px-6 lg:px-8">
+    <header class="flex items-center justify-between border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
       <Sheet v-model:open="isDrawerOpen">
         <SheetTrigger as-child>
           <Button variant="ghost" size="icon" aria-label="Abrir menú">
