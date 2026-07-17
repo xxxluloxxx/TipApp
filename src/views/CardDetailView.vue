@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlertCircle, ArrowLeft, CreditCard as CreditCardIcon, Plus, RotateCcw, User } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
@@ -17,6 +17,13 @@ import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 // Sección 4 de credit-cards-ux.md: detalle de una tarjeta. Vista de "tercer
 // nivel" (vuelve a /tarjetas, no a Home), fetch propio (deep-link directo).
@@ -31,47 +38,93 @@ const cardId = computed(() => String(route.params.id))
 const card = computed(() => creditCardsStore.cardById(cardId.value))
 
 const isInitialLoading = ref(true)
+const isLoadingMonth = ref(false)
 const loadError = ref(false)
 
 const monthExpenses = ref<CardExpenseWithRelations[]>([])
 const recentExpenses = ref<CardExpenseWithRelations[]>([])
 
-function monthStart(offsetMonths: number, reference: Date = new Date()): Date {
-  return new Date(reference.getFullYear(), reference.getMonth() + offsetMonths, 1)
+interface MonthOption { value: string, label: string, start: Date, end: Date }
+
+// Mismo patrón que CardsDashboardView.vue/CardTransactionsView.vue: últimos 12
+// meses generados con matemática de fechas pura, sin depender de datos cargados.
+const monthOptions = computed<MonthOption[]>(() => {
+  const now = new Date()
+  return Array.from({ length: 12 }, (_, i) => {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1)
+    return {
+      value: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`,
+      label: currentMonthLabel(start),
+      start,
+      end,
+    }
+  })
+})
+
+const filters = reactive({
+  month: monthOptions.value[0]!.value,
+})
+
+const selectedMonth = computed(() => monthOptions.value.find(o => o.value === filters.month) ?? monthOptions.value[0]!)
+
+// A diferencia del dashboard, acá no hay badge de variación: solo se trae el
+// rango del mes seleccionado para esta tarjeta, sin mes anterior ni delta.
+async function loadMonthData(): Promise<boolean> {
+  const cur = selectedMonth.value
+  const monthRes = await cardExpensesStore.fetchByDateRange({
+    from: formatDateOnly(cur.start),
+    to: formatDateOnly(cur.end),
+    cardId: cardId.value,
+  })
+  if (monthRes === null) return false
+  monthExpenses.value = monthRes
+  return true
 }
 
 async function loadAll() {
   loadError.value = false
   isInitialLoading.value = true
   try {
-    const [cardsOk, peopleOk] = await Promise.all([creditCardsStore.fetchCards(), cardPeopleStore.fetchPeople()])
-    if (!cardsOk || !peopleOk || !card.value) {
-      loadError.value = true
-      return
-    }
-
-    const start = monthStart(0)
-    const end = monthStart(1)
-    const [monthRes, recentRes] = await Promise.all([
-      cardExpensesStore.fetchByDateRange({ from: formatDateOnly(start), to: formatDateOnly(end), cardId: cardId.value }),
+    // `recentExpenses` es independiente del mes elegido (últimos movimientos,
+    // sección 4.3): se trae una única vez acá, no en el refetch por mes.
+    const [cardsOk, peopleOk, monthOk, recentRes] = await Promise.all([
+      creditCardsStore.fetchCards(),
+      cardPeopleStore.fetchPeople(),
+      loadMonthData(),
       cardExpensesStore.fetchRecentForCard(cardId.value, 5),
     ])
 
-    if (monthRes === null || recentRes === null) {
+    if (!cardsOk || !peopleOk || !monthOk || recentRes === null || !card.value) {
       loadError.value = true
       return
     }
 
-    monthExpenses.value = monthRes
     recentExpenses.value = recentRes
   } finally {
     isInitialLoading.value = false
   }
 }
 
+// Al cambiar el mes seleccionado, refetchear solo `monthExpenses` (las
+// tarjetas/personas y `recentExpenses` ya están cargadas y no dependen del mes).
+async function reloadMonth() {
+  loadError.value = false
+  isLoadingMonth.value = true
+  try {
+    if (!(await loadMonthData())) loadError.value = true
+  } finally {
+    isLoadingMonth.value = false
+  }
+}
+
+watch(() => filters.month, () => {
+  if (!isInitialLoading.value) void reloadMonth()
+})
+
 onMounted(loadAll)
 
-const monthLabel = computed(() => currentMonthLabel())
+const monthLabel = computed(() => selectedMonth.value.label)
 const cardMonthTotal = computed(() => monthExpenses.value.reduce((sum, e) => sum + e.amount, 0))
 
 // Sección 4.1: barra de progreso contra el límite sugerido, siempre
@@ -144,10 +197,36 @@ function goToTransactions() {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-4 sm:px-6 lg:px-8">
+    <!-- Header con selector de mes integrado (mismo patrón que
+    CardsDashboardView.vue): el nombre de la tarjeta baja a eyebrow chico y el
+    mes elegido pasa a ser el texto grande, sin caja/borde de campo. El bloque
+    central queda centrado entre el botón Volver y un spacer del mismo tamaño. -->
+    <header class="flex items-center gap-2 border-b border-border px-4 py-3 sm:gap-3 sm:px-6 sm:py-4 lg:px-8">
       <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'cards' })">
         <ArrowLeft class="size-5" />
       </Button>
+
+      <div class="min-w-0 flex-1">
+        <p id="card-detail-eyebrow" class="truncate text-center text-xs font-medium text-muted-foreground">
+          {{ card?.name }}
+        </p>
+
+        <Select v-model="filters.month">
+          <SelectTrigger
+            aria-describedby="card-detail-eyebrow"
+            class="!h-11 !w-fit !max-w-full !gap-1.5 !border-0 !bg-transparent !px-2 !py-0 !shadow-none mx-auto rounded-md text-xl font-semibold tracking-tight text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
+          >
+            <SelectValue class="truncate" />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
+              {{ option.label }}
+            </SelectItem>
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div class="size-11" aria-hidden="true" />
     </header>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
@@ -187,16 +266,35 @@ function goToTransactions() {
         </div>
       </template>
 
+      <!-- Recargando por cambio de mes: mismo esqueleto que la carga inicial -->
+      <template v-else-if="isLoadingMonth">
+        <Card>
+          <CardHeader>
+            <Skeleton class="h-4 w-32" />
+            <Skeleton class="mt-2 h-9 w-40" />
+          </CardHeader>
+          <Skeleton class="mx-6 mb-4 h-8" />
+        </Card>
+        <Card>
+          <CardHeader>
+            <Skeleton class="h-4 w-40" />
+          </CardHeader>
+          <div class="flex flex-col items-center gap-4 px-6 pb-6 sm:flex-row">
+            <Skeleton class="size-32 shrink-0 rounded-full" />
+          </div>
+        </Card>
+      </template>
+
       <template v-else-if="card">
         <!-- Sección 4.1: hero + progreso contra límite sugerido -->
-        <Card :style="{ backgroundColor: withAlpha(card.color, 0.16) }">
-          <CardHeader class="gap-4">
+        <Card size="sm" :style="{ backgroundColor: withAlpha(card.color, 0.16) }">
+          <CardHeader class="gap-2">
             <div class="flex items-center gap-3">
               <span
-                class="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                class="flex size-8 shrink-0 items-center justify-center rounded-lg"
                 :style="{ backgroundColor: card.color ?? 'hsl(var(--muted))' }"
               >
-                <CreditCardIcon class="size-4.5" :style="{ color: readableTextColor(card.color) }" />
+                <CreditCardIcon class="size-4" :style="{ color: readableTextColor(card.color) }" />
               </span>
               <div class="flex min-w-0 flex-col">
                 <p class="truncate text-sm font-semibold">
@@ -210,14 +308,14 @@ function goToTransactions() {
 
             <div>
               <CardDescription>Total en {{ monthLabel }}</CardDescription>
-              <CardTitle class="text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
+              <CardTitle class="text-xl font-bold tabular-nums tracking-tight sm:text-2xl">
                 <span class="align-top text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(cardMonthTotal) }}
               </CardTitle>
             </div>
           </CardHeader>
 
-          <div v-if="card.suggested_monthly_limit" class="flex flex-col gap-1.5 px-6 pb-6">
-            <div class="h-2 overflow-hidden rounded-full bg-muted">
+          <div v-if="card.suggested_monthly_limit" class="flex flex-col gap-1 px-4 pb-4">
+            <div class="h-1.5 overflow-hidden rounded-full bg-muted">
               <div
                 class="h-full rounded-full transition-[width]"
                 :class="limitBarColorClass"
@@ -232,7 +330,7 @@ function goToTransactions() {
               Este límite es solo una referencia que vos definiste, no un límite real de tu tarjeta ni de tu banco.
             </p>
           </div>
-          <p v-else class="px-6 pb-6 text-xs text-muted-foreground">
+          <p v-else class="px-4 pb-4 text-xs text-muted-foreground">
             No definiste un límite mensual sugerido para esta tarjeta.
             <button type="button" class="font-medium text-primary underline-offset-2 hover:underline" @click="openEditCard">
               Definir uno
