@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly } from '@/lib/date'
@@ -14,6 +14,13 @@ import CardExpenseFormSheet from '@/components/CardExpenseFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardDescription, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 
 // Resumen/Dashboard de tarjetas (credit-cards-ux.md sección 2). Vista de
 // segundo nivel (header ArrowLeft-less... en realidad sí tiene ArrowLeft,
@@ -25,46 +32,92 @@ const cardPeopleStore = useCardPeopleStore()
 const cardExpensesStore = useCardExpensesStore()
 
 const isInitialLoading = ref(true)
+const isLoadingMonth = ref(false)
 const loadError = ref(false)
 
 const monthExpenses = ref<CardExpenseWithRelations[]>([])
 const prevMonthExpenses = ref<CardExpenseWithRelations[]>([])
 
-function monthStart(offsetMonths: number, reference: Date = new Date()): Date {
-  return new Date(reference.getFullYear(), reference.getMonth() + offsetMonths, 1)
+interface MonthOption { value: string, label: string, start: Date, end: Date }
+
+// Mismo patrón que CardTransactionsView.vue: últimos 12 meses generados con
+// matemática de fechas pura, sin depender de ningún dato ya cargado.
+const monthOptions = computed<MonthOption[]>(() => {
+  const now = new Date()
+  return Array.from({ length: 12 }, (_, i) => {
+    const start = new Date(now.getFullYear(), now.getMonth() - i, 1)
+    const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1)
+    return {
+      value: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`,
+      label: currentMonthLabel(start),
+      start,
+      end,
+    }
+  })
+})
+
+const filters = reactive({
+  month: monthOptions.value[0]!.value,
+})
+
+const selectedMonth = computed(() => monthOptions.value.find(o => o.value === filters.month) ?? monthOptions.value[0]!)
+
+// Refetch de los dos rangos ("mes seleccionado" y "mes anterior al
+// seleccionado") derivados del Select, no siempre relativos a hoy.
+async function loadMonthData(): Promise<boolean> {
+  const cur = selectedMonth.value
+  const prevStart = new Date(cur.start.getFullYear(), cur.start.getMonth() - 1, 1)
+  const prevEnd = cur.start
+
+  const [curRes, prevRes] = await Promise.all([
+    cardExpensesStore.fetchByDateRange({ from: formatDateOnly(cur.start), to: formatDateOnly(cur.end) }),
+    cardExpensesStore.fetchByDateRange({ from: formatDateOnly(prevStart), to: formatDateOnly(prevEnd) }),
+  ])
+
+  if (curRes === null || prevRes === null) return false
+
+  monthExpenses.value = curRes
+  prevMonthExpenses.value = prevRes
+  return true
 }
 
 async function loadAll() {
   loadError.value = false
   isInitialLoading.value = true
   try {
-    const curStart = monthStart(0)
-    const curEnd = monthStart(1)
-    const prevStart = monthStart(-1)
-    const prevEnd = monthStart(0)
-
-    const [cardsOk, peopleOk, curRes, prevRes] = await Promise.all([
+    const [cardsOk, peopleOk, monthsOk] = await Promise.all([
       creditCardsStore.fetchCards(),
       cardPeopleStore.fetchPeople(),
-      cardExpensesStore.fetchByDateRange({ from: formatDateOnly(curStart), to: formatDateOnly(curEnd) }),
-      cardExpensesStore.fetchByDateRange({ from: formatDateOnly(prevStart), to: formatDateOnly(prevEnd) }),
+      loadMonthData(),
     ])
 
-    if (!cardsOk || !peopleOk || curRes === null || prevRes === null) {
+    if (!cardsOk || !peopleOk || !monthsOk) {
       loadError.value = true
-      return
     }
-
-    monthExpenses.value = curRes
-    prevMonthExpenses.value = prevRes
   } finally {
     isInitialLoading.value = false
   }
 }
 
+// Al cambiar el mes seleccionado, refetchear solo los rangos (las tarjetas y
+// personas ya están cargadas), mismo watch que usa CardTransactionsView.vue.
+async function reloadMonth() {
+  loadError.value = false
+  isLoadingMonth.value = true
+  try {
+    if (!(await loadMonthData())) loadError.value = true
+  } finally {
+    isLoadingMonth.value = false
+  }
+}
+
+watch(() => filters.month, () => {
+  if (!isInitialLoading.value) void reloadMonth()
+})
+
 onMounted(loadAll)
 
-const monthLabel = computed(() => currentMonthLabel())
+const monthLabel = computed(() => selectedMonth.value.label)
 
 const monthTotal = computed(() => monthExpenses.value.reduce((sum, e) => sum + e.amount, 0))
 const prevMonthTotal = computed(() => prevMonthExpenses.value.reduce((sum, e) => sum + e.amount, 0))
@@ -167,6 +220,22 @@ const dashboardSyncTargets = [monthExpenses]
       </Button>
     </header>
 
+    <!-- Filtro por mes (mismo patrón que la fila de filtros de
+    CardTransactionsView.vue): el total, el badge "vs. mes anterior", la dona y
+    la lista "Tus tarjetas" reflejan el mes elegido, no siempre el actual. -->
+    <div v-if="hasCards" class="flex gap-2 overflow-x-auto px-4 py-3 sm:px-6 lg:px-8">
+      <Select v-model="filters.month">
+        <SelectTrigger class="h-11 w-auto min-w-32">
+          <SelectValue />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
+            {{ option.label }}
+          </SelectItem>
+        </SelectContent>
+      </Select>
+    </div>
+
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
       <!-- Estado de carga -->
       <template v-if="isInitialLoading">
@@ -228,6 +297,27 @@ const dashboardSyncTargets = [monthExpenses]
             Agregar tarjeta
           </Button>
         </div>
+      </template>
+
+      <!-- Recargando por cambio de mes -->
+      <template v-else-if="isLoadingMonth">
+        <Card>
+          <CardHeader>
+            <Skeleton class="h-4 w-40" />
+            <Skeleton class="mt-2 h-9 w-40" />
+          </CardHeader>
+        </Card>
+        <Card>
+          <CardHeader>
+            <Skeleton class="h-4 w-48" />
+          </CardHeader>
+          <div class="flex flex-col items-center gap-4 px-6 pb-6 sm:flex-row">
+            <Skeleton class="size-32 shrink-0 rounded-full" />
+            <div class="flex w-full flex-col gap-2">
+              <Skeleton v-for="i in 3" :key="i" class="h-4 w-full" />
+            </div>
+          </div>
+        </Card>
       </template>
 
       <template v-else>
