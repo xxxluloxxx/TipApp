@@ -14,7 +14,7 @@ import {
 import { formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { useAccountsStore } from '@/stores/accounts'
-import { useCardPeopleStore } from '@/stores/cardPeople'
+import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
 import DebtFormSheet from '@/components/DebtFormSheet.vue'
 import DebtMovementFormSheet from '@/components/DebtMovementFormSheet.vue'
@@ -48,7 +48,7 @@ import {
 const route = useRoute()
 const router = useRouter()
 const debtsStore = useDebtsStore()
-const cardPeopleStore = useCardPeopleStore()
+const debtPeopleStore = useDebtPeopleStore()
 const accountsStore = useAccountsStore()
 
 const debtId = computed(() => String(route.params.id))
@@ -66,7 +66,7 @@ async function loadAll() {
     const [debtsOk, balancesOk, peopleOk, accountsOk] = await Promise.all([
       debtsStore.fetchDebts(),
       debtsStore.fetchBalances(),
-      cardPeopleStore.fetchPeople(),
+      debtPeopleStore.fetchPeople(),
       accountsStore.fetchAccounts(),
     ])
 

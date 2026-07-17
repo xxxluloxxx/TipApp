@@ -83,6 +83,15 @@ const router = createRouter({
       component: () => import('@/views/DebtsDashboardView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 4.1 de debts-ux.md: gestión de personas de deuda en ruta
+    // dedicada, declarada antes de la dinámica `/deudas/:id` (mismo criterio
+    // defensivo que `/tarjetas/gestionar` antes de `/tarjetas/:id`).
+    {
+      path: '/deudas/personas',
+      name: 'debt-people',
+      component: () => import('@/views/DebtPeopleView.vue'),
+      meta: { requiresAuth: true },
+    },
     {
       path: '/deudas/:id',
       name: 'debt-detail',

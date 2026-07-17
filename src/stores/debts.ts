@@ -5,7 +5,7 @@ import { toast } from 'vue-sonner'
 import { supabase } from '@/lib/supabase'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
-import { useCardPeopleStore } from '@/stores/cardPeople'
+import { useDebtPeopleStore } from '@/stores/debtPeople'
 import type { Tables } from '@/types/database.types'
 
 export type Debt = Tables<'debts'>
@@ -21,8 +21,8 @@ export type DebtMovementWithDebt = DebtMovement & {
 
 /** Fila combinada lista para renderizar (secciones 3.5/3.6/6.1 de
  * debts-ux.md): `debts` (cabecera) + `debt_balances` (saldo, sección 1.2) +
- * el nombre de la contraparte, resuelto contra `cardPeopleStore.people` (ya
- * cargado por quien monte esta pantalla, sección 4.1 del doc — no se
+ * el nombre de la contraparte, resuelto contra `debtPeopleStore.people` (ya
+ * cargado por quien monte esta pantalla, sección 4.1/4.5 del doc — no se
  * duplica ese fetch acá). */
 export interface DebtSummary {
   id: string
@@ -121,7 +121,7 @@ function accountDeltaFor(direction: DebtDirection, amount: number): number {
  * re-suma desde cero (sección 7.2).
  */
 export const useDebtsStore = defineStore('debts', () => {
-  const cardPeopleStore = useCardPeopleStore()
+  const debtPeopleStore = useDebtPeopleStore()
 
   const debts = ref<Debt[]>([])
   /** Saldo por hilo (`debt_id`), poblado desde `debt_balances` — único lugar
@@ -133,7 +133,7 @@ export const useDebtsStore = defineStore('debts', () => {
       id: debt.id,
       direction: debt.direction as DebtDirection,
       personId: debt.person_id,
-      personName: cardPeopleStore.personById(debt.person_id)?.name ?? 'Persona',
+      personName: debtPeopleStore.personById(debt.person_id)?.name ?? 'Persona',
       description: debt.description,
       balance: balances.value[debt.id] ?? 0,
       createdAt: debt.created_at,

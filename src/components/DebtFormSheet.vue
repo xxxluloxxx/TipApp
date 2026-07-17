@@ -5,7 +5,7 @@ import { Loader2, UserRoundPlus } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { isFutureDate, todayDateInputValue } from '@/lib/date'
 import { useAccountsStore } from '@/stores/accounts'
-import { useCardPeopleStore } from '@/stores/cardPeople'
+import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useDebtsStore, type Debt, type DebtDirection } from '@/stores/debts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,7 +47,7 @@ const emit = defineEmits<{
 
 const router = useRouter()
 const debtsStore = useDebtsStore()
-const cardPeopleStore = useCardPeopleStore()
+const debtPeopleStore = useDebtPeopleStore()
 const accountsStore = useAccountsStore()
 
 const isEditing = computed(() => !!props.debt)
@@ -181,11 +181,11 @@ function preventCloseWhileSaving(event: Event) {
   if (isSaving.value) event.preventDefault()
 }
 
-// Sección 4.2: atajo "Agregar persona nueva", navega a la gestión de
-// tarjetas/personas — se acepta perder lo ya tecleado acá (ver justificación
-// completa del trade-off en el doc).
+// Sección 4.4: atajo "Agregar persona nueva", navega a la gestión de personas
+// de deuda — se acepta perder lo ya tecleado acá (ver justificación completa
+// del trade-off en el doc).
 function goManagePeople() {
-  router.push({ name: 'manage-cards', query: { new: 'person' } })
+  router.push({ name: 'debt-people', query: { new: '1' } })
 }
 
 async function onSubmit() {
@@ -221,7 +221,7 @@ async function onSubmit() {
     }
 
     toast.success('Deuda creada', {
-      description: `Se registró el préstamo con ${cardPeopleStore.personById(form.personId)?.name ?? 'la persona seleccionada'}.`,
+      description: `Se registró el préstamo con ${debtPeopleStore.personById(form.personId)?.name ?? 'la persona seleccionada'}.`,
     })
     emit('update:open', false)
     router.push({ name: 'debt-detail', params: { id: result.debtId } })
@@ -285,7 +285,7 @@ async function onSubmit() {
               <SelectValue placeholder="Seleccioná una persona" />
             </SelectTrigger>
             <SelectContent>
-              <SelectItem v-for="person in cardPeopleStore.people" :key="person.id" :value="person.id">
+              <SelectItem v-for="person in debtPeopleStore.people" :key="person.id" :value="person.id">
                 {{ person.name }}
               </SelectItem>
             </SelectContent>

@@ -51,6 +51,110 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se **separó `card_people` de las contrapartes de deuda** (revierte
+parcialmente una decisión de arquitectura tomada en la iteración anterior,
+"Deudas/Préstamos Fase 2" más abajo). Pedido explícito del Product Owner: son
+personas conceptualmente distintas ("quién usa mi tarjeta adicional" no es lo
+mismo que "a quién le presto o me presta plata") y mezclarlas en una sola
+lista generaba confusión real en los selectores de "Persona" de ambos flujos.
+Trabajo de las tres capas, backend y diseño corrieron en paralelo (mismo
+criterio que Deudas Fase 2: ambos partieron de la misma decisión de dominio ya
+tomada por el Product Owner, sin necesidad de re-sincronizarse).
+
+- **Backend** (`supabase-backend-expert`): 3 migraciones nuevas en
+  `supabase/migrations/` (`20260717150000` a `20260717150200`), aplicadas al
+  proyecto remoto real vía `supabase db push`.
+  - `debt_people(id, user_id, name, color, created_at, updated_at)` — tabla
+    nueva, mismo patrón exacto que `card_people` (sin fila "default del
+    sistema", sin avatar/foto). RLS activo, mismo patrón de policies
+    explícitas por operación que el resto del esquema.
+    `20260717150000_debt_people_init.sql`.
+  - RLS de `debt_people` en migración separada (mismo criterio que
+    `debts`/`debt_movements`: init nunca bundlea RLS).
+    `20260717150100_debt_people_rls.sql`.
+  - `debts.person_id` repuntado de `card_people` a `debt_people`
+    (`20260717150200_debts_person_id_migrate_to_debt_people.sql`):
+    `debts_validate_owner()` reescrita para validar contra `debt_people`,
+    comentarios SQL de `debts`/`debts.person_id` corregidos. **Backfill**: se
+    verificó contra el proyecto remoto antes de escribir la migración —
+    existía **1 fila real** en `debts` (única deuda cargada hasta ahora),
+    referenciando 1 fila de `card_people` ("Jhair"). Se migró preservando el
+    **mismo `id`** al insertar la fila equivalente en `debt_people` (en vez de
+    generar un id nuevo y reasignar por `user_id`+nombre) — como
+    `debts.person_id` ya apuntaba a ese id, esto deja la FK nueva válida sin
+    tocar una sola fila de `debts`, y evita cualquier ambigüedad si dos
+    personas del mismo usuario comparten nombre. A partir de acá ambas tablas
+    son independientes: cambios futuros en una no se reflejan en la otra, es
+    el punto central del pedido de separación.
+  - `debt_balances` (la vista de saldo agregado) **no se tocó** — sigue sin
+    incluir `person_id`/nombre (el frontend ya lo resolvía aparte contra un
+    store de personas, ahora `debtPeopleStore` en vez de `cardPeopleStore`).
+  - Guard de borrado de `card_people` (`src/stores/cardPeople.ts`,
+    `fetchExpenseCounts`) revertido a contar solo `card_expenses(count)` — ya
+    no suma `debts(count)`, porque `debts.person_id` ya no referencia
+    `card_people`. **Esto deja obsoleta la nota de la iteración anterior que
+    describía ese conteo combinado** (ver más abajo, sección "Deudas/Préstamos
+    Fase 2").
+  - `src/types/database.types.ts` regenerado.
+- **Diseño** (`ui-ux-designer`): actualización de
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/debts-ux.md` — la
+  sección 4 ("Selector de contraparte — reuso de `card_people`") quedó
+  **reemplazada por completo** por una nueva sección 4 ("Personas de deuda —
+  entidad propia, con pantalla de gestión dedicada"). Decisión clave: ruta
+  dedicada nueva `/deudas/personas` (no una sección embebida en el dashboard
+  de `/deudas`) — mismo precedente que ya resolvió Tarjetas con
+  `/tarjetas/gestionar` (4ª ruta dedicada para gestión de una entidad
+  secundaria de bajo uso, separada de la pantalla de panorama/analytics).
+  Deudas pasa de 2 a 3 rutas (no reabre el "ni 1 ni 4" de la sección 2
+  original: es un eje distinto, gestión de una segunda entidad). Sheet de
+  alta/edición idéntico en campos al de `card_people` (nombre + color opcional
+  de 10 swatches + "Sin color"), guard de borrado más simple (un único
+  conteo `debts(count)`, esta entidad no tiene un segundo consumidor como sí
+  tiene `card_people` con `card_expenses`). Sin ítem nuevo en el nav drawer
+  (mismo criterio que `/tarjetas/gestionar`): se llega por un botón
+  `Settings` nuevo en el header de `/deudas` y por el atajo "Agregar persona
+  nueva" del Sheet de alta de deuda.
+- **Frontend** (`vue-frontend-expert`, modelo Opus): store nuevo
+  `src/stores/debtPeople.ts` (mismo patrón 1:1 que `cardPeople.ts`:
+  alta/edición/borrado 100% optimistas con rollback, conteo dedicado
+  `debts(count)` vía `fetchDebtCounts()`). Vista nueva
+  `src/views/DebtPeopleView.vue` (mismo patrón visual que `ManageCardsView`
+  pero con una sola sección/entidad; soporta `?new=1` para abrir el Sheet de
+  alta al montar, mismo patrón ya usado en `AccountsView`/`TransactionsView`).
+  Componente nuevo `src/components/DebtPersonFormSheet.vue` (basado en
+  `CardPersonFormSheet.vue`, mismo patrón, distinto store/copy). Ruta nueva
+  `/deudas/personas` (`debt-people`) en `src/router/index.ts`, declarada
+  **antes** de `/deudas/:id` (mismo criterio defensivo que
+  `/tarjetas/gestionar` antes de `/tarjetas/:id`). Actualizados para resolver
+  `personName`/consumir el store nuevo en vez de `cardPeopleStore`:
+  `src/stores/debts.ts`, `src/views/DebtsDashboardView.vue` (+ botón
+  `Settings` nuevo en el header, `<h1>` pasa a `flex-1`),
+  `src/views/DebtDetailView.vue`, `src/components/DebtFormSheet.vue` (el
+  `Select` de "Contraparte" y el atajo "Agregar persona nueva", que ahora
+  navega a `{ name: 'debt-people', query: { new: '1' } }` en vez de
+  `/tarjetas/gestionar?new=person`). **No se tocó** `card_people`/
+  `ManageCardsView.vue`/`CardPersonFormSheet.vue` más allá del guard de
+  borrado ya revertido por backend.
+  - `npm run build` (`vue-tsc --build` + `vite build`) verificado sin
+    errores, tanto por el agente como de forma independiente por el Product
+    Owner.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente contra el Supabase real en el navegador el flujo
+  completo (crear/editar/borrar una persona de deuda desde `/deudas/personas`,
+  el guard de borrado con una deuda asociada, el atajo `?new=1` desde el Sheet
+  de alta de deuda, y que el selector de Contraparte ya no muestre las
+  personas de tarjeta) — mismo caveat recurrente de todas las iteraciones
+  previas, verificación de esta iteración fue build + revisión de código.
+  Recomendado antes de dar el cambio por cerrado en producción.
+- Las secciones de este documento correspondientes a "Deudas/Préstamos (Fase
+  2 de 2)" (más abajo) describen el estado **anterior a este cambio** en
+  varios puntos puntuales (contrapartes = `card_people`, guard combinado
+  `card_expenses(count) + debts(count)`, selector de contraparte contra
+  `cardPeopleStore`, atajo `?new=person` hacia `/tarjetas/gestionar`) — se
+  dejaron notas inline en esos puntos exactos marcándolos como reemplazados,
+  en vez de reescribir toda la narrativa histórica de esa iteración.
+
 Se agregó **Deudas/Préstamos (Fase 2 de 2)**, completando la feature de
 Cuentas que empezó en la iteración anterior (Fase 1: Cuentas + Ingresos, ver
 más abajo). El usuario ahora puede registrar a quién le prestó plata o quién
@@ -69,6 +173,11 @@ delegar (no las tomó ningún agente por su cuenta):
    feature de Tarjetas — no se creó una tabla ni una pantalla de gestión de
    personas nueva.** El guard de borrado de una persona en
    `/tarjetas/gestionar` ahora suma `card_expenses(count) + debts(count)`.
+   **[REVERTIDO en la iteración siguiente, ver el bloque al principio de esta
+   misma sección "Estado actual"]**: esta decisión se dio vuelta por pedido
+   explícito del Product Owner — ahora existe `debt_people`, una tabla
+   independiente, y el guard de `card_people` volvió a contar solo
+   `card_expenses(count)`.
 2. **El vínculo opcional a una cuenta en un movimiento de deuda NO genera
    ninguna fila en `expenses`/`incomes`.** Motivo: `expenses.category_id` es
    `not null` y prestar plata no es, conceptualmente, un gasto (sigue siendo
@@ -159,7 +268,10 @@ delegar (no las tomó ningún agente por su cuenta):
     siempre visible "Agregar persona nueva" → navega a
     `/tarjetas/gestionar?new=person` (trade-off aceptado: se pierde el
     progreso del Sheet de deuda en curso, aceptado porque Contraparte es el
-    segundo campo del formulario).
+    segundo campo del formulario). **[REVERTIDO, ver principio de esta
+    sección]**: el `Select` ahora consume `debtPeopleStore.people` y el atajo
+    navega a `/deudas/personas` (`?new=1`) — el trade-off aceptado sigue
+    vigente sin cambios, solo cambió el destino.
   - **Copy del vínculo a cuenta** (la parte más delicada, mismo texto en
     alta y en abono/ampliación, siempre visible, no condicional a haber
     elegido cuenta): *"Si vinculás una cuenta, ajustamos su saldo
@@ -213,6 +325,11 @@ delegar (no las tomó ningún agente por su cuenta):
   shadcn-vue instalado (`npx shadcn-vue add tabs`). `src/stores/
   cardPeople.ts`: `fetchExpenseCounts` ahora suma `card_expenses(count) +
   debts(count)`. `src/views/ManageCardsView.vue`: soporta `?new=person`.
+  **[Ambos puntos REVERTIDOS en la iteración siguiente — ver principio de
+  esta sección: el guard de `cardPeople.ts` volvió a ser solo
+  `card_expenses(count)`, y `?new=person` en `ManageCardsView` quedó sin uso
+  real porque el atajo de "Agregar persona nueva" de Deudas ahora apunta a
+  `/deudas/personas` en vez de acá]**.
   `src/router/index.ts`: rutas `/deudas`, `/deudas/:id`. `src/views/
   HomeView.vue`: acceso rápido "Deudas" activado (se quitó `disabled`/
   "Próximamente") + ítem de drawer nuevo.
@@ -1007,15 +1124,18 @@ en todos los anchos).
    Gasto/Ingreso), confirmar que "Mis cuentas" y el saldo total de Inicio
    reflejan el movimiento sin refrescar, confirmar los dos guards de
    borrado (cuenta con movimientos, y "nunca la última cuenta")** →
-   **`/deudas`: crear una deuda "Yo le presto" y otra "Me presta" (con y sin
-   contraparte nueva vía `?new=person`), crear un movimiento vinculado a una
-   cuenta y confirmar que el saldo de esa cuenta se ajusta pero NO aparece
-   ninguna fila nueva en Transacciones, abonar/ampliar desde el detalle,
-   editar/borrar un movimiento individual (y confirmar el guard del "último
-   movimiento"), borrar un hilo completo, revisar las cards resumen/saldo
-   neto/resumen rápido/gráfico "Evolución de saldos" con datos reales, y el
-   ajuste del guard de borrado de persona en `/tarjetas/gestionar`
-   (`card_expenses(count) + debts(count)`)** → drawer de 9 ítems (resaltado
+   **`/deudas`: crear/editar/borrar una persona de deuda desde
+   `/deudas/personas` (guard de borrado deshabilitado con una deuda asociada),
+   crear una deuda "Yo le presto" y otra "Me presta" (con y sin contraparte
+   nueva vía el atajo del Sheet, que ahora navega a `/deudas/personas?new=1`),
+   crear un movimiento vinculado a una cuenta y confirmar que el saldo de esa
+   cuenta se ajusta pero NO aparece ninguna fila nueva en Transacciones,
+   abonar/ampliar desde el detalle, editar/borrar un movimiento individual (y
+   confirmar el guard del "último movimiento"), borrar un hilo completo,
+   revisar las cards resumen/saldo neto/resumen rápido/gráfico "Evolución de
+   saldos" con datos reales, y confirmar que el selector de "Persona" en
+   `/tarjetas/gestionar` y el de "Contraparte" en Deudas ya NO comparten
+   ninguna persona entre sí** → drawer de 9 ítems (resaltado
    de ruta activa) → logout → refresh de página (verificar que no hay flash
    de contenido ni de tema incorrecto) → **probar la instalación real como
    PWA en un celular** (Chrome Android: banner/menú "Instalar app"; Safari

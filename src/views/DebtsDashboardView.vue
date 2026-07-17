@@ -9,6 +9,7 @@ import {
   HandCoins,
   Plus,
   RotateCcw,
+  Settings,
   User,
   Wallet,
 } from '@lucide/vue'
@@ -16,7 +17,7 @@ import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/l
 import { formatAmount } from '@/lib/currency'
 import { buildDebtBalanceEvolution } from '@/lib/charts'
 import { useAccountsStore } from '@/stores/accounts'
-import { useCardPeopleStore } from '@/stores/cardPeople'
+import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
 import DebtFormSheet from '@/components/DebtFormSheet.vue'
 import DualTrendChart from '@/components/charts/DualTrendChart.vue'
@@ -33,7 +34,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 
 const router = useRouter()
 const debtsStore = useDebtsStore()
-const cardPeopleStore = useCardPeopleStore()
+const debtPeopleStore = useDebtPeopleStore()
 const accountsStore = useAccountsStore()
 
 const isInitialLoading = ref(true)
@@ -59,7 +60,7 @@ async function loadAll() {
     const [debtsOk, balancesOk, peopleOk, accountsOk, recentRes, windowRes] = await Promise.all([
       debtsStore.fetchDebts(),
       debtsStore.fetchBalances(),
-      cardPeopleStore.fetchPeople(),
+      debtPeopleStore.fetchPeople(),
       accountsStore.fetchAccounts(),
       debtsStore.fetchRecentMovements(),
       debtsStore.fetchMovementsInRange(formatDateOnly(windowStart), formatDateOnly(windowEnd)),
@@ -124,7 +125,7 @@ const hasBalanceEvolution = computed(() =>
 )
 
 function personNameFor(movement: DebtMovementWithDebt): string {
-  return cardPeopleStore.personById(movement.debt.person_id)?.name ?? 'Persona'
+  return debtPeopleStore.personById(movement.debt.person_id)?.name ?? 'Persona'
 }
 function accountNameFor(movement: DebtMovementWithDebt): string | null {
   if (!movement.account_id) return null
@@ -153,9 +154,12 @@ function openAddDebt() {
       <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
         <ArrowLeft class="size-5" />
       </Button>
-      <h1 class="text-xl font-semibold">
+      <h1 class="flex-1 text-xl font-semibold">
         Deudas
       </h1>
+      <Button variant="ghost" size="icon" aria-label="Gestionar personas" @click="router.push({ name: 'debt-people' })">
+        <Settings class="size-5" />
+      </Button>
     </header>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">

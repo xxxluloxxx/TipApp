@@ -15,15 +15,28 @@ reusa tal cual y qué es nuevo.
 Contexto de dominio (ya decidido por el Product Owner, no se rediscute acá):
 "deuda" es un registro personal de a quién le presté plata o quién me
 prestó a mí — sin invitaciones, sin multi-usuario, sin settlement
-automático entre personas reales. Las contrapartes son exactamente las
-mismas `card_people` que ya gestiona `/tarjetas/gestionar` — **no hay
-pantalla nueva de gestión de personas**. El backend está armando en
-paralelo dos tablas nuevas, `debts` y `debt_movements`, más una vista
-agregada `debt_balances` — este documento asume nombres de columna
-plausibles y consistentes con el resto del esquema (`snake_case`) solo a
-título ilustrativo; **confirmar los nombres exactos con
-`supabase-backend-expert`** antes de tipar el store, sin bloquear el diseño
-de UX que sigue.
+automático entre personas reales. El backend está armando en paralelo dos
+tablas nuevas, `debts` y `debt_movements`, más una vista agregada
+`debt_balances` — este documento asume nombres de columna plausibles y
+consistentes con el resto del esquema (`snake_case`) solo a título
+ilustrativo; **confirmar los nombres exactos con `supabase-backend-expert`**
+antes de tipar el store, sin bloquear el diseño de UX que sigue.
+
+> **Revisión post-lanzamiento (esta versión del documento): las
+> contrapartes de deuda dejaron de ser `card_people`.** La primera versión
+> de este documento (sección 4 original) reutilizaba literalmente
+> `card_people` como contraparte, sin pantalla propia de gestión. El
+> Product Owner revirtió esa decisión: son conceptos distintos ("son
+> personas diferentes y no se deben crear igual") — quién usa la tarjeta
+> adicional del usuario no es necesariamente a quién el usuario le presta o
+> le prestan plata. El backend está creando en paralelo una entidad nueva e
+> independiente para "personas de deuda" (nombre tentativo de tabla
+> `debt_people`, puede cambiar — no depender del nombre exacto). La
+> **sección 4** de este documento fue reescrita por completo para reflejar
+> esto; las secciones 1.5 y 2 tienen ajustes puntuales marcados
+> explícitamente donde correspondía. Ningún otro contenido de este
+> documento (secciones 3, 5.2-5.3, 6, 7, 8, 9, 11, 12) se ve afectado por
+> este cambio.
 
 La referencia visual ("Mis Finanzas", mockup de otra app, pantalla
 "Préstamos") se usa **únicamente** para los flujos/layout que muestra
@@ -173,14 +186,21 @@ para las cards resumen (sección 3.2).
   dedicado** (a diferencia de categorías/cuentas/tarjetas/personas) —
   justificación completa en sección 6.5.
 - **Borrado de una `card_people`** (en `/tarjetas/gestionar`, ya existente):
-  sí necesita un ajuste. Hoy `cardPeopleStore.fetchExpenseCounts()` cuenta
-  solo `card_expenses(count)` por persona (`credit-cards-ux.md` sección
-  1.3). Con Deudas, una persona también puede tener `debts` asociadas —
-  el guard de "Eliminar" en `ManageCardsView` debe pasar a contar
-  `card_expenses(count) + debts(count)` para esa persona, no solo lo
-  primero. Es un **ajuste menor a un guard ya existente**, no una pantalla
-  nueva — nota para `vue-frontend-expert`, no algo que se rediseñe acá
-  (ver sección 4.3).
+  **sin cambios respecto al comportamiento original de `credit-cards-ux.md`
+  sección 1.3** — vuelve a contar únicamente `card_expenses(count)` por
+  persona. (Nota histórica: una versión anterior de este documento pedía
+  sumarle `debts(count)` acá, porque en ese momento las deudas reutilizaban
+  `card_people` como contraparte. Con la reversión de esa decisión —ver
+  sección 4—, `debts.person_id` ya no referencia `card_people` en absoluto,
+  así que ese ajuste queda sin efecto. El guard de borrado de `card_people`
+  no necesita ningún rediseño de `ManageCardsView.vue`, solo que el conteo
+  vuelva a su forma original; ese ajuste es responsabilidad del agente de
+  backend/frontend que esté migrando el esquema, no de este documento.)
+- **Borrado de una persona de deuda** (entidad nueva, sección 4): sí
+  necesita conteo dedicado, análogo pero **más simple** que el de
+  `card_people` — cuenta únicamente `debts(count)` para esa persona, sin
+  necesidad de sumar ningún otro conteo (esta entidad no tiene ningún otro
+  consumidor además de `debts`). Detalle completo en sección 4.3.
 
 ---
 
@@ -226,6 +246,20 @@ Ni 1 ni 4:
 Sin colisión de segmento literal-vs-dinámico (a diferencia de
 `/tarjetas/gestionar` vs. `/tarjetas/:id`) — no hace falta ningún orden
 especial de declaración en el array de rutas.
+
+> **Nota de esta revisión**: la sección 4 agrega una **tercera** ruta,
+> `/deudas/personas`, para la gestión de personas de deuda. Esto **no
+> reabre** el análisis de arriba ("ni 1 ni 4"), que responde a un eje
+> distinto — cuánta granularidad necesita el propio recurso "deuda"
+> (panorama vs. ledger de un hilo). La ruta nueva resuelve un eje
+> ortogonal: la gestión de una **segunda entidad** (la contraparte), que
+> hasta esta revisión no tenía ningún costo de ruta propio porque se
+> delegaba por completo a `/tarjetas/gestionar`. Es exactamente el mismo
+> tipo de costo que ya pagó Tarjetas con su 4ª ruta
+> (`/tarjetas/gestionar`, `credit-cards-ux.md` sección 6.1) para poder
+> gestionar `card_people` — ver justificación completa y por qué acá
+> alcanza con una ruta de una sola sección (no dos, como
+> `ManageCardsView`) en sección 4.1.
 
 ---
 
@@ -667,102 +701,266 @@ shadow-[var(--shadow-elevated)]`, respeta
 
 ---
 
-## 4. Selector de contraparte — reuso de `card_people`, sin pantalla nueva
+## 4. Personas de deuda — entidad propia, con pantalla de gestión dedicada
 
-### 4.1 `Select` simple sobre `cardPeopleStore.people`
+> **Esta sección reemplaza por completo la anterior "4. Selector de
+> contraparte — reuso de `card_people`, sin pantalla nueva"** (que asumía
+> que las contrapartes de deuda eran literalmente `card_people`). Decisión
+> del Product Owner: son entidades distintas — quién usa la tarjeta
+> adicional del usuario no es necesariamente la misma persona a la que le
+> presta o le prestan plata. El backend está creando una tabla nueva e
+> independiente para esto (nombre tentativo `debt_people`, confirmar con
+> `supabase-backend-expert` antes de tipar — este documento habla de la
+> entidad conceptualmente, "personas de deuda", sin depender del nombre
+> exacto de tabla/columnas).
 
-Decisión ya tomada por el Product Owner (punto 1 del encargo, no se
-rediscute): el campo "Contraparte" del alta de deuda es un `Select`
-estándar sobre `cardPeopleStore.people` (ya en memoria si el usuario
-navegó por Tarjetas antes; si no, `debtsStore`/la vista de Deudas dispara su
-propio `cardPeopleStore.fetchPeople()` al montar, mismo store, sin
-duplicar estado).
+### 4.1 Dónde vive la gestión: pantalla dedicada `/deudas/personas`, no una sección embebida en el dashboard
+
+Dos opciones evaluadas, mismo nivel de rigor que el resto de este documento:
+
+**(a) Pantalla dedicada nueva** (`/deudas/personas`, análoga a
+`/tarjetas/gestionar` pero de una sola entidad) — **elegida**.
+
+**(b) Sección embebida dentro de `/deudas`** (agregar una tercera lista —
+además de resumen/tabs/gráfico— para listar/crear/editar/borrar personas de
+deuda directamente en `DebtsDashboardView.vue`, mismo espíritu con el que
+`ManageCardsView.vue` mezcla tarjetas+personas en una sola pantalla) —
+**descartada**.
+
+Por qué (a) y no (b):
+
+1. **`/deudas` ya está construido, explícitamente, como pantalla de
+   "panorama"**, no de gestión (sección 2: "esta es, por definición, una
+   segunda ruta de detalle [...] meter el ledger completo [...] en la misma
+   pantalla que el dashboard [...] sería una única pantalla sobrecargada,
+   mezclando una vista de panorama con una de gestión puntual"). Ese mismo
+   argumento, dicho para el ledger de un hilo, aplica palabra por palabra a
+   "listar/crear/editar/borrar personas": agregar una tercera sección de
+   CRUD a una pantalla que ya tiene 2 cards resumen + saldo neto + tabs (3
+   listas) + resumen rápido + gráfico + FAB es sobrecargarla más, no menos,
+   justo en el sentido que la sección 2 ya decidió evitar.
+2. **El precedente real del proyecto para "gestión de una entidad
+   secundaria de bajo uso" es una ruta propia, no una sección embebida en
+   el dashboard de la entidad principal.** Tarjetas tuvo el mismo dilema
+   exacto (¿gestionar `card_people` dentro de `CardsDashboardView`, o en
+   ruta propia?) y lo resolvió con una 4ª ruta dedicada,
+   `/tarjetas/gestionar` (`credit-cards-ux.md` sección 6.1) —
+   `CardsDashboardView` es panorama/analytics (dona, ranking, delta vs. mes
+   anterior), la gestión vive aparte. Construir acá una sección embebida en
+   `/deudas` sería inventar un segundo patrón para el mismo problema que el
+   proyecto ya resolvió una vez, sin ninguna razón nueva que lo justifique.
+3. **Diferencia real con `ManageCardsView` (que sí mezcla 2 entidades en 1
+   ruta) que no aplica acá**: `ManageCardsView` junta tarjetas+personas en
+   una sola ruta porque *ambas* son gestión de baja frecuencia del *mismo
+   dominio* (Tarjetas) y ninguna de las dos tiene ruta de panorama propia
+   que "gestionar" pudiera sobrecargar — la ruta de panorama de Tarjetas
+   (`/tarjetas`) es una pantalla *distinta* de `/tarjetas/gestionar`. Acá el
+   caso es distinto: la ruta de panorama de Deudas (`/deudas`) es *la
+   pantalla que hay que proteger de la sobrecarga*, así que la pregunta no
+   es "¿comparte ruta con quién?" sino "¿entra en la ruta de panorama o
+   no?" — y la respuesta, por el punto 1, es que no.
+4. **Una sola entidad, una sola sección — no hace falta el patrón de dos
+   `Card` separadas de `ManageCardsView`/`CategoriesView`.** A diferencia de
+   Tarjetas (2 entidades: tarjetas + personas) y Categorías (2 secciones de
+   la misma entidad: default + propias), acá solo hay **una** entidad que
+   gestionar (personas de deuda) — la pantalla nueva tiene una única `Card`
+   de listado, sin necesidad de un segundo bloque.
+
+**Consecuencia sobre el conteo de rutas de Deudas**: pasa de 2 a 3
+(sección 2 ya tiene la nota de reconciliación correspondiente — no es una
+reapertura de "ni 1 ni 4", es un eje distinto: gestión de una segunda
+entidad, igual que la 4ª ruta de Tarjetas).
+
+| Path | Nombre | Meta | Vista |
+|---|---|---|---|
+| `/deudas/personas` | `debt-people` | `{ requiresAuth: true }` | `DebtPeopleView` |
+
+Declarar esta ruta **antes** de `/deudas/:id` en el array de rutas (mismo
+criterio defensivo que `/tarjetas/gestionar` antes de `/tarjetas/:id`,
+sección 10 de `credit-cards-ux.md` — aunque acá tampoco hay colisión
+ambigua real para vue-router 4, es la práctica estándar ya adoptada en el
+proyecto).
+
+**Entrada a la pantalla**: mismo patrón que `CardsDashboardView.vue`
+(botón `Settings` en el header, `aria-label="Gestionar tarjetas y
+personas"`, línea 165 de ese archivo) — se agrega un botón análogo al
+header de `DebtsDashboardView.vue`:
 
 ```html
-<div class="flex flex-col gap-1.5">
-  <Label for="contraparte">Contraparte</Label>
-  <Select v-model="form.personId" :disabled="isSaving">
-    <SelectTrigger id="contraparte" class="h-11 w-full" :aria-invalid="!!errors.personId">
-      <SelectValue placeholder="Seleccioná una persona" />
-    </SelectTrigger>
-    <SelectContent>
-      <SelectItem v-for="person in cardPeopleStore.people" :key="person.id" :value="person.id">
-        {{ person.name }}
-      </SelectItem>
-    </SelectContent>
-  </Select>
-  <p v-if="errors.personId" class="text-xs text-destructive">{{ errors.personId }}</p>
-  <Button
-    variant="link"
-    size="sm"
-    class="h-auto w-fit p-0 text-xs"
-    type="button"
-    @click="goManagePeople"
-  >
-    <UserRoundPlus class="size-3.5" /> Agregar persona nueva
+<header class="flex items-center gap-3 border-b border-border px-4 py-4 sm:px-6 lg:px-8">
+  <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
+    <ArrowLeft class="size-5" />
   </Button>
-</div>
+  <h1 class="flex-1 text-xl font-semibold">Deudas</h1>
+  <Button variant="ghost" size="icon" aria-label="Gestionar personas" @click="router.push({ name: 'debt-people' })">
+    <Settings class="size-5" />
+  </Button>
+</header>
 ```
 
-### 4.2 El atajo "Agregar persona nueva" y el trade-off que resuelve (a propósito, con criterio explícito)
+`h1` pasa a llevar `flex-1` (hoy no lo tiene porque no compartía fila con
+ningún otro botón) para que el título siga ocupando el espacio disponible
+con el nuevo botón a la derecha — mismo ajuste que ya tiene
+`CardsDashboardView.vue` para el mismo propósito.
 
-El encargo deja explícitamente a criterio de este documento si conviene un
-atajo para cuando "la lista está vacía o el usuario necesita agregar una
-persona nueva". **Decisión: sí, un link de texto siempre visible** (no solo
-cuando la lista está vacía) debajo del `Select`, que navega a
-`/tarjetas/gestionar?new=person`.
+**Sin entrada adicional desde el estado vacío de `/deudas`**: a diferencia
+del vacío de Tarjetas (que sí navega a `manage-cards` porque ahí vive el
+único alta posible), el vacío de Deudas ya abre `DebtFormSheet` directo
+(sección 3.10) y ese Sheet ya tiene su propio atajo "Agregar persona nueva"
+(sección 4.4) — no hace falta un segundo camino.
+
+### 4.2 Sheet de alta/edición — `DebtPersonFormSheet.vue`
+
+**Mismos campos, mismo patrón, mismo componente que
+`CardPersonFormSheet.vue`** (`credit-cards-ux.md` sección 6.3), sin ninguna
+diferencia funcional real:
+
+- **Nombre** (`Input`, requerido, `maxlength="40"`, validación básica
+  `trim()` no vacío) — sin chequeo de duplicado, mismo motivo que
+  `card_people`: las personas de deuda siempre aparecen en listas propias
+  del usuario, nunca mezcladas con nada "del sistema" (a diferencia de
+  categorías).
+- **Color** (opcional): grid fijo de 10 swatches (mismos hex ya sembrados,
+  `COLOR_SWATCHES` de `src/lib/colors.ts`) + opción "Sin color" al final
+  del grid (`size-11 rounded-full border border-dashed border-border`, ícono
+  `User` adentro, `aria-label="Sin color"`) — idéntico al patrón de
+  `CardPersonFormSheet.vue` (sección 6.3 de `credit-cards-ux.md`), incluida
+  la distinción `hasChosenColor` para separar "todavía no elegí" de "elegí
+  Sin color" explícitamente.
+- Sin campo de foto/avatar — mismo motivo que `card_people` (evita meter
+  Storage en el alcance).
+- **Guardado: 100% optimista** — mismo motivo que `card_people`
+  (`credit-cards-ux.md` sección 6.2/6.3): no hay ningún índice único
+  conocido sobre el nombre de una persona de deuda, así que no hay
+  conflicto server-only en el camino feliz. Si a futuro
+  `supabase-backend-expert` agrega una restricción de unicidad, migrar al
+  patrón no-optimista de `CategoryFormSheet` en ese momento, no antes
+  (mismo criterio ya usado en el resto del proyecto para esta decisión).
+- **Borrado**: optimista con rollback, `AlertDialog` de confirmación
+  (`¿Eliminar "{nombre}"?` / `Esta acción no se puede deshacer.`),
+  deshabilitado de antemano según el conteo de la sección 4.3.
+
+No se reproduce el markup completo acá (sería una copia literal de
+`CardPersonFormSheet.vue`) — `vue-frontend-expert` puede partir de ese
+archivo como plantilla, cambiando únicamente: el store que consume
+(sección 4.4), el nombre del componente/ids de formulario, y el copy del
+`SheetTitle`/`SheetDescription` ("Nueva persona" / "Editar persona" /
+"Elegí un nombre y, si querés, un color para identificarla." — mismo copy
+exacto, no hay razón para variarlo).
+
+### 4.3 Guard de borrado — conteo dedicado, más simple que el de `card_people`
+
+Mismo mecanismo de siempre (conteo dedicado, cargado junto con el listado,
+deshabilitado de antemano — no reactivo al abrir el menú), pero **más
+simple** que el de `card_people`: acá alcanza con un único conteo,
+`debts(count)`, porque esta entidad no tiene ningún otro consumidor además
+de `debts` (a diferencia de `card_people`, que sí necesita sumar
+`card_expenses(count)` porque esa tabla tiene dos consumidores distintos).
 
 ```ts
-function goManagePeople() {
-  router.push({ name: 'manage-cards', query: { new: 'person' } })
-}
-```
-
-`ManageCardsView` necesita un ajuste chico (nota para `vue-frontend-expert`,
-no rediseño): además del `?new=1` que ya soporta (si existe) para abrir el
-alta de tarjeta, sumar un `?new=person` que abra directamente el
-`CardPersonFormSheet` al montar — mismo patrón exacto que `?new=1` ya
-documentado en `dashboard-redesign-ux.md` sección 3.4 y reusado en
-`accounts-income-ux.md` sección 6.2, aplicado a un valor de query distinto
-para desambiguar cuál de las dos secciones de esa pantalla abrir.
-
-**Trade-off aceptado explícitamente**: navegar a `/tarjetas/gestionar`
-abandona el Sheet de alta de deuda en curso — cualquier campo ya completado
-(Dirección, Contraparte antes de notar que falta la persona, Descripción)
-se pierde, el usuario vuelve a `/deudas` con las manos vacías después de
-crear la persona. Se acepta este costo por dos motivos:
-
-1. **Es el mismo patrón que ya usa el resto del proyecto** cuando hace
-   falta un atajo cruzado (`?new=1` desde la tile "Agregar cuenta" del
-   dashboard de Inicio) — no se inventa una segunda forma de resolver
-   "necesito crear un recurso relacionado a mitad de otro formulario"
-   (p. ej. un mini-formulario inline de persona embebido dentro del Sheet de
-   deuda, que sería una superficie nueva no pedida y complejidad real para
-   un caso de uso infrecuente: la mayoría de los usuarios ya tiene sus
-   personas cargadas desde que usan Tarjetas).
-2. **El campo "Contraparte" es el segundo del formulario** (sección 5.1,
-   justo después de "Dirección"): si el usuario necesita crear una persona
-   nueva, todavía no completó Descripción/Monto/Fecha/Cuenta — la pérdida
-   real de trabajo tecleado es mínima en la práctica, aunque exista en
-   teoría.
-
-### 4.3 Ajuste al guard de borrado de personas — nota para `vue-frontend-expert`
-
-Ya anotado en sección 1.5: `cardPeopleStore.fetchExpenseCounts()` (o el
-mecanismo equivalente que `ManageCardsView` use para deshabilitar
-"Eliminar" en una persona) debe pasar de contar solo
-`card_expenses(count)` a contar `card_expenses(count) + debts(count)`:
-
-```ts
-// Ilustrativo — ajuste al query ya existente en cardPeople.ts
-supabase.from('card_people')
-  .select('id, card_expenses(count), debts(count)')
+// Ilustrativo — store nuevo de personas de deuda (nombre tentativo
+// debtPeople.ts, mismo patrón que cardPeople.ts)
+supabase.from('debt_people') // nombre de tabla a confirmar con supabase-backend-expert
+  .select('id, debts(count)')
   .eq('user_id', userId)
 ```
 
-`Eliminar` queda deshabilitado si la suma de ambos conteos es `> 0` — misma
-mecánica de guard ya vigente, un campo más en la suma. No es una pantalla
-nueva ni un rediseño de `/tarjetas/gestionar`.
+`Eliminar` queda deshabilitado si ese conteo es `>= 1` — misma mecánica
+exacta que categorías/tarjetas/`card_people`, sin necesidad de sumar nada
+más.
+
+### 4.4 Actualizar el selector "Contraparte" en `DebtFormSheet.vue`
+
+`DebtFormSheet.vue` (implementado) hoy importa `useCardPeopleStore` y
+resuelve tanto las opciones del `Select` de Contraparte como el atajo
+"Agregar persona nueva" contra `card_people`/`manage-cards`. Cambios
+puntuales, sin tocar el resto del Sheet:
+
+```html
+<!-- Antes -->
+<SelectItem v-for="person in cardPeopleStore.people" :key="person.id" :value="person.id">
+  {{ person.name }}
+</SelectItem>
+
+<!-- Después -->
+<SelectItem v-for="person in debtPeopleStore.people" :key="person.id" :value="person.id">
+  {{ person.name }}
+</SelectItem>
+```
+
+```ts
+// Antes
+function goManagePeople() {
+  router.push({ name: 'manage-cards', query: { new: 'person' } })
+}
+
+// Después
+function goManagePeople() {
+  router.push({ name: 'debt-people', query: { new: '1' } })
+}
+```
+
+`?new=1`, no `?new=person`: a diferencia de `ManageCardsView` (que necesita
+desambiguar entre dos Sheets posibles en la misma ruta), `DebtPeopleView`
+tiene una sola entidad — mismo valor de query que ya usan las demás
+pantallas de gestión de una sola entidad (`AccountsView.vue`,
+`TransactionsView.vue`, sección 4.1) para abrir el Sheet de alta
+directamente al montar.
+
+El resto del Sheet (Dirección, Descripción, Monto inicial, Fecha, Cuenta,
+guardado no-optimista de la sección 5.2, copy del vínculo a cuenta de la
+sección 5.3) queda exactamente igual — este es el único cambio real de
+`DebtFormSheet.vue` en esta revisión.
+
+**Trade-off del atajo "Agregar persona nueva" (mismo análisis que la
+versión anterior de esta sección, sigue vigente sin cambios)**: navegar a
+`/deudas/personas` abandona el Sheet de alta de deuda en curso, con el
+mismo costo aceptado y la misma justificación ya documentada (dos motivos:
+es el mismo patrón que el resto del proyecto ya usa para "crear un recurso
+relacionado a mitad de otro formulario", y Contraparte es el segundo campo
+del formulario, así que la pérdida real de trabajo tecleado es mínima). Lo
+único que cambia es el destino de la navegación, no el trade-off en sí.
+
+### 4.5 Impacto en el resto del código existente — checklist para `vue-frontend-expert`
+
+Además de `DebtFormSheet.vue` (sección 4.4), estos archivos ya
+implementados resuelven "nombre de la contraparte" contra
+`cardPeopleStore.personById(...)` y necesitan el mismo cambio de store:
+
+- `src/stores/debts.ts` — el computed `debtSummaries` resuelve
+  `personName` contra `cardPeopleStore.personById(debt.person_id)`; pasa a
+  resolverlo contra el store nuevo de personas de deuda.
+- `src/views/DebtsDashboardView.vue` — la función `personNameFor()` (tab
+  "Historial", sección 3.6) hace lo mismo, mismo cambio.
+- `src/views/DebtDetailView.vue` — resuelve el nombre de la contraparte
+  para el hero (sección 6.1) del mismo modo.
+- Todos los puntos anteriores dejan de necesitar `cardPeopleStore.fetchPeople()`
+  en su `onMounted`/`loadAll` (ya no consumen ese store) y en cambio
+  disparan el `fetchPeople()`/equivalente del store nuevo.
+- `src/stores/cardPeople.ts` / `ManageCardsView.vue`: el conteo combinado
+  `card_expenses(count) + debts(count)` (agregado en la revisión anterior
+  de este documento, sección 1.5) queda **sin efecto** — `debts.person_id`
+  ya no apunta a `card_people`. Revertir el `select` a únicamente
+  `card_expenses(count)`. Este ajuste puntual ya lo está resolviendo el
+  agente que está migrando el esquema (backend); se deja anotado acá solo
+  para que quede en el checklist de verificación de esta revisión, no es
+  trabajo nuevo de `vue-frontend-expert` ni de este documento.
+- Store nuevo: `src/stores/debtPeople.ts` (nombre tentativo, mismo patrón
+  1:1 que `src/stores/cardPeople.ts` — `people`, `fetchPeople`,
+  `expenseCounts`/`countFor` vía el conteo de la sección 4.3,
+  `addPerson`/`updatePerson`/`deletePerson` 100% optimistas).
+- Vista nueva: `src/views/DebtPeopleView.vue` (sección 4.1).
+- Componente nuevo: `src/components/DebtPersonFormSheet.vue` (sección 4.2).
+
+### 4.6 Navegación: sin ítem propio en el drawer
+
+Mismo criterio que `/tarjetas/gestionar` (que tampoco tiene ítem propio en
+el drawer, `credit-cards-ux.md` sección 7 — solo lista "Tarjetas de
+crédito"): `/deudas/personas` es una pantalla de gestión de bajo tráfico,
+alcanzable únicamente desde dentro de la sección Deudas (botón `Settings`
+del header, sección 4.1, y el atajo del Sheet de alta, sección 4.4) — no
+se agrega ningún ítem nuevo a la tabla de navegación de la sección 9 de
+este documento.
 
 ---
 
@@ -1312,12 +1510,16 @@ exacto a copiar (`aria-current="page"` cuando `route.name === 'debts'`).
 
 ```ts
 { path: '/deudas', name: 'debts', component: () => import('@/views/DebtsDashboardView.vue'), meta: { requiresAuth: true } },
+{ path: '/deudas/personas', name: 'debt-people', component: () => import('@/views/DebtPeopleView.vue'), meta: { requiresAuth: true } },
 { path: '/deudas/:id', name: 'debt-detail', component: () => import('@/views/DebtDetailView.vue'), meta: { requiresAuth: true } },
 ```
 
 Se agregan a `src/router/index.ts` junto a las rutas ya existentes, mismo
-`meta.requiresAuth` y mismo lazy import por ruta ya usado hoy. Sin
-necesidad de orden especial de declaración (sección 2).
+`meta.requiresAuth` y mismo lazy import por ruta ya usado hoy. **Orden de
+declaración**: `/deudas/personas` (literal) va **antes** de `/deudas/:id`
+(dinámica) — sección 4.1, mismo criterio defensivo ya usado para
+`/tarjetas/gestionar` vs. `/tarjetas/:id`. `/deudas` (la raíz de la
+sección) no tiene ninguna restricción de orden respecto a las otras dos.
 
 ---
 
@@ -1446,32 +1648,42 @@ Explícitamente descartado, no se construye nada de esto:
      hilos — sección 1.2), nunca sumando `debt_movements` en cliente salvo
      dentro de rangos de fecha acotados (mes en curso, últimos 12 meses —
      sección 1.3).
-3. **Vistas nuevas**: `DebtsDashboardView.vue` (sección 3),
-   `DebtDetailView.vue` (sección 6).
-4. **Componentes nuevos**: `DebtFormSheet.vue` (sección 5),
-   `DebtMovementFormSheet.vue` (sección 7),
+3. **Vistas**: `DebtsDashboardView.vue` (sección 3, ya implementada — suma
+   el botón `Settings`/"Gestionar personas" de la sección 4.1 en esta
+   revisión), `DebtDetailView.vue` (sección 6, ya implementada), y
+   `DebtPeopleView.vue` (**nueva en esta revisión**, sección 4.1).
+4. **Componentes**: `DebtFormSheet.vue` (sección 5, ya implementado —
+   actualizar el store de Contraparte y el destino del atajo "Agregar
+   persona nueva", sección 4.4), `DebtMovementFormSheet.vue` (sección 7, ya
+   implementado, sin cambios de esta revisión),
    `src/components/charts/DualTrendChart.vue` (sección 3.8, hermano de
    `TrendAreaChart.vue`, no una extensión de ese componente — ver
-   justificación de por qué no se reusa/generaliza en sección 3.8).
+   justificación de por qué no se reusa/generaliza en sección 3.8, ya
+   implementado), y `DebtPersonFormSheet.vue` (**nuevo en esta revisión**,
+   sección 4.2).
 5. **`src/lib/charts.ts` o un helper nuevo**: función de derivación de
    `balanceEvolutionPoints` (sección 1.4 — la lógica de "saldo de arranque
    = balance actual − neto de la ventana de 12 meses"), y agregación de
    "Resumen rápido" del mes (sección 3.7). Puede vivir en `debts.ts` mismo o
    en un helper separado — no es una decisión de UX, es organización de
-   archivo.
-6. **Router**: 2 rutas nuevas bajo `/deudas` (sección 10), sin necesidad de
-   orden especial de declaración.
+   archivo. Ya implementado, sin cambios de esta revisión.
+6. **Router**: 3 rutas bajo `/deudas` (sección 10 — pasó de 2 a 3 en esta
+   revisión con `/deudas/personas`), declarando esa ruta literal antes que
+   la dinámica `/deudas/:id`.
 7. **`HomeView.vue`**: activar el acceso rápido "Deudas" (sección 8, quitar
-   `disabled`/"Próximamente", agregar `@click`).
+   `disabled`/"Próximamente", agregar `@click`). Ya implementado, sin
+   cambios de esta revisión.
 8. **Drawer** (`HomeView.vue`): nuevo ítem "Deudas" (`HandCoins`, ya
    confirmado en `@lucide/vue`, nada que instalar) en 5ª posición del
-   `<nav>` (pasa de 8 a 9 ítems, sección 9).
-9. **`src/stores/cardPeople.ts` / `ManageCardsView.vue`**: ajuste al guard
-   de borrado de persona — sumar `debts(count)` al conteo existente de
-   `card_expenses(count)` (sección 1.5/4.3). Ajuste chico, no rediseño.
-   `ManageCardsView.vue` también necesita soportar `?new=person` en
-   `onMounted` para abrir `CardPersonFormSheet` directo (sección 4.2),
-   mismo patrón que `?new=1` ya usado en otras vistas.
+   `<nav>` (pasa de 8 a 9 ítems, sección 9). Ya implementado. Sin ítem
+   nuevo para `/deudas/personas` (sección 4.6, mismo criterio que
+   `/tarjetas/gestionar`).
+9. **`src/stores/cardPeople.ts` / `ManageCardsView.vue`**: el ajuste de una
+   revisión anterior de este documento (sumar `debts(count)` al conteo de
+   `card_expenses(count)`) queda **revertido** por esta revisión — ver
+   sección 1.5/4.5. No es trabajo de `vue-frontend-expert` en esta
+   revisión (lo resuelve el agente que migra el esquema), solo un punto de
+   verificación.
 10. **Punto más importante de todo el documento (sección 1)**: el saldo de
     un hilo de deuda **siempre** viene de `debt_balances` (agregado
     server-side), nunca de sumar `debt_movements` de ese hilo en cliente —
@@ -1489,3 +1701,27 @@ Explícitamente descartado, no se construye nada de esto:
     y el nombre/forma final de la vista `debt_balances` (sección 1.1) — este
     documento asumió nombres plausibles en `snake_case` solo a título
     ilustrativo.
+12. **Checklist consolidado de esta revisión (personas de deuda,
+    sección 4)** — todo lo que cambia respecto al build ya existente:
+    - Store nuevo `src/stores/debtPeople.ts` (mismo patrón 1:1 que
+      `cardPeople.ts`, conteo simple `debts(count)`, sección 4.3).
+    - Vista nueva `src/views/DebtPeopleView.vue` (sección 4.1).
+    - Componente nuevo `src/components/DebtPersonFormSheet.vue`
+      (calcado de `CardPersonFormSheet.vue`, sección 4.2).
+    - Ruta nueva `/deudas/personas` (`debt-people`), declarada antes de
+      `/deudas/:id` (sección 10).
+    - `DebtsDashboardView.vue`: botón `Settings`/"Gestionar personas" en
+      el header, `h1` pasa a `flex-1` (sección 4.1).
+    - `DebtFormSheet.vue`: cambiar `cardPeopleStore.people` →
+      `debtPeopleStore.people` en el `Select` de Contraparte, y el
+      destino de `goManagePeople()` → `{ name: 'debt-people', query: {
+      new: '1' } }` (sección 4.4).
+    - `src/stores/debts.ts` (`debtSummaries`), `DebtsDashboardView.vue`
+      (`personNameFor`), `DebtDetailView.vue` (hero): resolver el nombre
+      de la contraparte contra el store nuevo, no contra `cardPeopleStore`
+      (sección 4.5).
+    - Verificar (no implementar, es de otro agente) que
+      `cardPeople.ts`/`ManageCardsView.vue` revirtieron su guard de
+      borrado a contar solo `card_expenses(count)` (sección 1.5/4.5).
+    - Sin ítem nuevo en el drawer, sin cambios en `HomeView.vue` más allá
+      de los ya implementados (sección 4.6).

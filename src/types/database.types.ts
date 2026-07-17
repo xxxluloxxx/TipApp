@@ -322,6 +322,33 @@ export type Database = {
           },
         ]
       }
+      debt_people: {
+        Row: {
+          color: string | null
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          color?: string | null
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       debts: {
         Row: {
           created_at: string
@@ -355,7 +382,7 @@ export type Database = {
             foreignKeyName: "debts_person_id_fkey"
             columns: ["person_id"]
             isOneToOne: false
-            referencedRelation: "card_people"
+            referencedRelation: "debt_people"
             referencedColumns: ["id"]
           },
         ]
