@@ -2,7 +2,7 @@
 import { onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { AlertCircle, ArrowLeft, EllipsisVertical, Pencil, Plus, RotateCcw, Trash2, Wallet } from '@lucide/vue'
-import { readableTextColor, resolveAccountColor } from '@/lib/colors'
+import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { formatAmount } from '@/lib/currency'
 import { useAccountsStore, type Account } from '@/stores/accounts'
@@ -174,7 +174,10 @@ function openEditSheet(account: Account) {
           <div v-else class="flex flex-col">
             <template v-for="(account, idx) in accountsStore.accounts" :key="account.id">
               <Separator v-if="idx > 0" />
-              <div class="flex items-center gap-3 px-4 py-3">
+              <div
+                class="flex items-center gap-3 px-4 py-3"
+                :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
+              >
                 <span
                   class="flex size-10 shrink-0 items-center justify-center rounded-lg"
                   :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"

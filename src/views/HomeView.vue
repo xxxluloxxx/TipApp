@@ -526,7 +526,8 @@ function goAddFirstExpense() {
               v-for="account in topAccounts"
               :key="account.id"
               type="button"
-              class="flex flex-col gap-2 rounded-lg border border-border p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              class="flex flex-col gap-2 rounded-lg border border-border p-3 text-left transition hover:brightness-95 active:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
               disabled
               aria-disabled="true"
             >

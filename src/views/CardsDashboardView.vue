@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { readableTextColor } from '@/lib/colors'
+import { readableTextColor, withAlpha } from '@/lib/colors'
 import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
 import { useCreditCardsStore } from '@/stores/creditCards'
 import { useCardPeopleStore } from '@/stores/cardPeople'
@@ -293,7 +293,8 @@ const dashboardSyncTargets = [monthExpenses]
               v-for="card in cardsRanking"
               :key="card.id"
               type="button"
-              class="flex min-h-14 w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              class="flex min-h-14 w-full items-center gap-3 rounded-lg border border-border px-4 py-3 text-left transition hover:brightness-95 active:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :style="{ backgroundColor: withAlpha(card.color, 0.16) }"
               @click="router.push({ name: 'card-detail', params: { id: card.id } })"
             >
               <span

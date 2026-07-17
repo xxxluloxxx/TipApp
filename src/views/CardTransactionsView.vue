@@ -13,7 +13,7 @@ import {
 } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { readableTextColor } from '@/lib/colors'
+import { readableTextColor, withAlpha } from '@/lib/colors'
 import { useCreditCardsStore, type CreditCard } from '@/stores/creditCards'
 import { useCardPeopleStore } from '@/stores/cardPeople'
 import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/cardExpenses'
@@ -310,7 +310,10 @@ const transactionsSyncTargets = [transactions]
         fila sigue con la persona en negrita primero, luego descripción,
         badge de cuota y monto. -->
         <Card v-for="group in groupedByCard" :key="group.card.id" class="overflow-hidden py-0">
-          <div class="flex items-center gap-2 border-b border-border px-4 py-3">
+          <div
+            class="flex items-center gap-2 border-b border-border px-4 py-3"
+            :style="{ backgroundColor: withAlpha(group.card.color, 0.16) }"
+          >
             <span
               class="flex size-8 shrink-0 items-center justify-center rounded-lg"
               :style="{ backgroundColor: group.card.color ?? 'hsl(var(--muted))' }"
