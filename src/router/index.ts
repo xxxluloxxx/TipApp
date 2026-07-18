@@ -98,6 +98,20 @@ const router = createRouter({
       component: () => import('@/views/DebtDetailView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 2 de live-matches-ux.md: dashboard + detalle, sin colisión de
+    // segmento literal-vs-dinámico (como Deudas), no hace falta orden especial.
+    {
+      path: '/partidos',
+      name: 'matches',
+      component: () => import('@/views/LiveMatchesView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/partidos/:id',
+      name: 'match-detail',
+      component: () => import('@/views/MatchDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
     {
       path: '/estadisticas',
       name: 'statistics',

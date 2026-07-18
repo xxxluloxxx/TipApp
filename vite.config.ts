@@ -13,6 +13,16 @@ export default defineConfig({
     vueDevTools(),
     tailwindcss(),
     VitePWA({
+      // Estrategia injectManifest: el SW se escribe a mano en `src/sw.ts`
+      // (Vite lo compila con esbuild e inyecta el precache en
+      // `self.__WB_MANIFEST`). Se migró desde generateSW porque Web Push
+      // (live-matches-ux.md sección 6) necesita listeners propios de `push`/
+      // `notificationclick` que generateSW no permite agregar. El precache y
+      // el auto-update que ya funcionaban en producción se preservan dentro
+      // de `src/sw.ts` (ver comentario ahí).
+      strategies: 'injectManifest',
+      srcDir: 'src',
+      filename: 'sw.ts',
       registerType: 'autoUpdate',
       // El registro corre a mano desde App.vue vía `virtual:pwa-register/vue`
       // (useRegisterSW), para poder forzar la recarga automática apenas hay
@@ -23,7 +33,7 @@ export default defineConfig({
       // No se agrega runtimeCaching para el dominio de Supabase: REST/Auth
       // siempre deben ir a la red, nunca servirse desde cache. globPatterns
       // solo precachea el build estático de Vite (JS/CSS/HTML/fuentes).
-      workbox: {
+      injectManifest: {
         globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2}'],
       },
       manifest: {

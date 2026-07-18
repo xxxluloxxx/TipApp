@@ -72,6 +72,59 @@ export type Database = {
         }
         Relationships: []
       }
+      bet_slip_legs: {
+        Row: {
+          created_at: string
+          id: string
+          market_label: string
+          market_type: string
+          match_id: string
+          raw_text: string | null
+          selection_label: string
+          selector: string | null
+          status: string
+          threshold: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          market_label: string
+          market_type: string
+          match_id: string
+          raw_text?: string | null
+          selection_label: string
+          selector?: string | null
+          status?: string
+          threshold?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          market_label?: string
+          market_type?: string
+          match_id?: string
+          raw_text?: string | null
+          selection_label?: string
+          selector?: string | null
+          status?: string
+          threshold?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bet_slip_legs_match_id_fkey"
+            columns: ["match_id"]
+            isOneToOne: false
+            referencedRelation: "live_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       budgets: {
         Row: {
           amount_limit: number
@@ -493,6 +546,126 @@ export type Database = {
           },
         ]
       }
+      live_matches: {
+        Row: {
+          away_team: string | null
+          clear_chances_away: number | null
+          clear_chances_home: number | null
+          competition: string | null
+          corners_away: number | null
+          corners_home: number | null
+          created_at: string
+          etag_dc: string | null
+          etag_df_st: string | null
+          etag_df_su: string | null
+          first_half_score_away: number | null
+          first_half_score_home: number | null
+          flashscore_mid: string
+          flashscore_url: string
+          home_team: string | null
+          id: string
+          incidents: Json
+          last_changed_at: string
+          last_poll_error: string | null
+          last_poll_ok: boolean
+          last_polled_at: string | null
+          next_poll_at: string
+          poll_interval_seconds: number
+          red_cards_away: number | null
+          red_cards_home: number | null
+          scheduled_kickoff_ts: string | null
+          score_away: number | null
+          score_home: number | null
+          shots_on_target_away: number | null
+          shots_on_target_home: number | null
+          stage_anchor_ts: string | null
+          stage_code: number | null
+          state: string
+          updated_at: string
+          user_id: string
+          yellow_cards_away: number | null
+          yellow_cards_home: number | null
+        }
+        Insert: {
+          away_team?: string | null
+          clear_chances_away?: number | null
+          clear_chances_home?: number | null
+          competition?: string | null
+          corners_away?: number | null
+          corners_home?: number | null
+          created_at?: string
+          etag_dc?: string | null
+          etag_df_st?: string | null
+          etag_df_su?: string | null
+          first_half_score_away?: number | null
+          first_half_score_home?: number | null
+          flashscore_mid: string
+          flashscore_url: string
+          home_team?: string | null
+          id?: string
+          incidents?: Json
+          last_changed_at?: string
+          last_poll_error?: string | null
+          last_poll_ok?: boolean
+          last_polled_at?: string | null
+          next_poll_at?: string
+          poll_interval_seconds?: number
+          red_cards_away?: number | null
+          red_cards_home?: number | null
+          scheduled_kickoff_ts?: string | null
+          score_away?: number | null
+          score_home?: number | null
+          shots_on_target_away?: number | null
+          shots_on_target_home?: number | null
+          stage_anchor_ts?: string | null
+          stage_code?: number | null
+          state?: string
+          updated_at?: string
+          user_id: string
+          yellow_cards_away?: number | null
+          yellow_cards_home?: number | null
+        }
+        Update: {
+          away_team?: string | null
+          clear_chances_away?: number | null
+          clear_chances_home?: number | null
+          competition?: string | null
+          corners_away?: number | null
+          corners_home?: number | null
+          created_at?: string
+          etag_dc?: string | null
+          etag_df_st?: string | null
+          etag_df_su?: string | null
+          first_half_score_away?: number | null
+          first_half_score_home?: number | null
+          flashscore_mid?: string
+          flashscore_url?: string
+          home_team?: string | null
+          id?: string
+          incidents?: Json
+          last_changed_at?: string
+          last_poll_error?: string | null
+          last_poll_ok?: boolean
+          last_polled_at?: string | null
+          next_poll_at?: string
+          poll_interval_seconds?: number
+          red_cards_away?: number | null
+          red_cards_home?: number | null
+          scheduled_kickoff_ts?: string | null
+          score_away?: number | null
+          score_home?: number | null
+          shots_on_target_away?: number | null
+          shots_on_target_home?: number | null
+          stage_anchor_ts?: string | null
+          stage_code?: number | null
+          state?: string
+          updated_at?: string
+          user_id?: string
+          yellow_cards_away?: number | null
+          yellow_cards_home?: number | null
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           accent_color: string | null
@@ -520,6 +693,36 @@ export type Database = {
           id?: string
           theme_preference?: string
           updated_at?: string
+        }
+        Relationships: []
+      }
+      push_subscriptions: {
+        Row: {
+          auth: string
+          created_at: string
+          endpoint: string
+          id: string
+          p256dh: string
+          user_agent: string | null
+          user_id: string
+        }
+        Insert: {
+          auth: string
+          created_at?: string
+          endpoint: string
+          id?: string
+          p256dh: string
+          user_agent?: string | null
+          user_id: string
+        }
+        Update: {
+          auth?: string
+          created_at?: string
+          endpoint?: string
+          id?: string
+          p256dh?: string
+          user_agent?: string | null
+          user_id?: string
         }
         Relationships: []
       }
@@ -557,6 +760,37 @@ export type Database = {
           p_direction: string
           p_movement_date?: string
           p_person_id: string
+        }
+        Returns: string
+      }
+      create_live_match: {
+        Args: {
+          p_away_team?: string
+          p_clear_chances_away?: number
+          p_clear_chances_home?: number
+          p_competition?: string
+          p_corners_away?: number
+          p_corners_home?: number
+          p_first_half_score_away?: number
+          p_first_half_score_home?: number
+          p_flashscore_mid: string
+          p_flashscore_url: string
+          p_home_team?: string
+          p_incidents?: Json
+          p_last_poll_ok?: boolean
+          p_legs?: Json
+          p_poll_interval_seconds?: number
+          p_red_cards_away?: number
+          p_red_cards_home?: number
+          p_scheduled_kickoff_ts?: string
+          p_score_away?: number
+          p_score_home?: number
+          p_shots_on_target_away?: number
+          p_shots_on_target_home?: number
+          p_stage_anchor_ts?: string
+          p_stage_code?: number
+          p_yellow_cards_away?: number
+          p_yellow_cards_home?: number
         }
         Returns: string
       }
