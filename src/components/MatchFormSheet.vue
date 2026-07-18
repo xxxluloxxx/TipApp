@@ -18,6 +18,7 @@ import { useBetSlipsStore, type CreateBetSlipGroup } from '@/stores/betSlips'
 import { betSlipFromOcrBlocks, type RecognizedBlock } from '@/lib/betSlipOcr'
 import { formatKickoffTime } from '@/lib/matchClock'
 import { formatOdds } from '@/lib/currency'
+import { translateCountryEsToEn } from '@/lib/countryNames'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -208,12 +209,9 @@ function startPhotoFlow() {
   fileInputRef.value?.click()
 }
 
-/** Resolución best-effort de un grupo detectado contra `search-matches` (día 0):
- * busca por el equipo local y toma un resultado que comparta un token con ambos
- * equipos del grupo. Si el partido es de otro día o el OCR erró los nombres, no
- * resuelve — el usuario lo vincula a mano con "Buscar este partido" (§9.4). */
-async function autoResolveGroup(teams: [string, string] | null): Promise<SearchMatch | null> {
-  if (!teams) return null
+/** Un intento de resolución: busca por el equipo local y toma un resultado que
+ * comparta un token con ambos equipos del grupo. */
+async function tryResolveTeams(teams: [string, string]): Promise<SearchMatch | null> {
   const query = teams[0].trim()
   if (query.length < 2) return null
 
@@ -231,6 +229,28 @@ async function autoResolveGroup(teams: [string, string] | null): Promise<SearchM
         && (ma.includes(away) || away.includes(firstToken(m.awayTeam)))
     }) ?? null
   )
+}
+
+/** Resolución best-effort de un grupo detectado contra `search-matches` (día 0,
+ * §9.4). El feed de Flashscore siempre devuelve nombres de país/selección en
+ * inglés ("England", "Germany"...) — el OCR (modelo `spa`) los lee en español
+ * ("Inglaterra", "Alemania"...), así que un partido de selecciones nunca
+ * matchea con el nombre tal cual. Se intenta primero con los nombres del OCR
+ * (funciona para nombres de club, que no se traducen) y, si no encuentra nada,
+ * se reintenta traduciendo países conocidos (`countryNames.ts`) al inglés —
+ * ver esa nota de cabecera para el detalle de por qué no alcanza con pedirle
+ * el feed en otro idioma. Si ninguno de los dos intentos resuelve (partido de
+ * otro día, país no cubierto por el diccionario, o el OCR erró los nombres),
+ * no resuelve — el usuario lo vincula a mano con "Buscar este partido". */
+async function autoResolveGroup(teams: [string, string] | null): Promise<SearchMatch | null> {
+  if (!teams) return null
+
+  const direct = await tryResolveTeams(teams)
+  if (direct) return direct
+
+  const translated: [string, string] = [translateCountryEsToEn(teams[0]), translateCountryEsToEn(teams[1])]
+  if (translated[0] === teams[0] && translated[1] === teams[1]) return null // nada para traducir, no reintentar en vano
+  return tryResolveTeams(translated)
 }
 
 async function onFileSelected(event: Event) {
