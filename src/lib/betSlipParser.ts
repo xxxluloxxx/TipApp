@@ -64,7 +64,18 @@ export interface BetSlip {
 const NOISE = [
   'betano', 'bet builder', 'simple', 'cash out', 'pronóstico', 'pronostico',
   'impuesto', 'sri', 'ganancias', 'potenciales', 'combinada', 'múltiple', 'multiple',
+  'free bet',
 ]
+// La cabecera del tipo de apuesta + monto + cuota total ("Doble $3,00 4.40",
+// "Doble $20,00 2.55"...) — a diferencia de las palabras sueltas de arriba,
+// "doble"/"triple" NO se pueden meter en `NOISE` a secas: colisionarían con
+// el mercado real "Doble oportunidad" (`marketKeyword`) y lo excluirían por
+// error. Se detecta por ESTRUCTURA (palabra de tipo de apuesta seguida
+// directo de un monto en $) en vez de por substring — un caso real de esta
+// sesión donde esta línea, sin excluir, se colaba como si fuera un nombre de
+// equipo y arruinaba el par real (Francia quedaba emparejado con la cabecera
+// en vez de con Inglaterra).
+const BET_TYPE_HEADER = /^(simple|doble|triple|combinada|m[uú]ltiple)\s*\$/i
 
 const DECIMAL = /^\$?\s*\d+[.,]\d+$/ // cuota "2.30", "$1,06"
 const INTEGER = /^\d{1,3}$/ // marcador / valor de córner
@@ -218,7 +229,17 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
   const maxRight = Math.max(...clean.map((l) => l.right))
   const rightThreshold = minLeft + (maxRight - minLeft) * 0.55
   const isRight = (l: Line) => l.centerX > rightThreshold
-  const isNoise = (l: Line) => NOISE.some((n) => l.text.toLowerCase().includes(n))
+  // Para nombres de equipo específicamente: el BORDE IZQUIERDO, no el centro.
+  // Un nombre de visitante puede venir con la fecha/hora del partido pegada
+  // en la MISMA línea/bounding box (ej. "Inglaterra 18/07/2026, 16:00", caso
+  // real de un Bet Builder de esta sesión) — eso estira la línea hacia la
+  // derecha y corre su centro más allá del umbral de columna, aunque el
+  // nombre en sí arranque bien a la izquierda igual que picks/mercados. Con
+  // el centro, esas líneas quedaban excluidas de `nameCandidates` por error
+  // (se perdían Inglaterra/Argentina enteras). `cleanTeam` ya se encarga de
+  // cortar la fecha pegada después.
+  const startsLeft = (l: Line) => l.left <= rightThreshold
+  const isNoise = (l: Line) => NOISE.some((n) => l.text.toLowerCase().includes(n)) || BET_TYPE_HEADER.test(l.text.trim())
 
   // 1) Picks/mercados en la COLUMNA IZQUIERDA (para no confundir un dígito
   //    del marcador "1" con el pick de resultado "1"). `pickToken` es el pick
@@ -238,7 +259,7 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
   const nameCandidates = clean
     .filter(
       (l) =>
-        !isRight(l) && !isNoise(l) &&
+        startsLeft(l) && !isNoise(l) &&
         !isNumericLike(l.text) && !isPickLine(l.text) && !isMarketLine(l.text) &&
         /[a-zA-Z]/.test(l.text),
     )
@@ -247,31 +268,58 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
   const clusters = clusterTeamPairs(nameCandidates, pickYs).sort((a, b) => a.startY - b.startY)
 
   /**
-   * Índice del cluster (partido) al que pertenece un pick. El layout real de
-   * un cupón varía y no se puede asumir una sola dirección: en un cupón
-   * combinado real de Betano el par de equipos aparece DESPUÉS de su propio
-   * pick (pick, mercado, EQUIPO A, EQUIPO B, siguiente pick...) — verificado
-   * contra una foto real donde asumir "equipos siempre arriba" dejaba el
-   * primer pick huérfano y le robaba el segundo partido al primero (España-
-   * Argentina desaparecía del cupón por completo). Por eso se prueba primero
-   * ADELANTE (el cluster entre este pick y el siguiente) y, si no hay
-   * ninguno ahí, se cae al criterio original de ATRÁS (el cluster más
-   * cercano por encima, sin acotar por el pick anterior — así un mismo
-   * cluster "encabezado" puede seguir cubriendo varios picks de un solo
-   * partido, layout tipo "equipos arriba, N predicciones abajo"). `-1` =
-   * pick huérfano en ambas direcciones → grupo con `teams: null`.
+   * Dos layouts reales confirmados con fotos reales de Betano, y NO se pueden
+   * mezclar pick a pick (probado: intentarlo así rompía el otro layout) —
+   * se detecta UNA vez para todo el cupón, mirando dónde cae el PRIMER
+   * cluster respecto del PRIMER pick:
+   *
+   *   - "header": el (los) equipo(s) aparecen ANTES de sus N predicciones
+   *     ("Bet Builder" — team1, team2, pick1, mercado1, pick2, mercado2...).
+   *     El primer cluster está por encima del primer pick. Cada cluster
+   *     "sigue vigente" para todos los picks siguientes hasta el próximo
+   *     cluster — criterio ATRÁS puro (el cluster más cercano por encima,
+   *     sin acotar por ningún pick intermedio).
+   *   - "footer": el par de equipos aparece DESPUÉS de su propio pick
+   *     ("Doble" simple — pick1, mercado1, team1, team2, pick2, mercado2,
+   *     team1, team2...). El primer cluster está por debajo del primer pick
+   *     (o no hay ningún cluster antes). Acá ATRÁS falla para el primer pick
+   *     de cada partido (todavía no vio sus equipos) — criterio ADELANTE
+   *     (el cluster entre este pick y el siguiente), con ATRÁS como resguardo
+   *     final si ni así aparece nada.
+   *
+   * Ir "adelante" incondicionalmente (probar siempre esa dirección primero)
+   * rompe el layout "header" en cupones de 2+ predicciones por partido: la
+   * ÚLTIMA predicción de un partido queda más cerca en Y del PRÓXIMO
+   * encabezado que del propio (caso real: la 3ª predicción de "Francia-
+   * Inglaterra", a la altura de "Kylian Mbappe Tiros al Arco", terminaba
+   * adelante robada por el cluster de "España-Argentina"). Por eso la
+   * dirección se fija una sola vez para todo el cupón, no por pick.
    */
+  const isHeaderLayout = clusters.length > 0 && pickLines.length > 0 && clusters[0]!.startY < pickLines[0]!.line.centerY
+
   function clusterIndexForPick(pickY: number, nextPickY: number): number {
-    for (let i = 0; i < clusters.length; i++) {
-      const c = clusters[i]!
-      if (c.startY > pickY && c.startY < nextPickY) return i
+    const backward = (): number => {
+      let idx = -1
+      for (let i = 0; i < clusters.length; i++) {
+        if (clusters[i]!.startY < pickY) idx = i
+        else break
+      }
+      return idx
     }
-    let idx = -1
-    for (let i = 0; i < clusters.length; i++) {
-      if (clusters[i]!.startY < pickY) idx = i
-      else break
+    const forward = (): number => {
+      for (let i = 0; i < clusters.length; i++) {
+        const c = clusters[i]!
+        if (c.startY > pickY && c.startY < nextPickY) return i
+      }
+      return -1
     }
-    return idx
+
+    if (isHeaderLayout) {
+      const idx = backward()
+      return idx !== -1 ? idx : forward()
+    }
+    const idx = forward()
+    return idx !== -1 ? idx : backward()
   }
 
   // 3) Legs: por cada pick, su mercado es el primer marketLine por debajo y
@@ -298,7 +346,7 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
       marketType: m.marketType,
       value: contextValue,
       threshold: m.threshold,
-      odds: extractTrailingOdds(pick.line.text),
+      odds: extractTrailingOdds(pick.line.text, pick.pickToken),
       raw: [pick.line.text.trim(), marketText.trim()].filter((s) => s.length > 0).join(' · '),
     }
 

@@ -72,8 +72,8 @@ function pickKind(text: string): PickKind | null {
  * contiene ningún pick reconocible.
  */
 function extractPickToken(text: string): string | null {
-  const withoutQuota = text.trim().replace(TRAILING_QUOTA, '').trim()
-  const tokens = withoutQuota.split(/\s+/).filter(Boolean)
+  const trimmed = text.trim()
+  const tokens = trimmed.split(/\s+/).filter(Boolean)
   if (tokens.length === 0) return null
 
   const yesNo = tokens.find((tok) => /^(sí|si|no|yes|sim|não|nao)$/i.test(tok))
@@ -82,6 +82,14 @@ function extractPickToken(text: string): string | null {
   const doubleChance = tokens.find((tok) => /^(1x|x2|12)$/i.test(tok))
   if (doubleChance) return doubleChance
 
+  // Over/under: NO se pre-limpia la cuota antes de buscar el número — un pick
+  // tipo "Bet Builder" (varias predicciones agrupadas bajo una sola cuota de
+  // cabecera) no siempre trae la cuota pegada a CADA línea, así que el número
+  // que sigue al "Más"/"Menos" es directamente el threshold (ej. "Más de 4.5"
+  // sin nada más), no una cuota a descartar. `.find()` toma el PRIMER número
+  // después de la palabra clave (salta "de"), que siempre es el threshold —
+  // si hubiera además una cuota pegada más adelante en la línea, queda afuera
+  // del pick y la resuelve `extractTrailingOdds` por separado.
   const overUnderIdx = tokens.findIndex((tok) => {
     const low = tok.toLowerCase()
     return low.startsWith('más') || low.startsWith('mas') || low.startsWith('menos') ||
@@ -94,11 +102,28 @@ function extractPickToken(text: string): string | null {
     if (numTok) return `${head} ${numTok}`
   }
 
-  // "1"/"X"/"2" (resultado) queda estricto (solo si es el único token
-  // restante) para no confundir un dígito suelto de una línea ruidosa con un
-  // pick real — a diferencia de sí/no/doble oportunidad, que son palabras
-  // completas y no ambiguas aunque estén mezcladas con más texto.
-  if (tokens.length === 1 && /^(1|x|2)$/i.test(tokens[0]!)) return tokens[0]!
+  // "N+" (ej. "1+" = 1 o más — remates/tarjetas de UN jugador puntual, ver
+  // marketKeyword "tiros al arco"): se reconoce como pick aunque el mercado
+  // en sí no se pueda evaluar todavía (marketType queda 'unknown' — no hay
+  // forma de trackear la estadística de un jugador específico con el feed
+  // actual). Lo que importa acá es que la línea NO termine mal clasificada
+  // como nombre de equipo por no matchear ningún pick conocido (ver caso
+  // real: "1+" sin reconocer corrompía el agrupamiento de partidos enteros).
+  // El ícono que sigue al "+" en la app real (flechas de intercambio) suele
+  // leerse como un dígito pegado ("1+0" en vez de "1+") — el patrón toma
+  // solo el prefijo "dígitos+" y descarta lo que venga después.
+  for (const tok of tokens) {
+    const plusMatch = /^(\d+\+)/.exec(tok)
+    if (plusMatch) return plusMatch[1]!
+  }
+
+  // "1"/"X"/"2" (resultado): estricto, solo si es el único token restante
+  // DESPUÉS de sacar una posible cuota pegada al final — a diferencia de
+  // sí/no/doble oportunidad (palabras completas sin número propio), un
+  // dígito suelto es fácil de confundir con ruido si no se acota así.
+  const withoutQuota = trimmed.replace(TRAILING_QUOTA, '').trim()
+  const strippedTokens = withoutQuota.split(/\s+/).filter(Boolean)
+  if (strippedTokens.length === 1 && /^(1|x|2)$/i.test(strippedTokens[0]!)) return strippedTokens[0]!
 
   return null
 }
@@ -109,19 +134,33 @@ export function isPickLine(text: string): boolean {
 
 /**
  * Extrae la cuota (odds) pegada al final de una línea OCR del pick, si la hay.
- * A diferencia de `extractPickToken` (que la DESCARTA para no confundirla con
- * el threshold de un over/under), esta la DEVUELVE: la cuota es un dato de la
- * línea completa (rediseño de cupones multi-partido — `bet_slip_legs.odds`),
- * necesaria para que el backend calcule `total_odds` como producto. Se captura
- * en `parseBetSlip` desde la línea cruda del pick, antes de tokenizar. Devuelve
- * el decimal (ej. 1.42) o `null` si no hay cuota al final.
+ * La cuota es un dato de la línea completa (rediseño de cupones
+ * multi-partido — `bet_slip_legs.odds`), necesaria para que el backend
+ * calcule `total_odds` como producto. Se captura en `parseBetSlip` desde la
+ * línea cruda del pick, antes de tokenizar. Devuelve el decimal (ej. 1.42) o
+ * `null` si no hay cuota al final.
+ *
+ * Recibe el `pickToken` ya extraído (ver `extractPickToken`) para no
+ * duplicar el threshold de un over/under como si fuera la cuota: en un
+ * "Bet Builder" (varias predicciones bajo una sola cuota de cabecera, sin
+ * cuota individual por línea) "Más de 4.5" termina en un número decimal
+ * igual que "Sí 1.42", pero ahí el "4.5" ES el threshold, no una cuota —
+ * si el decimal al final de la línea coincide con el número ya capturado en
+ * el pick, no hay cuota separada que extraer.
  */
-export function extractTrailingOdds(text: string): number | null {
+export function extractTrailingOdds(text: string, pickToken: string | null): number | null {
   const m = TRAILING_QUOTA.exec(text.trim())
   if (!m) return null
   const cleaned = m[0].trim().replace('$', '').replace(',', '.')
   const v = Number(cleaned)
-  return Number.isNaN(v) ? null : v
+  if (Number.isNaN(v)) return null
+
+  if (pickToken) {
+    const pickNum = NUM.exec(pickToken)
+    if (pickNum && pickNum[1] !== undefined && Number(pickNum[1].replace(',', '.')) === v) return null
+  }
+
+  return v
 }
 
 export { extractPickToken }
@@ -190,6 +229,21 @@ function marketKeyword(text: string): string | null {
     t.includes('match result') || t.includes('final result')
   ) {
     return 'match_result'
+  }
+  // Estadística de UN jugador puntual (remates, tarjetas...) — mercado real
+  // visto en un "Bet Builder" ("Kylian Mbappe Tiros al Arco"). No hay forma
+  // de evaluarlo en vivo con el feed actual (no trackea por jugador), así que
+  // cae al 'unknown' de `mapMarket` (sin `case` propio en su switch) —
+  // pero SÍ tiene que reconocerse como línea de mercado acá: si no,
+  // `isMarketLine` la rechaza y termina mal clasificada como nombre de
+  // equipo, corrompiendo el agrupamiento del cupón entero (caso real visto
+  // en esta sesión).
+  if (
+    t.includes('tiros al arco') || t.includes('tiros a puerta') ||
+    t.includes('remates al arco') || t.includes('remates a puerta') ||
+    t.includes('shots on target')
+  ) {
+    return 'player_stat_unknown'
   }
   return null
 }
