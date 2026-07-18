@@ -36,10 +36,16 @@ export interface MarketMapping {
 }
 
 const NUM = /(\d+(?:[.,]\d+)?)/
+// Cuota (odds) pegada al final de la línea del pick — en fotos reales
+// Tesseract suele fusionar el ícono del mercado + el pick + la cuota en una
+// sola línea/bounding box (ej. "ES Sí 1.42", donde "ES" es el ícono de
+// pelota mal leído). Se quita ANTES de tokenizar para no confundirla con el
+// threshold de un pick over/under.
+const TRAILING_QUOTA = /\s+\$?\d+[.,]\d+\s*$/
 
 type PickKind = 'double_chance' | 'match_result' | 'over_under' | 'yes_no'
 
-/** Detecta si un texto suelto es una línea de "pick" (línea de pronóstico). */
+/** Clasifica un token de pick YA LIMPIO (ver `extractPickToken`). */
 function pickKind(text: string): PickKind | null {
   const t = text.trim()
   const low = t.toLowerCase()
@@ -56,9 +62,52 @@ function pickKind(text: string): PickKind | null {
   return null
 }
 
-export function isPickLine(text: string): boolean {
-  return pickKind(text) !== null
+/**
+ * Busca un pick DENTRO de una línea OCR que puede traer basura pegada (ícono
+ * mal leído como prefijo, cuota decimal como sufijo) — a diferencia del
+ * `pickKind` original, que exigía que la línea completa fuera exactamente el
+ * pick y fallaba en fotos reales donde el ícono/cuota quedan en el mismo
+ * bounding box (ver caso real: "ES Sí 1.42" nunca matcheaba `/^sí$/`).
+ * Devuelve el token limpio ("Sí", "1X", "Más 2.5"...) o `null` si la línea no
+ * contiene ningún pick reconocible.
+ */
+function extractPickToken(text: string): string | null {
+  const withoutQuota = text.trim().replace(TRAILING_QUOTA, '').trim()
+  const tokens = withoutQuota.split(/\s+/).filter(Boolean)
+  if (tokens.length === 0) return null
+
+  const yesNo = tokens.find((tok) => /^(sí|si|no|yes|sim|não|nao)$/i.test(tok))
+  if (yesNo) return yesNo
+
+  const doubleChance = tokens.find((tok) => /^(1x|x2|12)$/i.test(tok))
+  if (doubleChance) return doubleChance
+
+  const overUnderIdx = tokens.findIndex((tok) => {
+    const low = tok.toLowerCase()
+    return low.startsWith('más') || low.startsWith('mas') || low.startsWith('menos') ||
+      low.startsWith('over') || low.startsWith('under') || low.startsWith('+') || low.startsWith('-')
+  })
+  if (overUnderIdx !== -1) {
+    const head = tokens[overUnderIdx]!
+    if (NUM.test(head)) return head
+    const numTok = tokens.slice(overUnderIdx + 1).find((tok) => NUM.test(tok))
+    if (numTok) return `${head} ${numTok}`
+  }
+
+  // "1"/"X"/"2" (resultado) queda estricto (solo si es el único token
+  // restante) para no confundir un dígito suelto de una línea ruidosa con un
+  // pick real — a diferencia de sí/no/doble oportunidad, que son palabras
+  // completas y no ambiguas aunque estén mezcladas con más texto.
+  if (tokens.length === 1 && /^(1|x|2)$/i.test(tokens[0]!)) return tokens[0]!
+
+  return null
 }
+
+export function isPickLine(text: string): boolean {
+  return extractPickToken(text) !== null
+}
+
+export { extractPickToken }
 
 export function isMarketLine(text: string): boolean {
   return marketKeyword(text) !== null

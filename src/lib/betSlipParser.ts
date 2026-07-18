@@ -19,7 +19,7 @@
 // exacta de OCR usada.
 // =============================================================================
 
-import { isMarketLine, isPickLine, mapMarket, type MarketType } from './marketMapper'
+import { extractPickToken, isMarketLine, isPickLine, mapMarket, type MarketType } from './marketMapper'
 
 export interface OcrLine {
   text: string
@@ -132,11 +132,19 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
   }
 
   // 3) Picks/mercados en la COLUMNA IZQUIERDA (para no confundir un dígito
-  //    del marcador "1" con el pick de resultado "1").
-  const pickLines = clean.filter((l) => !isRight(l) && !isNoise(l) && isPickLine(l.text)).sort((a, b) => a.centerY - b.centerY)
+  //    del marcador "1" con el pick de resultado "1"). `pickToken` es el pick
+  //    ya limpio (ver `extractPickToken`): en fotos reales la línea puede
+  //    traer basura pegada (ícono mal leído + cuota, ej. "ES Sí 1.42"), así
+  //    que se usa el token extraído (no `l.text`) para clasificar el mercado
+  //    más abajo — `l.text` se conserva sin tocar para el campo `raw`.
+  const pickLines = clean
+    .filter((l) => !isRight(l) && !isNoise(l))
+    .map((l) => ({ line: l, pickToken: extractPickToken(l.text) }))
+    .filter((x): x is { line: Line; pickToken: string } => x.pickToken !== null)
+    .sort((a, b) => a.line.centerY - b.line.centerY)
   const marketLines = clean.filter((l) => !isRight(l) && !isNoise(l) && isMarketLine(l.text)).sort((a, b) => a.centerY - b.centerY)
 
-  const firstPickY = pickLines[0]?.centerY ?? Number.MAX_SAFE_INTEGER
+  const firstPickY = pickLines[0]?.line.centerY ?? Number.MAX_SAFE_INTEGER
 
   // 4) Equipos: líneas "con nombre" por encima del primer pick. Tomamos las
   //    DOS más cercanas al primer pick (justo encima).
@@ -169,14 +177,15 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
   //    es un entero en la columna derecha dentro de la franja Y del leg.
   const legs: ParsedLeg[] = []
   pickLines.forEach((pick, i) => {
-    const nextPickY = pickLines[i + 1]?.centerY ?? Number.MAX_SAFE_INTEGER
-    const market = marketLines.find((m) => m.centerY > pick.centerY && m.centerY < nextPickY)
+    const pickY = pick.line.centerY
+    const nextPickY = pickLines[i + 1]?.line.centerY ?? Number.MAX_SAFE_INTEGER
+    const market = marketLines.find((m) => m.centerY > pickY && m.centerY < nextPickY)
     const marketText = market?.text ?? ''
 
-    const m = mapMarket(pick.text, marketText)
+    const m = mapMarket(pick.pickToken, marketText)
 
     const contextLine = clean.find(
-      (l) => isRight(l) && l.centerY >= pick.centerY - LEG_BAND && l.centerY < nextPickY && INTEGER.test(l.text.trim()),
+      (l) => isRight(l) && l.centerY >= pickY - LEG_BAND && l.centerY < nextPickY && INTEGER.test(l.text.trim()),
     )
     const contextValue = contextLine ? Number(contextLine.text.trim()) : null
 
@@ -186,7 +195,7 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
       marketType: m.marketType,
       value: contextValue,
       threshold: m.threshold,
-      raw: [pick.text.trim(), marketText.trim()].filter((s) => s.length > 0).join(' · '),
+      raw: [pick.line.text.trim(), marketText.trim()].filter((s) => s.length > 0).join(' · '),
     })
   })
 
