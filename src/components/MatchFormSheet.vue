@@ -300,7 +300,6 @@ function preventCloseWhileBusy(event: Event) {
               ref="fileInputRef"
               type="file"
               accept="image/*"
-              capture="environment"
               class="sr-only"
               @change="onFileSelected"
             >
