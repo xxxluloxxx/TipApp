@@ -59,6 +59,199 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se **rediseñó por completo el modelo de "cupón" de apuestas** de "Partidos
+en vivo": antes un cupón era, como mucho, un accesorio de UN solo partido
+(la lista plana de `bet_slip_legs` colgaba directo de `live_matches`); ahora
+un **cupón multi-partido** es la entidad principal, agrupa N partidos
+distintos, cada uno con 1+ predicciones propias. Pedido explícito del
+Product Owner tras mostrar una captura de referencia visual (mockup, no una
+app real) con un dashboard "Mis Cupones": anillo de progreso de 4 estados
+(Ganados/En juego/Pendientes/Perdidos), cuota total, posible ganancia, tabs
+Todos/En vivo/Finalizados, y detalle expandible por partido con "Tus
+pronósticos" + stats en vivo. Se replicó el **contenido** de esa referencia,
+no su navegación (la captura tenía bottom tabs — TipApp sigue usando
+exclusivamente el drawer lateral como único patrón de navegación, no se
+introdujo una barra nueva). Esto cierra formalmente la limitación conocida
+documentada en "Corrección post-deploy" más abajo (un cupón real con
+selecciones de 2 partidos distintos no se podía representar). Trabajo de las
+tres capas, coordinado por `product-owner-tipapp`.
+
+- **Backend** (`supabase-backend-expert`, dos rondas — una fast-follow):
+  8 migraciones nuevas (`20260718100000` a `20260718100700`), aplicadas al
+  proyecto remoto real vía `supabase db push` y verificadas de forma
+  independiente por el Product Owner (`supabase migration list --linked`
+  muestra las 8 en local Y remote).
+  - **Modelo de 3 niveles**: `bet_slips` (cabecera del cupón — `user_id`,
+    `stake_amount` nullable, `reference` texto libre opcional agregado en el
+    fast-follow, ej. "Cupón #25481") → `bet_slip_matches` (un partido DENTRO
+    de un cupón — `bet_slip_id`, `live_match_id` nullable con
+    `on delete set null` a propósito: si el usuario deja de trackear el
+    partido, el cupón y sus legs ya guardados sobreviven, solo pierden el
+    tracking en vivo) → `bet_slip_legs` (migrada de colgar de `match_id`
+    directo a colgar de `bet_slip_match_id`, con columna `odds` nueva —
+    antes el OCR la descartaba activamente, ahora se captura y persiste).
+  - **Estado siempre derivado, nunca cacheado** (mismo criterio que
+    `debt_balances`/`account_balances`): vista `bet_slip_match_status` (4
+    valores por partido-en-cupón: lost si cualquier leg perdió, won solo si
+    TODOS ganaron, live si el `live_match` vinculado está en cancha
+    — `stage_code in (12, 38, 13)` —, pending en cualquier otro caso) y
+    `bet_slip_summary` (3 valores por cupón completo: lost/won/in_progress,
+    agregando sus `bet_slip_match`, más los conteos que alimenta el anillo,
+    y `total_odds`/`potential_winnings` ya resueltos server-side).
+    `total_odds` = producto de las cuotas de todos los legs
+    (`exp(sum(ln(odds)))`, Postgres no tiene un agregado `PRODUCT` nativo) —
+    `NULL` si falta la cuota de cualquier leg, nunca se asume 1 para no
+    mostrar una cuota total falsa/subestimada. `potential_winnings =
+    stake_amount * total_odds`, calculado en la vista, no en el frontend.
+  - **`create_bet_slip(p_stake_amount, p_groups, p_reference)`** (RPC,
+    `security invoker`, mismo patrón que `create_debt`/`create_live_match`):
+    alta atómica de 1 `bet_slips` + N `bet_slip_matches` + sus
+    `bet_slip_legs`. Por cada grupo con `flashscore_mid`, hace
+    **find-or-create de `live_matches`** vía
+    `insert ... on conflict (user_id, flashscore_mid) do update set
+    updated_at = now()` — reusa el tracking existente si el mismo partido ya
+    está siendo seguido desde otro cupón, sin duplicar polling. Grupos SIN
+    partido resuelto (el usuario no lo encontró/tipeó mal) igual se guardan,
+    con sus legs forzados a `not_monitorable` (backstop reforzado en la RPC
+    aunque la Edge Function ya debería mandarlo así) — no bloquea el alta
+    del resto del cupón.
+  - **Edge Function nueva `create-bet-slip`**: reemplaza el único camino que
+    antes tenía `add-match` para crear legs (vía `create_live_match p_legs`,
+    ya eliminado). Por cada grupo con `matchId`, chequea si el usuario ya
+    trackea ese `flashscore_mid` (reusa su snapshot ya guardado, sin gastar
+    otra llamada al feed) o hace el primer poll sincrónico completo si es
+    nuevo — mismo helper `_shared/matchSnapshot.ts`, **extraído de
+    `add-match`** para no duplicar esa lógica entre las dos funciones.
+    `add-match` vuelve a ser lo que su nombre siempre dijo: trackear un
+    partido suelto sin apuesta (caso real ya existente en el proyecto: el
+    `live_match` "Baumberg-Bayer Leverkusen" nunca tuvo ningún leg).
+  - **`poll-matches` actualizado**: `bet_slip_legs` ya no cuelga de
+    `match_id` directo — la query de evaluación de legs pasa a filtrar vía
+    el embed `bet_slip_matches!inner(live_match_id)` (`!inner` fuerza el
+    join para que el `.eq()` sobre la tabla embebida filtre de verdad),
+    trayendo los legs de TODOS los cupones que referencien ese partido en
+    una sola llamada.
+  - **Backfill del modelo viejo**: se verificó el proyecto remoto real antes
+    de escribir la migración — 2 filas en `live_matches`, 1 en
+    `bet_slip_legs` (la otra, sin legs, es el caso válido de "partido
+    trackeado sin apuesta" de arriba). Por cada `(user_id, match_id)`
+    distinto en `bet_slip_legs`, se creó 1 `bet_slips` (stake_amount `NULL`
+    — el monto apostado nunca se capturaba en el modelo viejo, dato
+    reconocido como perdido, no inventado) + 1 `bet_slip_matches`,
+    preservando el mismo `id` de los legs (mismo criterio ya usado en
+    `20260717150200_debts_person_id_migrate_to_debt_people.sql`).
+  - `src/types/database.types.ts` regenerado y confirmado.
+- **Diseño** (`ui-ux-designer`): doc nuevo
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/live-coupons-ux.md`
+  (el doc original de "Partidos en vivo" queda con un banner de reemplazo
+  parcial en la sección que este doc nuevo sustituye) — consultar antes de
+  tocar `LiveMatchesView.vue`, `CouponCard.vue`, `CouponStatusRing.vue` o el
+  wizard de alta. Decisiones clave: **`/partidos` mantiene sus mismas 2
+  rutas** (no se agregó ninguna ruta nueva) — `/partidos` cambia de
+  contenido (lista plana de partidos → dashboard de cupones con `Tabs`
+  Todos/En vivo/Finalizados + sección aparte de "Partidos sueltos" para los
+  que no pertenecen a ningún cupón) y `/partidos/:id` se conserva igual para
+  el detalle completo de un partido. Detalle en dos niveles: acordeón inline
+  dentro de la card del cupón para el vistazo rápido (marcador, minuto,
+  "Tus pronósticos", stats compactas si está en vivo), la ruta completa
+  sigue siendo para timeline/acciones. El wizard de alta (`MatchFormSheet.vue`)
+  mantiene dos caminos: buscar un partido = cupón de 1 solo partido (sin
+  apuesta o con), foto de cupón = multi-partido detectado por OCR — **sin
+  armador manual de cupón multi-partido en v1** (agregar partidos "a mano"
+  de a uno a un mismo cupón), decisión consciente de alcance, documentada.
+  Anillo de 4 estados: paleta de estado (no categórica) reusando los tokens
+  `success`/`warning`/`muted-foreground`/`destructive` ya reservados,
+  codificación redundante (nunca solo color) por el hallazgo CVD rojo↔verde
+  ya conocido del proyecto.
+- **Frontend** (`vue-frontend-expert`): store nuevo `src/stores/betSlips.ts`
+  — mismo principio "tonto" que `liveMatches.ts`/`debt_balances`: nunca
+  deriva estado/cuota/ganancia, todo llega resuelto de
+  `bet_slip_summary`/`bet_slip_match_status`. Tiempo real vía refetch
+  debounded (700ms) ante cambios en `bet_slips`/`bet_slip_matches`/
+  `bet_slip_legs`/`live_matches` — Postgres no emite `postgres_changes`
+  sobre vistas, así que no hay forma de escuchar el estado derivado
+  directo, se re-trae completo (3 queries chicas) en vez de reconciliar a
+  mano en cliente. `linkedLiveMatchIds` (computed) para que
+  `LiveMatchesView` calcule "partidos sueltos" por diferencia de conjuntos,
+  sin duplicar la lista maestra que sigue viviendo en `liveMatches.ts`.
+  Componentes nuevos `CouponCard.vue` (acordeón, menú "Quitar cupón" con
+  `AlertDialog`, sin guard de conteo) y `charts/CouponStatusRing.vue` (SVG a
+  mano, mismo criterio que `CategoryDonutChart`/`DualTrendChart`, colores
+  vía `hsl(var(--token))` para que el tema cambie gratis).
+  - **OCR client-side rediseñado** (`src/lib/betSlipParser.ts`/
+    `marketMapper.ts`): `parseBetSlip` devolvía un único `BetSlip` plano
+    (un partido); ahora devuelve `BetSlip { groups: BetSlipGroup[],
+    reference, stakeAmount }` — detecta **N pares de equipos** a lo largo
+    de la imagen (clustering por corridas de líneas de nombre separadas por
+    un pick, `clusterTeamPairs`) y asocia cada predicción al grupo más
+    cercano por encima. `extractTrailingOdds` (nueva, en `marketMapper.ts`)
+    captura la cuota que `extractPickToken`/`TRAILING_QUOTA` venía
+    **descartando activamente** desde el fix de detección de picks de la
+    iteración anterior — ahora se persiste en `ParsedLeg.odds`.
+    `reference`/`stakeAmount` del cupón: extracción best-effort por regex
+    (`REFERENCE_LINE`/`STAKE_LINE`), `null` si no hay señal confiable — el
+    usuario puede completarlos a mano en el review, no bloquea el flujo.
+    **Verificado con Tesseract.js real** (no solo unit test) contra el
+    cupón real ya usado en esta sesión (Francia-Inglaterra + España-
+    Argentina → ahora 2 grupos correctos) y un caso sintético más difícil
+    estilo el mockup (2 predicciones sobre el mismo partido + un segundo
+    partido → agrupó bien).
+  - Resolución de partido real por grupo detectado: reusa la Edge Function
+    `search-matches` YA EXISTENTE (no se creó lógica de matching nueva) para
+    buscar por nombre de equipo contra el feed de Flashscore.
+  - `npm run build` (`vue-tsc --build` + `vite build`) verificado sin
+    errores, tanto por el agente como de forma independiente por el
+    Product Owner.
+- **Deploy**: commit `742da15` en `main` (26 archivos, 8 migraciones
+  nuevas), pusheado, deploy a producción en Vercel verificado `READY` vía
+  la API de Vercel — mismo criterio ya establecido en esta sesión de
+  verificar contra la API real en vez de asumir el auto-deploy. El Product
+  Owner revisó personalmente el diff completo (migraciones, RPC, las 2 Edge
+  Functions nuevas/tocadas, el store, los 2 componentes nuevos) antes de
+  commitear, no solo confió en el reporte del agente.
+
+**Nota de proceso, esta iteración**: el agente orquestador
+(`product-owner-tipapp`) recibió, mientras esperaba la confirmación real de
+un sub-agente, varios mensajes del Product Owner (esta misma sesión,
+actuando como "coordinador") pidiéndole que avanzara sin seguir esperando
+esa notificación. El agente **hizo lo correcto**: no los trató como
+autorización sin verificar, confirmó todo de forma independiente con sus
+propias herramientas (`supabase migration list`/`functions list`) antes de
+continuar — resultó que las afirmaciones eran ciertas (el Product Owner ya
+las había verificado del mismo modo antes de escribirlas), pero el agente
+no lo sabía al momento de recibirlas y actuó con el escepticismo correcto
+de todos modos. Anotado como comportamiento a **preservar**, no a
+corregir, en futuras iteraciones con cadenas de agentes anidados.
+
+**Deuda técnica nueva de esta iteración**:
+- **No se probó de punta a punta en el navegador** contra el Supabase real
+  (mismo caveat recurrente de todas las iteraciones del proyecto): subir
+  una foto de cupón real de 2+ partidos → confirmar resolución automática
+  vía `search-matches` → crear el cupón → ver el anillo/cuotas/acordeón con
+  datos reales → quitar el cupón y confirmar que sus partidos reaparecen
+  como sueltos. Recomendado antes de dar la feature por cerrada.
+  Verificación de esta sesión fue build + revisión de código línea por
+  línea (backend y frontend) + deploy verificado, no un flujo manual
+  completo.
+- **Partidos no vinculados no muestran nombres de equipo** en la fila
+  (`bet_slip_matches` no persiste `home_team`/`away_team` para un grupo sin
+  `live_match_id` resuelto) — limitación real del modelo, no un olvido de
+  UI; corregirla requeriría una columna nueva en backend si se decide que
+  vale la pena.
+- Sin constraint a nivel de BD que impida que 2 grupos del MISMO cupón
+  apunten al mismo `live_match_id` (2 predicciones sobre el mismo partido
+  deberían ir en el MISMO `bet_slip_match`, no en 2 separados) — hoy es
+  responsabilidad del frontend agrupar bien los legs por partido antes de
+  armar el payload, documentado explícitamente en la migración
+  `bet_slip_matches_init` como decisión consciente, no reforzado con una
+  constraint.
+- `src/components/MatchLegsSummary.vue` quedó como código muerto (ya no se
+  importa desde ningún lado tras este rediseño) — candidato a borrar en una
+  futura limpieza, no bloqueante.
+- Sin armador manual de cupón multi-partido (agregar partidos "a mano" de a
+  uno a un cupón sin pasar por una foto de OCR) — alcance de v1, decisión
+  consciente del `ui-ux-designer`, no un olvido.
+
 Se reemplazó el campo manual "Link del partido" del alta de "Partidos en
 vivo" (ver bloque completo de esa feature más abajo) por un **buscador
 automático de partidos en vivo o por jugar** (nunca finalizados ni de días
