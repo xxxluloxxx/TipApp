@@ -164,16 +164,43 @@ de las tres capas (`ui-ux-designer` → `supabase-backend-expert` →
   deploy real de esta forma en vez de asumirlo por el auto-deploy de
   Vercel.
 
+**Corrección post-deploy, mismo día**: el OCR del cupón (ver deuda técnica
+original más abajo) se resolvió moviéndolo de la Edge Function al
+**navegador del usuario** (`vue-frontend-expert`, commit `9acf9cf`). Error
+de diseño identificado y asumido por el Product Owner: el brief original
+decía "no repliques ML Kit **on-device**" pensando en "no repliques la
+librería específica de Android", pero se interpretó (razonablemente) como
+"no proceses la imagen en el dispositivo, hacelo server-side" — de ahí que
+la primera implementación fue a una Edge Function y se topó con que
+Tesseract.js no corre en Deno Deploy. "On-device" en un navegador (Web
+Worker real, entorno nativamente soportado por Tesseract.js) no tiene nada
+que ver con "on-device" en Android nativo (ML Kit); son cosas distintas.
+La solución final: `createWorker('spa')`/`recognize`/`terminate` corren en
+`MatchFormSheet.vue`, gratis, sin API key ni servicio externo. La lógica de
+parseo (`betSlipParser.ts`/`marketMapper.ts`, TypeScript puro) se duplicó
+de `supabase/functions/_shared/` a `src/lib/` (los backends `add-match`/
+`poll-matches` siguen usando su copia, no se tocaron). Edge Function
+`ocr-betslip` eliminada por completo (código muerto). **Verificado de
+punta a punta con un PNG generado con texto tipo cupón real** (no solo
+compilación): Tesseract.js extrajo el texto correctamente y
+`betSlipParser`/`marketMapper` reales resolvieron los 3 legs de prueba
+(doble oportunidad, goles over/under, córners under). Caveat nuevo: el
+modelo/wasm/worker de Tesseract se descargan del CDN (jsDelivr/tessdata)
+on-demand en el primer uso de cada dispositivo (no van bundleados) — el
+primer OCR de un usuario nuevo necesita red y tarda un poco más; si a
+futuro se quiere 100% self-hosted, hay que servir esos assets localmente
+vía `workerPath`/`corePath`/`langPath`. Impacto de bundle: mínimo, va en
+el chunk lazy de `/partidos`, no crece el bundle inicial de la app.
+
 **Deuda técnica nueva de esta iteración**:
-- **El OCR del cupón no funciona hoy** — no es una limitación teórica, se
-  probó y falla: Tesseract.js no corre en el runtime de las Supabase Edge
+- ~~El OCR del cupón no funciona hoy~~ — **resuelto el mismo día**, ver
+  "Corrección post-deploy" arriba. Se deja el detalle original de la falla
+  porque documenta un error de diseño real (instrucción ambigua del
+  Product Owner) que vale la pena que sesiones futuras conozcan: se probó
+  y falló, Tesseract.js no corre en el runtime de las Supabase Edge
   Functions (Deno Deploy), `Worker.prototype.constructor` no está
-  implementado ahí. El flujo degrada correctamente (avisa "no encontramos
-  selecciones, continuá sin cupón" en vez de romperse), pero ningún cupón
-  se lee de verdad todavía. Resolverlo requiere una API de visión externa
-  (Google Vision, AWS Textract, etc.) — decisión pendiente del Product
-  Owner (qué proveedor, nueva API key), evaluada y diferida explícitamente
-  en esta iteración, no un olvido.
+  implementado ahí — por eso se migró a client-side en vez de intentar un
+  workaround dentro de la Edge Function.
 - **Falta agregar `VITE_VAPID_PUBLIC_KEY` al panel de Vercel**
   (Production/Preview/Development) — hoy solo está en `.env.local`
   (gitignored). Sin esto, el toggle de notificaciones push va a fallar en
@@ -1298,12 +1325,12 @@ en todos los anchos).
    Preview/Development) — sin esto el toggle de notificaciones push de
    "Partidos en vivo" va a fallar en producción aunque el resto de la app
    funcione bien. Pendiente de esta iteración, ver deuda técnica arriba.
-3. **Resolver el OCR real del cupón de apuestas** (`ocr-betslip`, hoy no
-   funcional porque Tesseract.js no corre en el runtime de Supabase Edge
-   Functions): requiere que el Product Owner elija un proveedor de OCR/
-   visión externo (Google Vision, AWS Textract, OCR.space, etc.) y provea
-   una API key nueva — evaluado y diferido explícitamente en la iteración
-   de "Partidos en vivo", no bloqueante para el resto de la feature.
+3. ~~Resolver el OCR real del cupón de apuestas~~ — **resuelto el mismo
+   día de la iteración de "Partidos en vivo"**: se movió a Tesseract.js
+   client-side en `MatchFormSheet.vue`, gratis y sin API key externa (ver
+   "Corrección post-deploy" en Estado actual). No requiere más trabajo
+   salvo que a futuro se quiera precisión mayor con un servicio de visión
+   pago, que no está planeado hoy.
 4. **Estrategia offline real** (opcional, evaluar prioridad): hoy la PWA es
    instalable pero no "offline-first" — decidir si vale la pena cachear
    algo de los datos de Supabase (p. ej. último snapshot de gastos) para
