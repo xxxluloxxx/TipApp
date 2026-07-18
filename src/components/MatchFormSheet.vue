@@ -209,6 +209,20 @@ function startPhotoFlow() {
   fileInputRef.value?.click()
 }
 
+const firstToken = (s: string) => s.toLowerCase().split(/\s+/).find(t => t.length >= 3) ?? s.toLowerCase()
+
+/** ¿"Suenan" al mismo equipo? Sustring en cualquier dirección, o — si eso
+ * falla — mismo prefijo de 5+ caracteres. El prefijo cubre errores de OCR en
+ * la cola del nombre (ej. Tesseract leyó "Argentine" en vez de "Argentina"
+ * en una foto real de esta sesión: ninguna de las dos es substring de la
+ * otra, pero comparten "argent"). 5 caracteres es lo bastante largo para que
+ * dos selecciones/equipos distintos no coincidan por casualidad. */
+function namesLikelyMatch(a: string, b: string): boolean {
+  if (a.includes(b) || b.includes(a)) return true
+  const n = Math.min(a.length, b.length, 6)
+  return n >= 5 && a.slice(0, n) === b.slice(0, n)
+}
+
 /** Un intento de resolución: busca por el equipo local y toma un resultado que
  * comparta un token con ambos equipos del grupo. */
 async function tryResolveTeams(teams: [string, string]): Promise<SearchMatch | null> {
@@ -218,16 +232,10 @@ async function tryResolveTeams(teams: [string, string]): Promise<SearchMatch | n
   const result = await liveMatchesStore.searchMatches(0, query)
   if ('errorCode' in result) return null
 
-  const firstToken = (s: string) => s.toLowerCase().split(/\s+/).find(t => t.length >= 3) ?? s.toLowerCase()
   const home = firstToken(teams[0])
   const away = firstToken(teams[1])
   return (
-    result.matches.find((m) => {
-      const mh = m.homeTeam.toLowerCase()
-      const ma = m.awayTeam.toLowerCase()
-      return (mh.includes(home) || home.includes(firstToken(m.homeTeam)))
-        && (ma.includes(away) || away.includes(firstToken(m.awayTeam)))
-    }) ?? null
+    result.matches.find((m) => namesLikelyMatch(home, firstToken(m.homeTeam)) && namesLikelyMatch(away, firstToken(m.awayTeam))) ?? null
   )
 }
 

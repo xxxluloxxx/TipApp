@@ -89,8 +89,32 @@ function isNumericLike(text: string): boolean {
 }
 
 /** Quita íconos/escudos sueltos y espacios sobrantes de un nombre de equipo. */
+/**
+ * Limpia basura de OCR de un nombre de equipo/selección — verificado contra
+ * una foto real donde una línea de nombre real venía "48 Inglaterra \"e '"
+ * (ícono de bandera mal leído como "48" + artefactos de comillas sueltas al
+ * final) y otra traía la fecha del recuadro de al lado pegada
+ * ("—- Argentine 19/07/2026, 14:00", layout real de Betano). Sin esta
+ * limpieza, `autoResolveGroup` manda ese texto crudo como query de búsqueda
+ * y nunca matchea contra el nombre real del equipo en el feed.
+ */
 function cleanTeam(text: string): string {
-  return text.trim().replace(/^[·•\-\s]+|[·•\-\s]+$/g, '')
+  let t = text.trim().replace(/^[·•\-\s]+|[·•\-\s]+$/g, '')
+  // 1) Corta todo lo que venga después de una fecha ("dd/mm[/aaaa]") u hora
+  //    ("hh:mm") pegada al nombre — no es parte del nombre.
+  t = t.replace(/\s*\d{1,2}\/\d{1,2}(\/\d{2,4})?.*$/, '')
+  t = t.replace(/\s*\d{1,2}:\d{2}.*$/, '')
+
+  // 2) Quita tokens de basura (íconos mal leídos, comillas sueltas: "48",
+  //    "am", "—-", "\"e", "'"...) en los extremos — corto (≤3 chars) o
+  //    puramente símbolos/comillas. Nunca deja la lista vacía (si el nombre
+  //    real es corto de por sí, ej. "PSG", un único token no se toca).
+  const isGarbageToken = (tok: string) => tok.length <= 3 || /^["'”“`´¡!¿?.,:;·•\-]+$/.test(tok)
+  let tokens = t.split(/\s+/).filter(Boolean)
+  while (tokens.length > 1 && isGarbageToken(tokens[0]!)) tokens = tokens.slice(1)
+  while (tokens.length > 1 && isGarbageToken(tokens[tokens.length - 1]!)) tokens = tokens.slice(0, -1)
+
+  return tokens.join(' ').trim()
 }
 
 interface Line extends OcrLine {
@@ -222,13 +246,29 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
   const pickYs = pickLines.map((p) => p.line.centerY)
   const clusters = clusterTeamPairs(nameCandidates, pickYs).sort((a, b) => a.startY - b.startY)
 
-  /** Índice del cluster (partido) al que pertenece un Y de pick: el último
-   * cluster cuyo `startY` está por encima del pick. `-1` = pick huérfano (por
-   * encima de cualquier par de equipos → grupo con `teams: null`). */
-  function clusterIndexForY(y: number): number {
+  /**
+   * Índice del cluster (partido) al que pertenece un pick. El layout real de
+   * un cupón varía y no se puede asumir una sola dirección: en un cupón
+   * combinado real de Betano el par de equipos aparece DESPUÉS de su propio
+   * pick (pick, mercado, EQUIPO A, EQUIPO B, siguiente pick...) — verificado
+   * contra una foto real donde asumir "equipos siempre arriba" dejaba el
+   * primer pick huérfano y le robaba el segundo partido al primero (España-
+   * Argentina desaparecía del cupón por completo). Por eso se prueba primero
+   * ADELANTE (el cluster entre este pick y el siguiente) y, si no hay
+   * ninguno ahí, se cae al criterio original de ATRÁS (el cluster más
+   * cercano por encima, sin acotar por el pick anterior — así un mismo
+   * cluster "encabezado" puede seguir cubriendo varios picks de un solo
+   * partido, layout tipo "equipos arriba, N predicciones abajo"). `-1` =
+   * pick huérfano en ambas direcciones → grupo con `teams: null`.
+   */
+  function clusterIndexForPick(pickY: number, nextPickY: number): number {
+    for (let i = 0; i < clusters.length; i++) {
+      const c = clusters[i]!
+      if (c.startY > pickY && c.startY < nextPickY) return i
+    }
     let idx = -1
     for (let i = 0; i < clusters.length; i++) {
-      if (clusters[i]!.startY < y) idx = i
+      if (clusters[i]!.startY < pickY) idx = i
       else break
     }
     return idx
@@ -262,7 +302,7 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
       raw: [pick.line.text.trim(), marketText.trim()].filter((s) => s.length > 0).join(' · '),
     }
 
-    const ci = clusterIndexForY(pickY)
+    const ci = clusterIndexForPick(pickY, nextPickY)
     const arr = legsByCluster.get(ci) ?? []
     arr.push(leg)
     legsByCluster.set(ci, arr)
