@@ -1,9 +1,10 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from 'vue'
+import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { Camera, CircleX, Loader2, X } from '@lucide/vue'
+import { createWorker, type Worker } from 'tesseract.js'
 import { toast } from 'vue-sonner'
 import { useLiveMatchesStore, type IncomingLeg } from '@/stores/liveMatches'
-import { supabase } from '@/lib/supabase'
+import { betSlipFromOcrBlocks, type RecognizedBlock } from '@/lib/betSlipOcr'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -20,8 +21,14 @@ import {
 // Alta de partido — Sheet "wizard" de 3 pasos (live-matches-ux.md sección 5),
 // primer Sheet multi-paso del proyecto. `step: 'form' | 'processing' |
 // 'review'`. NO optimista (sección 1.8): tanto el OCR como el alta atómica
-// son roundtrips reales que el usuario necesita ver resueltos antes de que
-// exista ninguna fila.
+// necesitan resolverse antes de que exista ninguna fila / de mostrar el review.
+//
+// El OCR del cupón corre 100% en el navegador con Tesseract.js (createWorker →
+// recognize → terminate), NO en una Edge Function: Tesseract.js no funciona en
+// el runtime Deno de Supabase (Worker.prototype.constructor ausente) pero sí
+// en el browser, que es su entorno soportado. El parseo del texto a legs vive
+// en `src/lib/betSlipParser.ts`/`marketMapper.ts` (TypeScript puro) y el
+// adaptador del resultado en `src/lib/betSlipOcr.ts`.
 
 const props = defineProps<{
   open: boolean
@@ -35,7 +42,7 @@ const liveMatchesStore = useLiveMatchesStore()
 
 type Step = 'form' | 'processing' | 'review'
 
-// Leg extraído por `ocr-betslip` (con `tempId` local para la lista de review).
+// Leg extraído del OCR client-side (con `tempId` local para la lista de review).
 interface ExtractedLeg extends IncomingLeg {
   tempId: string
 }
@@ -47,7 +54,6 @@ const form = reactive({
   url: '',
   photoFile: null as File | null,
   photoPreviewUrl: null as string | null,
-  photoBase64: null as string | null,
   extractedLegs: [] as ExtractedLeg[],
 })
 
@@ -55,6 +61,22 @@ const errors = reactive<{ url?: string }>({})
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const urlInputRef = ref<{ $el?: HTMLElement } | null>(null)
+
+// Web Worker de Tesseract.js activo mientras corre el OCR. Se termina siempre
+// (éxito, error o cierre/cancelación del Sheet) para no dejarlo vivo en memoria
+// — ver `terminateOcrWorker` (requisito 5 del encargo del OCR client-side).
+let ocrWorker: Worker | null = null
+
+async function terminateOcrWorker() {
+  if (!ocrWorker) return
+  const worker = ocrWorker
+  ocrWorker = null
+  try {
+    await worker.terminate()
+  } catch {
+    // El worker ya podría estar terminado; no hay nada útil que hacer acá.
+  }
+}
 
 function revokePreview() {
   if (form.photoPreviewUrl) {
@@ -73,8 +95,19 @@ function resetForm() {
 }
 
 watch(() => props.open, (isOpen) => {
-  if (isOpen) resetForm()
-  else revokePreview()
+  if (isOpen) {
+    resetForm()
+  } else {
+    revokePreview()
+    // Si el Sheet se cierra con un OCR en vuelo, no dejamos el worker vivo.
+    void terminateOcrWorker()
+  }
+})
+
+// Red de seguridad: si el componente se desmonta (cambio de ruta, etc.) con un
+// OCR en curso, terminamos el worker igual.
+onBeforeUnmount(() => {
+  void terminateOcrWorker()
 })
 
 /** Espejo client-side de `extractMatchId` del backend (sección 5.1): busca el
@@ -104,18 +137,9 @@ function onFileSelected(event: Event) {
   revokePreview()
   form.photoFile = file
   form.photoPreviewUrl = URL.createObjectURL(file)
-
-  const reader = new FileReader()
-  reader.onload = () => {
-    const result = reader.result
-    if (typeof result === 'string') {
-      // `ocr-betslip` acepta base64 con o sin prefijo; se manda sin prefijo
-      // (`data:...;base64,`) como pide el doc.
-      const commaIdx = result.indexOf(',')
-      form.photoBase64 = commaIdx === -1 ? result : result.slice(commaIdx + 1)
-    }
-  }
-  reader.readAsDataURL(file)
+  // Tesseract.js acepta el `File` directamente en `recognize`, así que no hace
+  // falta convertir a base64 (a diferencia del viejo Edge Function, que recibía
+  // la imagen en base64 por el body JSON).
   // Permite volver a elegir el mismo archivo si el usuario lo quita y reintenta.
   input.value = ''
 }
@@ -123,7 +147,6 @@ function onFileSelected(event: Event) {
 function clearPhoto() {
   revokePreview()
   form.photoFile = null
-  form.photoBase64 = null
 }
 
 function validateUrl(): boolean {
@@ -158,42 +181,27 @@ async function handleSubmitStep1() {
   if (isSubmitting.value) return
   if (!validateUrl()) return
 
-  if (form.photoFile && form.photoBase64) {
-    // Paso 2: OCR (sección 5.2).
+  if (form.photoFile) {
+    // Paso 2: OCR client-side con Tesseract.js (sección 5.2). El cupón está en
+    // español → modelo `spa`. El worker se termina siempre en el `finally`.
     step.value = 'processing'
-    const { data, error } = await supabase.functions.invoke('ocr-betslip', {
-      body: { imageBase64: form.photoBase64 },
-    })
-
-    if (error) {
-      // Error de red / función caída (sección 5.2, distinto de "no encontró
-      // legs"): vuelve al paso 1 conservando la foto para reintentar.
+    try {
+      ocrWorker = await createWorker('spa')
+      const { data } = await ocrWorker.recognize(form.photoFile)
+      const result = betSlipFromOcrBlocks(data.blocks as RecognizedBlock[] | null)
+      form.extractedLegs = result.legs
+      // Sección 5.3/5.4: se llega al review aunque `extractedLegs` esté vacío
+      // (el usuario puede continuar sin cupón).
+      step.value = 'review'
+    } catch (ocrError) {
+      // Falla real del motor OCR (distinto de "no encontró legs"): vuelve al
+      // paso 1 conservando la foto para reintentar (sección 5.2).
+      console.error('OCR del cupón (Tesseract.js) falló', ocrError)
       step.value = 'form'
       toast.error('No pudimos leer la foto. Probá de nuevo o seguí sin cupón.')
-      return
+    } finally {
+      await terminateOcrWorker()
     }
-
-    const legs = (data?.legs ?? []) as Array<{
-      tempId?: string
-      marketType?: string
-      marketLabel?: string
-      selectionLabel?: string
-      threshold?: number | null
-      selector?: string | null
-      rawText?: string | null
-    }>
-    form.extractedLegs = legs.map((leg, idx) => ({
-      tempId: leg.tempId ?? `${Date.now()}-${idx}`,
-      marketType: leg.marketType ?? 'unknown',
-      marketLabel: leg.marketLabel ?? '',
-      selectionLabel: leg.selectionLabel ?? '',
-      threshold: leg.threshold ?? null,
-      selector: leg.selector ?? null,
-      rawText: leg.rawText ?? null,
-    }))
-    // Sección 5.3/5.4: se llega al review aunque `extractedLegs` esté vacío
-    // (el motor OCR hoy siempre devuelve `[]`, ver caveat del Edge Function).
-    step.value = 'review'
     return
   }
 
