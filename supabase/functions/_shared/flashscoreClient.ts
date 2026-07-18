@@ -50,6 +50,25 @@ export async function fetchFeed(
   return { body, etag: res.headers.get('etag'), notModified: false }
 }
 
+/**
+ * GET al feed de listado de partidos de un día ("f_1_<dayOffset>_3_en_1",
+ * hermano de los feeds por-partido de arriba, mismo host/headers/x-fsign —
+ * usado por search-matches para el picker de partidos, sección "Buscador de
+ * partidos" de live-matches-ux.md). `dayOffset`: 0=hoy, 1=mañana, etc. — NO
+ * validado acá (la Edge Function que llama es responsable del rango 0-3).
+ * A diferencia de fetchFeed, sin soporte de ETag: se pide una sola vez por
+ * búsqueda del usuario, no en un loop de poll, así que la caché condicional
+ * no aporta nada acá.
+ */
+export async function fetchDayFeed(dayOffset: number, fsign: string, signal?: AbortSignal): Promise<string> {
+  const url = `${FEED_BASE}/f_1_${dayOffset}_3_en_1`
+  const res = await fetch(url, { headers: feedHeaders(fsign), signal })
+  if (!res.ok) {
+    throw new Error(`Flashscore day feed respondió ${res.status} para dayOffset=${dayOffset}`)
+  }
+  return await res.text()
+}
+
 /** Extrae el mid (?mid=...) de una URL de partido de Flashscore. */
 export function extractMatchId(url: string): string {
   try {

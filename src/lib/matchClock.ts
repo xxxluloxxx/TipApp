@@ -16,7 +16,11 @@ export function isLiveStage(stageCode: number | null | undefined): boolean {
   return stageCode === 12 || stageCode === 13
 }
 
-function formatKickoffTime(iso: string): string {
+/** Formatea un ISO string a hora local `HH:MM` (`es-AR`). Reusado por la card
+ * del reloj (`matchClockLabel`) y por el buscador de partidos del alta
+ * (`MatchFormSheet.vue`, live-matches-ux.md sección 5.1.2) — mismo criterio de
+ * formato horario, sin duplicar lógica. */
+export function formatKickoffTime(iso: string): string {
   const date = new Date(iso)
   if (Number.isNaN(date.getTime())) return ''
   return date.toLocaleTimeString('es-AR', { hour: '2-digit', minute: '2-digit' })

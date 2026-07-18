@@ -1,8 +1,10 @@
 // =============================================================================
 // add-match
 // -----------------------------------------------------------------------------
-// Alta de un partido monitoreado. Recibe { url, legs? } del frontend YA
-// AUTENTICADO — usa el JWT del usuario que llama (nunca service_role) para
+// Alta de un partido monitoreado. Recibe { url?, matchId?, homeTeam?,
+// awayTeam?, competition?, legs? } del frontend YA AUTENTICADO (ver bloque
+// de comentario más abajo para el contrato completo) — usa el JWT del
+// usuario que llama (nunca service_role) para
 // que el insert respete RLS naturalmente, mismo espíritu atómico que
 // create_debt pero acá corre en una Edge Function (no una función SQL pura)
 // porque necesita hacer fetch HTTP saliente a Flashscore antes de insertar.
@@ -20,6 +22,20 @@
 // vez contra el snapshot recién obtenido (puede haber decisión temprana
 // desde el arranque) y se insertan junto con la cabecera en una sola
 // transacción atómica vía la función rpc create_live_match.
+//
+// Desde que existe el picker de search-matches (docs/features/
+// live-matches-ux.md, buscador de partidos), el frontend YA tiene
+// matchId/homeTeam/awayTeam/league de ese listado — pedirle igual una URL
+// real y volver a scrapear su HTML (fetchMeta) sería trabajo redundante y
+// frágil. Payload extendido de forma retrocompatible: si vienen matchId +
+// homeTeam + awayTeam, se usan directo (sin extractMatchId ni fetchMeta);
+// si solo viene `url`, camino legacy sin cambios (compat con clientes
+// viejos/no actualizados). flashscore_url sigue siendo NOT NULL en
+// live_matches: si el cliente no mandó `url`, se construye uno sintético
+// `https://www.flashscore.com.ar/?mid=<matchId>` (mismo formato de URL que
+// el propio FottStat original trata como válido en sus tests,
+// android/app/src/test/java/com/fottstat/data/MatchStoreTest.kt) — sirve
+// como link "Ver en Flashscore" en MatchDetailView.vue.
 // =============================================================================
 import { createClient } from 'jsr:@supabase/supabase-js@2'
 import { corsHeaders, handlePreflight } from '../_shared/cors.ts'
@@ -38,8 +54,17 @@ interface IncomingLeg {
 }
 
 interface AddMatchBody {
-  url: string
+  url?: string
+  matchId?: string
+  homeTeam?: string
+  awayTeam?: string
+  competition?: string
   legs?: IncomingLeg[]
+}
+
+/** URL sintética cuando el frontend manda matchId/nombres sin una URL real de Flashscore (ver comentario de cabecera). */
+function syntheticFlashscoreUrl(matchId: string): string {
+  return `https://www.flashscore.com.ar/?mid=${encodeURIComponent(matchId)}`
 }
 
 Deno.serve(async (req) => {
@@ -73,16 +98,29 @@ Deno.serve(async (req) => {
     return json({ error: 'invalid_json' }, 400)
   }
 
-  if (!body?.url || typeof body.url !== 'string') {
-    return json({ error: 'missing_url' }, 400)
+  const hasMatchId = typeof body?.matchId === 'string' && body.matchId.length > 0
+  const hasUrl = typeof body?.url === 'string' && body.url.length > 0
+  if (!hasMatchId && !hasUrl) {
+    return json({ error: 'missing_match_reference' }, 400)
   }
 
+  // Nombres provistos directo por el picker (search-matches) — evita
+  // fetchMeta (scrape de HTML) más abajo, ver comentario de cabecera.
+  const namesProvided = typeof body?.homeTeam === 'string' && body.homeTeam.length > 0 &&
+    typeof body?.awayTeam === 'string' && body.awayTeam.length > 0
+
   let mid: string
-  try {
-    mid = extractMatchId(body.url)
-  } catch (e) {
-    return json({ error: 'invalid_url', message: (e as Error).message }, 400)
+  if (hasMatchId) {
+    mid = body.matchId as string
+  } else {
+    try {
+      mid = extractMatchId(body.url as string)
+    } catch (e) {
+      return json({ error: 'invalid_url', message: (e as Error).message }, 400)
+    }
   }
+
+  const flashscoreUrl = hasUrl ? (body.url as string) : syntheticFlashscoreUrl(mid)
 
   // Chequeo de duplicado — red de seguridad server-side real (el frontend
   // ya hace un chequeo barato en cliente contra la lista en memoria,
@@ -120,16 +158,21 @@ Deno.serve(async (req) => {
   let firstHalfScoreAway = 0
   let incidents: unknown[] = []
   let lastPollOk = true
-  let homeTeam: string | null = null
-  let awayTeam: string | null = null
-  let competition: string | null = null
+  // Provisto directo por el picker (search-matches): se fija de entrada y
+  // NUNCA se pisa con fetchMeta, ver comentario de cabecera.
+  let homeTeam: string | null = namesProvided ? (body.homeTeam as string) : null
+  let awayTeam: string | null = namesProvided ? (body.awayTeam as string) : null
+  let competition: string | null = namesProvided ? (typeof body.competition === 'string' && body.competition.length > 0 ? body.competition : null) : null
 
   try {
+    const metaPromise = namesProvided
+      ? Promise.resolve({ homeTeam: null, awayTeam: null, competition: null })
+      : fetchMeta(flashscoreUrl)
     const [dc, dfSt, dfSu, meta] = await Promise.all([
       fetchFeed(mid, 'dc', fsign),
       fetchFeed(mid, 'df_st', fsign),
       fetchFeed(mid, 'df_su', fsign),
-      fetchMeta(body.url),
+      metaPromise,
     ])
 
     const detail = parseDetail(dc.body)
@@ -155,9 +198,11 @@ Deno.serve(async (req) => {
     firstHalfScoreHome = inc.firstHalfHome
     firstHalfScoreAway = inc.firstHalfAway
     incidents = inc.events
-    homeTeam = meta.homeTeam
-    awayTeam = meta.awayTeam
-    competition = meta.competition
+    if (!namesProvided) {
+      homeTeam = meta.homeTeam
+      awayTeam = meta.awayTeam
+      competition = meta.competition
+    }
   } catch (e) {
     console.error('add-match: el primer poll falló, se crea igual el partido (el cron reintentará)', e)
     lastPollOk = false
@@ -193,7 +238,7 @@ Deno.serve(async (req) => {
 
   const { data: matchId, error: rpcError } = await supabase.rpc('create_live_match', {
     p_flashscore_mid: mid,
-    p_flashscore_url: body.url,
+    p_flashscore_url: flashscoreUrl,
     p_home_team: homeTeam,
     p_away_team: awayTeam,
     p_competition: competition,

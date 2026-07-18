@@ -1,14 +1,26 @@
 <script setup lang="ts">
-import { onBeforeUnmount, reactive, ref, watch } from 'vue'
-import { Camera, CircleX, Loader2, X } from '@lucide/vue'
+import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
+import {
+  CalendarX,
+  Camera,
+  CircleX,
+  Loader2,
+  Radio,
+  Search,
+  SearchX,
+  TriangleAlert,
+  X,
+} from '@lucide/vue'
 import { createWorker, type Worker } from 'tesseract.js'
 import { toast } from 'vue-sonner'
-import { useLiveMatchesStore, type IncomingLeg } from '@/stores/liveMatches'
+import { useLiveMatchesStore, type IncomingLeg, type SearchMatch } from '@/stores/liveMatches'
 import { betSlipFromOcrBlocks, type RecognizedBlock } from '@/lib/betSlipOcr'
+import { formatKickoffTime } from '@/lib/matchClock'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   Sheet,
   SheetContent,
@@ -22,6 +34,11 @@ import {
 // primer Sheet multi-paso del proyecto. `step: 'form' | 'processing' |
 // 'review'`. NO optimista (sección 1.8): tanto el OCR como el alta atómica
 // necesitan resolverse antes de que exista ninguna fila / de mostrar el review.
+//
+// Paso 1 (`step === 'form'`, sección 5.1): buscador de partidos contra la Edge
+// Function `search-matches` (reemplaza al viejo campo de URL pegada). Mientras
+// `form.selectedMatch === null` se muestra el buscador/lista; al elegir un
+// partido se pasa al resumen + foto opcional (sección 5.1.4).
 //
 // El OCR del cupón corre 100% en el navegador con Tesseract.js (createWorker →
 // recognize → terminate), NO en una Edge Function: Tesseract.js no funciona en
@@ -51,16 +68,102 @@ const step = ref<Step>('form')
 const isSubmitting = ref(false)
 
 const form = reactive({
-  url: '',
+  selectedMatch: null as SearchMatch | null,
   photoFile: null as File | null,
   photoPreviewUrl: null as string | null,
   extractedLegs: [] as ExtractedLeg[],
 })
 
-const errors = reactive<{ url?: string }>({})
-
 const fileInputRef = ref<HTMLInputElement | null>(null)
-const urlInputRef = ref<{ $el?: HTMLElement } | null>(null)
+
+// --- Buscador de partidos (paso 1, sección 5.1) -------------------------------
+
+const dayOptions = [
+  { value: 0, label: 'Hoy' },
+  { value: 1, label: 'Mañana' },
+  { value: 2, label: 'Pasado mañana' },
+  { value: 3, label: 'En 3 días' },
+]
+// Mismos 4 valores en minúscula para insertarse en las oraciones de vacío
+// (sección 5.1.5): "...para {{ dayLabelLowercase(dayOffset) }}".
+const DAY_LABELS_LOWERCASE = ['hoy', 'mañana', 'pasado mañana', 'en 3 días']
+function dayLabelLowercase(offset: number): string {
+  return DAY_LABELS_LOWERCASE[offset] ?? ''
+}
+
+const searchQuery = ref('')
+const dayOffset = ref(0)
+const searchResults = ref<SearchMatch[]>([])
+const searchState = ref<'loading' | 'ready' | 'error'>('loading')
+
+// El filtro por equipo requiere 2+ caracteres (contrato de `search-matches`);
+// por debajo de eso se pide el día completo. Este flag distingue los dos
+// estados de vacío (con búsqueda activa vs. sin búsqueda, sección 5.1.5).
+const hasActiveQuery = computed(() => searchQuery.value.trim().length >= 2)
+
+// Debounce de 350ms (primer uso de debounce del proyecto, sección 5.1): un
+// `setTimeout`/`clearTimeout` simple, sin librería. `searchRequestId` descarta
+// respuestas viejas si el usuario cambia de día/query mientras una está en
+// vuelo (evita que un resultado tardío pise a uno más nuevo).
+let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
+let searchRequestId = 0
+
+async function runSearch() {
+  const requestId = ++searchRequestId
+  searchState.value = 'loading'
+
+  const result = await liveMatchesStore.searchMatches(dayOffset.value, searchQuery.value)
+  // Respuesta obsoleta: cambió el día o la query mientras se resolvía.
+  if (requestId !== searchRequestId) return
+
+  if ('errorCode' in result) {
+    searchResults.value = []
+    searchState.value = 'error'
+    return
+  }
+
+  searchResults.value = result.matches
+  searchState.value = 'ready'
+}
+
+// El debounce aplica SOLO al campo de búsqueda (texto tecleado), no al día.
+watch(searchQuery, () => {
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  searchDebounceTimer = setTimeout(() => {
+    void runSearch()
+  }, 350)
+})
+
+function selectDay(value: number) {
+  if (dayOffset.value === value) return
+  dayOffset.value = value
+  // Tap discreto → refetch inmediato, sin debounce (sección 5.1.1).
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  void runSearch()
+}
+
+function retrySearch() {
+  // Reintenta la misma combinación día/query vigente (sección 5.1.5).
+  void runSearch()
+}
+
+/** Partido ya seguido (sección 5.1.3): chequeo barato contra la lista ya en
+ * memoria por `flashscore_mid`, sin viaje al servidor. La fila se deshabilita
+ * de antemano en vez de fallar reactivamente al elegirla. */
+function isAlreadyFollowed(result: SearchMatch): boolean {
+  return liveMatchesStore.matches.some(match => match.flashscore_mid === result.matchId)
+}
+
+function selectMatch(result: SearchMatch) {
+  if (isAlreadyFollowed(result)) return
+  form.selectedMatch = result
+}
+
+function changeMatch() {
+  // Vuelve a la lista (sección 5.1.4). Se conservan searchQuery/dayOffset para
+  // no obligar a retipear si solo se equivocó de fila.
+  form.selectedMatch = null
+}
 
 // Web Worker de Tesseract.js activo mientras corre el OCR. Se termina siempre
 // (éxito, error o cierre/cancelación del Sheet) para no dejarlo vivo en memoria
@@ -88,10 +191,22 @@ function revokePreview() {
 function resetForm() {
   step.value = 'form'
   isSubmitting.value = false
-  errors.url = undefined
-  form.url = ''
+  searchQuery.value = ''
+  dayOffset.value = 0
+  searchResults.value = []
+  searchState.value = 'loading'
+  form.selectedMatch = null
   clearPhoto()
   form.extractedLegs = []
+
+  // Dispara la primera búsqueda (día 0, sin query) sin esperar interacción
+  // (sección 5.1, "fetch al abrir"). El `nextTick` cancela la búsqueda
+  // debounced que el `watch(searchQuery)` pudo agendar por resetear el campo
+  // de forma programática, dejando una sola llamada inicial.
+  void nextTick(() => {
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+    void runSearch()
+  })
 }
 
 watch(() => props.open, (isOpen) => {
@@ -101,6 +216,7 @@ watch(() => props.open, (isOpen) => {
     revokePreview()
     // Si el Sheet se cierra con un OCR en vuelo, no dejamos el worker vivo.
     void terminateOcrWorker()
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   }
 })
 
@@ -108,26 +224,8 @@ watch(() => props.open, (isOpen) => {
 // OCR en curso, terminamos el worker igual.
 onBeforeUnmount(() => {
   void terminateOcrWorker()
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
 })
-
-/** Espejo client-side de `extractMatchId` del backend (sección 5.1): busca el
- * `mid` en `searchParams` y, como red de seguridad, con el mismo regex que el
- * servidor. Solo feedback inmediato — el backend es la barrera real. */
-function extractMid(url: string): string | null {
-  try {
-    const parsed = new URL(url)
-    const mid = parsed.searchParams.get('mid')
-    if (mid) return mid
-  } catch {
-    // URL inválida para el parser nativo: cae al regex de abajo.
-  }
-  const match = /[?&#]mid=([A-Za-z0-9]+)/.exec(url)
-  return match ? match[1]! : null
-}
-
-function focusUrl() {
-  urlInputRef.value?.$el?.focus()
-}
 
 function onFileSelected(event: Event) {
   const input = event.target as HTMLInputElement
@@ -149,37 +247,9 @@ function clearPhoto() {
   form.photoFile = null
 }
 
-function validateUrl(): boolean {
-  errors.url = undefined
-  const url = form.url.trim()
-  if (!url) {
-    errors.url = 'Pegá el link del partido.'
-    focusUrl()
-    return false
-  }
-
-  const mid = extractMid(url)
-  if (!mid) {
-    errors.url = 'El link no parece ser de un partido de Flashscore (tiene que incluir "?mid=" en la URL).'
-    focusUrl()
-    return false
-  }
-
-  // Duplicado detectable en cliente (sección 5.1): chequeo barato contra la
-  // lista ya en memoria, evita un viaje al servidor.
-  const alreadyFollowed = liveMatchesStore.matches.some(match => match.flashscore_mid === mid)
-  if (alreadyFollowed) {
-    errors.url = 'Ya estás siguiendo este partido.'
-    focusUrl()
-    return false
-  }
-
-  return true
-}
-
 async function handleSubmitStep1() {
   if (isSubmitting.value) return
-  if (!validateUrl()) return
+  if (!form.selectedMatch) return
 
   if (form.photoFile) {
     // Paso 2: OCR client-side con Tesseract.js (sección 5.2). El cupón está en
@@ -215,7 +285,7 @@ function discardLeg(tempId: string) {
 
 function retakePhoto() {
   // Sección 5.3: vuelve al paso 1 con el campo de foto vacío (no reintenta la
-  // misma imagen).
+  // misma imagen). El partido elegido se conserva.
   clearPhoto()
   form.extractedLegs = []
   step.value = 'form'
@@ -223,17 +293,28 @@ function retakePhoto() {
 
 async function confirmMatch() {
   if (isSubmitting.value) return
+  const selected = form.selectedMatch
+  if (!selected) return
+
   isSubmitting.value = true
   try {
     const legs: IncomingLeg[] = form.extractedLegs.map(({ tempId: _tempId, ...leg }) => leg)
-    const result = await liveMatchesStore.addMatch({ url: form.url.trim(), legs })
+    const result = await liveMatchesStore.addMatch({
+      matchId: selected.matchId,
+      homeTeam: selected.homeTeam,
+      awayTeam: selected.awayTeam,
+      league: selected.league,
+      legs,
+    })
 
     if ('errorCode' in result) {
       if (result.errorCode === 'duplicate_match') {
-        // Volvemos al paso 1 para mostrar el mensaje en el campo (sección 5.1).
+        // Carrera rarísima (sección 5.1.3): la UI ya deshabilita las filas ya
+        // seguidas, pero el backend es la barrera real. No hay campo al que
+        // atar el error → toast genérico + volver a la lista para reelegir.
         step.value = 'form'
-        errors.url = 'Ya estás siguiendo este partido.'
-        focusUrl()
+        form.selectedMatch = null
+        toast.error('Ya estás siguiendo este partido.')
         return
       }
       toast.error('No pudimos agregar el partido. Revisá tu conexión e intentá de nuevo.')
@@ -247,12 +328,17 @@ async function confirmMatch() {
   }
 }
 
+function closeSheet() {
+  emit('update:open', false)
+}
+
 function handleOpenChange(value: boolean) {
   emit('update:open', value)
 }
 
-// Secciones 5.2/5.5: mientras hay un roundtrip en vuelo (OCR o alta), el
-// Sheet no se cierra por tap-fuera / Escape / swipe.
+// Secciones 5.2/5.5: mientras hay un roundtrip de alta/OCR en vuelo, el Sheet
+// no se cierra por tap-fuera / Escape / swipe. La búsqueda del paso 1 NO
+// bloquea el cierre: no hay dato del usuario en riesgo (se re-busca al reabrir).
 const isBlocking = () => isSubmitting.value || step.value === 'processing'
 function preventCloseWhileBusy(event: Event) {
   if (isBlocking()) event.preventDefault()
@@ -267,79 +353,198 @@ function preventCloseWhileBusy(event: Event) {
       @escape-key-down="preventCloseWhileBusy"
       @interact-outside="preventCloseWhileBusy"
     >
-      <!-- Paso 1: URL + foto opcional (sección 5.1) -->
+      <!-- Paso 1 (sección 5.1): buscar y elegir un partido -->
       <template v-if="step === 'form'">
-        <SheetHeader>
-          <SheetTitle>Nuevo partido</SheetTitle>
-          <SheetDescription>
-            Pegá el link de un partido de Flashscore para empezar a seguirlo.
-          </SheetDescription>
-        </SheetHeader>
+        <!-- 5.1.1/5.1.2/5.1.3/5.1.5: buscador + lista mientras no hay elegido -->
+        <template v-if="!form.selectedMatch">
+          <SheetHeader>
+            <SheetTitle>Nuevo partido</SheetTitle>
+            <SheetDescription>
+              Buscá un partido en vivo o por jugar para empezar a seguirlo.
+            </SheetDescription>
+          </SheetHeader>
 
-        <form id="match-form" class="flex flex-col gap-4 px-4" novalidate @submit.prevent="handleSubmitStep1">
-          <div class="flex flex-col gap-1.5">
-            <Label for="match-url">Link del partido</Label>
-            <Input
-              id="match-url"
-              ref="urlInputRef"
-              v-model="form.url"
-              type="url"
-              inputmode="url"
-              placeholder="https://www.flashscore.com.ar/partido/..."
-              :disabled="isSubmitting"
-              :aria-invalid="!!errors.url"
-            />
-            <p v-if="errors.url" class="text-xs text-destructive">
-              {{ errors.url }}
-            </p>
+          <div class="flex flex-col gap-3 px-4">
+            <div class="relative">
+              <Search class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                v-model="searchQuery"
+                type="search"
+                inputmode="search"
+                placeholder="Buscar equipo…"
+                class="pl-9"
+                aria-label="Buscar equipo"
+              />
+            </div>
+
+            <div role="radiogroup" aria-label="Día" class="grid grid-cols-4 gap-1 rounded-lg bg-muted p-1">
+              <button
+                v-for="option in dayOptions"
+                :key="option.value"
+                type="button"
+                role="radio"
+                :aria-checked="dayOffset === option.value"
+                class="flex min-h-9 items-center justify-center rounded-md px-1 py-1.5 text-center text-[11px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                :class="dayOffset === option.value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+                @click="selectDay(option.value)"
+              >
+                {{ option.label }}
+              </button>
+            </div>
           </div>
 
-          <div class="flex flex-col gap-1.5">
-            <Label>Foto del cupón (opcional)</Label>
-            <input
-              ref="fileInputRef"
-              type="file"
-              accept="image/*"
-              class="sr-only"
-              @change="onFileSelected"
-            >
+          <!-- Lista de resultados / estados (sección 5.1.5). Primer contenido
+               genuinamente scrolleable dentro de un Sheet del proyecto. -->
+          <div class="mt-1 max-h-[45vh] overflow-y-auto overscroll-contain border-t border-border" aria-live="polite">
+            <!-- Carga -->
+            <template v-if="searchState === 'loading'">
+              <div
+                v-for="n in 4"
+                :key="n"
+                class="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0"
+              >
+                <div class="flex flex-1 flex-col gap-1.5">
+                  <Skeleton class="h-4 w-36" />
+                  <Skeleton class="h-4 w-28" />
+                </div>
+                <Skeleton class="h-5 w-14 rounded-full" />
+              </div>
+            </template>
 
-            <div v-if="!form.photoPreviewUrl">
-              <Button type="button" variant="outline" class="w-full" :disabled="isSubmitting" @click="fileInputRef?.click()">
-                <Camera class="size-4" />
-                Subir foto del cupón
+            <!-- Error -->
+            <div v-else-if="searchState === 'error'" class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+              <TriangleAlert class="size-8 text-warning" />
+              <p class="text-sm text-muted-foreground">
+                No pudimos buscar partidos ahora mismo. Probá de nuevo en un momento.
+              </p>
+              <Button type="button" variant="outline" size="sm" @click="retrySearch">
+                Reintentar
               </Button>
-              <p class="mt-1 text-xs text-muted-foreground">
-                Leemos las selecciones automáticamente. Podés revisarlas antes de confirmar.
+            </div>
+
+            <!-- Resultados -->
+            <template v-else-if="searchResults.length > 0">
+              <button
+                v-for="result in searchResults"
+                :key="result.matchId"
+                type="button"
+                class="flex w-full items-center gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50"
+                :disabled="isAlreadyFollowed(result)"
+                @click="selectMatch(result)"
+              >
+                <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                  <p class="truncate text-sm font-medium">{{ result.homeTeam }}</p>
+                  <p class="truncate text-sm font-medium">{{ result.awayTeam }}</p>
+                  <p v-if="result.league" class="truncate text-xs text-muted-foreground">{{ result.league }}</p>
+                </div>
+                <div class="flex shrink-0 flex-col items-end gap-1">
+                  <span v-if="result.status === 'live'" class="flex items-center gap-1 text-sm font-semibold text-primary">
+                    <Radio class="size-3 animate-pulse" aria-hidden="true" />
+                    En vivo
+                  </span>
+                  <Badge v-else variant="secondary" class="text-[10px]">{{ formatKickoffTime(result.kickoffAt) }}</Badge>
+                  <Badge v-if="isAlreadyFollowed(result)" variant="outline" class="text-[10px] text-muted-foreground">
+                    Ya lo seguís
+                  </Badge>
+                </div>
+              </button>
+            </template>
+
+            <!-- Vacío, con búsqueda activa -->
+            <div v-else-if="hasActiveQuery" class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+              <SearchX class="size-8 text-muted-foreground" />
+              <p class="text-sm text-muted-foreground">
+                No encontramos partidos para "{{ searchQuery.trim() }}" en {{ dayLabelLowercase(dayOffset) }}.
               </p>
             </div>
 
-            <div v-else class="relative overflow-hidden rounded-lg border border-border">
-              <img :src="form.photoPreviewUrl" alt="Vista previa del cupón subido" class="max-h-48 w-full bg-muted object-contain">
-              <Button
-                type="button"
-                variant="secondary"
-                size="icon"
-                class="absolute right-2 top-2 size-9"
-                aria-label="Quitar foto"
-                :disabled="isSubmitting"
-                @click="clearPhoto"
-              >
-                <X class="size-4" />
-              </Button>
+            <!-- Vacío, sin búsqueda -->
+            <div v-else class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+              <CalendarX class="size-8 text-muted-foreground" />
+              <p class="text-sm text-muted-foreground">
+                No hay partidos programados para {{ dayLabelLowercase(dayOffset) }}. Probá otro día.
+              </p>
             </div>
           </div>
-        </form>
 
-        <SheetFooter class="flex-row gap-2">
-          <Button type="button" variant="outline" class="flex-1" :disabled="isSubmitting" @click="emit('update:open', false)">
-            Cancelar
-          </Button>
-          <Button type="submit" form="match-form" class="flex-1" :disabled="isSubmitting">
-            <Loader2 v-if="isSubmitting" class="size-4 animate-spin" />
-            {{ isSubmitting ? 'Guardando…' : (form.photoFile ? 'Continuar' : 'Agregar partido') }}
-          </Button>
-        </SheetFooter>
+          <SheetFooter>
+            <Button type="button" variant="outline" @click="closeSheet">Cancelar</Button>
+          </SheetFooter>
+        </template>
+
+        <!-- 5.1.4: partido elegido → resumen + foto opcional + confirmar -->
+        <template v-else>
+          <SheetHeader>
+            <SheetTitle>Nuevo partido</SheetTitle>
+            <SheetDescription>
+              Revisá el partido elegido y, si querés, sumá la foto de tu cupón.
+            </SheetDescription>
+          </SheetHeader>
+
+          <form id="match-form" class="flex flex-col gap-4 px-4 pb-4" novalidate @submit.prevent="handleSubmitStep1">
+            <div class="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <p class="truncate text-sm font-medium">{{ form.selectedMatch.homeTeam }}</p>
+                <p class="truncate text-sm font-medium">{{ form.selectedMatch.awayTeam }}</p>
+                <p v-if="form.selectedMatch.league" class="truncate text-xs text-muted-foreground">{{ form.selectedMatch.league }}</p>
+              </div>
+              <span v-if="form.selectedMatch.status === 'live'" class="flex shrink-0 items-center gap-1 text-sm font-semibold text-primary">
+                <Radio class="size-3 animate-pulse" aria-hidden="true" />
+                En vivo
+              </span>
+              <Badge v-else variant="secondary" class="shrink-0 text-[10px]">{{ formatKickoffTime(form.selectedMatch.kickoffAt) }}</Badge>
+              <Button type="button" variant="ghost" size="sm" class="shrink-0" :disabled="isSubmitting" @click="changeMatch">
+                Cambiar
+              </Button>
+            </div>
+
+            <div class="flex flex-col gap-1.5">
+              <Label>Foto del cupón (opcional)</Label>
+              <input
+                ref="fileInputRef"
+                type="file"
+                accept="image/*"
+                class="sr-only"
+                @change="onFileSelected"
+              >
+
+              <div v-if="!form.photoPreviewUrl">
+                <Button type="button" variant="outline" class="w-full" :disabled="isSubmitting" @click="fileInputRef?.click()">
+                  <Camera class="size-4" />
+                  Subir foto del cupón
+                </Button>
+                <p class="mt-1 text-xs text-muted-foreground">
+                  Leemos las selecciones automáticamente. Podés revisarlas antes de confirmar.
+                </p>
+              </div>
+
+              <div v-else class="relative overflow-hidden rounded-lg border border-border">
+                <img :src="form.photoPreviewUrl" alt="Vista previa del cupón subido" class="max-h-48 w-full bg-muted object-contain">
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="icon"
+                  class="absolute right-2 top-2 size-9"
+                  aria-label="Quitar foto"
+                  :disabled="isSubmitting"
+                  @click="clearPhoto"
+                >
+                  <X class="size-4" />
+                </Button>
+              </div>
+            </div>
+          </form>
+
+          <SheetFooter class="flex-row gap-2">
+            <Button type="button" variant="outline" class="flex-1" :disabled="isSubmitting" @click="closeSheet">
+              Cancelar
+            </Button>
+            <Button type="submit" form="match-form" class="flex-1" :disabled="isSubmitting">
+              <Loader2 v-if="isSubmitting" class="size-4 animate-spin" />
+              {{ isSubmitting ? 'Guardando…' : (form.photoFile ? 'Continuar' : 'Agregar partido') }}
+            </Button>
+          </SheetFooter>
+        </template>
       </template>
 
       <!-- Paso 2: leyendo el cupón (sección 5.2) -->

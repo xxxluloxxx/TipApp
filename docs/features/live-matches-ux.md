@@ -256,9 +256,10 @@ resultado (los legs extraídos) el usuario necesita ver y poder corregir
 optimistamente todavía, literalmente no hay dato hasta que el servidor
 responde. Detalle completo del flujo en la sección 5.
 
-El alta **sin foto** (solo URL) sí podría ser optimista en teoría (es un
-insert simple), pero se decide que **también espere confirmación del
-servidor** antes de cerrar el Sheet, por consistencia de un único
+El alta **sin foto** (solo partido elegido de la lista de búsqueda) sí
+podría ser optimista en teoría (es un insert simple), pero se decide que
+**también espere confirmación del servidor** antes de cerrar el Sheet, por
+consistencia de un único
 comportamiento predecible para todo el formulario (con foto o sin foto, el
 usuario ve el mismo tipo de botón "Guardando..." y el mismo momento de
 cierre) — evita tener dos ramas de UX distintas en el mismo componente para
@@ -292,6 +293,17 @@ pena un archivado/limpieza automática a futuro (p. ej. "ocultar
 finalizados de hace más de 7 días" con opción de deshacer) — no se decide
 unilateralmente acá.
 
+### 1.11 Nota nueva: la búsqueda de partidos (paso 1 del alta) no necesita ninguna heurística de seguridad de datos
+
+A diferencia de todas las cardinalidades de arriba (que son tablas propias
+de Supabase), el buscador de partidos del paso 1 del alta (sección 5.1) no
+consulta ninguna tabla del usuario — es un proxy delgado sobre el feed
+externo de Flashscore vía la Edge Function `search-matches`, acotado por
+diseño del propio contrato: un `dayOffset` fijo (0 a 3) por llamada, nunca
+"todo el feed". No hay ningún equivalente a `MAX_EXPENSES`/rango de fecha
+que diseñar acá — el límite ya lo impone la forma del request, no una
+convención del frontend.
+
 ---
 
 ## 2. Arquitectura de rutas: 2 rutas, mismo ejercicio de calibración que Tarjetas(4)/Cuentas(1)/Deudas(3)
@@ -311,8 +323,9 @@ argumento exacto que ya usó `debts-ux.md` sección 2 para justificar
 **No hace falta una 3ra ruta de gestión** (como `/tarjetas/gestionar` o
 `/deudas/personas`): acá no hay una segunda entidad propia que administrar
 — no hay "equipos"/"ligas"/"personas" del usuario, cada partido es
-autosuficiente (se identifica por su URL de Flashscore, no por una entidad
-creada de antemano). El alta vive en un Sheet accesible desde el propio
+autosuficiente (se identifica por su `matchId` de Flashscore, resuelto al
+elegirlo de un buscador/listado — sección 5.1 —, no por una entidad creada
+de antemano). El alta vive en un Sheet accesible desde el propio
 dashboard (sección 5), igual que Deudas resuelve su alta sin ruta
 intermedia (`debts-ux.md` sección 3.10).
 
@@ -613,10 +626,10 @@ abre `MatchFormSheet` (sección 5).
   `AlertCircle` + "No pudimos cargar tus partidos" + `Reintentar`.
 - **Vacío** (usuario sin ningún partido seguido): bloque centrado, ícono
   `Goal` `size-12 text-muted-foreground`, título "Todavía no estás
-  siguiendo ningún partido.", subtexto "Pegá el link de un partido de
-  Flashscore para ver sus estadísticas en vivo y recibir avisos.", botón
-  "Agregar partido" → abre `MatchFormSheet` directo (sin ruta intermedia,
-  mismo criterio que el vacío de Deudas).
+  siguiendo ningún partido.", subtexto "Buscá un partido por equipo para
+  ver sus estadísticas en vivo y recibir avisos.", botón "Agregar partido"
+  → abre `MatchFormSheet` directo (sin ruta intermedia, mismo criterio que
+  el vacío de Deudas).
 
 ---
 
@@ -862,27 +875,216 @@ puntuales).
 
 Estado interno: `step: 'form' | 'processing' | 'review'`.
 
-### 5.1 Paso 1 — `step === 'form'`: URL + foto opcional
+### 5.1 Paso 1 — `step === 'form'`: buscar y elegir un partido
+
+**Reemplaza por completo el campo de URL pegada.** El paso 1 pasa a ser un
+buscador de partidos en vivo/por jugar contra la Edge Function nueva
+`search-matches` (contrato ya fijado por `supabase-backend-expert`:
+`{ dayOffset: 0-3, query?: string }` → `{ matches: [{ matchId, homeTeam,
+awayTeam, league, kickoffAt, status: 'upcoming' | 'live' }] }`, nunca
+partidos finalizados). El usuario ya no pega ni valida ningún link — elige
+un partido de una lista, y ese `matchId`/`homeTeam`/`awayTeam`/`league` ya
+resueltos quedan guardados en `form` para el alta final. **Primera vez que
+el proyecto necesita debounce en un input de búsqueda** (no hay precedente
+hoy — todos los inputs de texto existentes validan en submit o en cada
+tecla sin debounce): se define **350ms**, punto medio del rango sugerido,
+igual de rápido para no sentirse "trabado" que lento para no disparar una
+llamada de red por cada tecla.
+
+Estado interno nuevo de este paso (dentro del mismo `step === 'form'`, sin
+agregar un `step` más): `form.selectedMatch: SearchMatch | null`. Mientras
+es `null` se muestra el buscador/lista; en cuanto el usuario toca un
+partido, la pantalla cambia a un resumen del partido elegido + el mismo
+bloque de foto opcional que ya existía — ver 5.1.4.
+
+**5.1.1 — Buscador + selector de día (mientras `selectedMatch === null`)**
 
 ```html
 <SheetContent side="bottom">
   <SheetHeader>
     <SheetTitle>Nuevo partido</SheetTitle>
-    <SheetDescription>Pegá el link de un partido de Flashscore para empezar a seguirlo.</SheetDescription>
+    <SheetDescription>Buscá un partido en vivo o por jugar para empezar a seguirlo.</SheetDescription>
+  </SheetHeader>
+
+  <div class="flex flex-col gap-3 px-4">
+    <div class="relative">
+      <Search class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+      <Input
+        v-model="searchQuery"
+        type="search"
+        inputmode="search"
+        placeholder="Buscar equipo..."
+        class="pl-9"
+        aria-label="Buscar equipo"
+      />
+    </div>
+
+    <div role="radiogroup" aria-label="Día" class="grid grid-cols-4 gap-1 rounded-lg bg-muted p-1">
+      <button
+        v-for="option in dayOptions"
+        :key="option.value"
+        type="button"
+        role="radio"
+        :aria-checked="dayOffset === option.value"
+        class="flex min-h-9 items-center justify-center rounded-md px-1 py-1.5 text-center text-[11px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        :class="dayOffset === option.value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+        @click="selectDay(option.value)"
+      >
+        {{ option.label }}
+      </button>
+    </div>
+  </div>
+
+  <!-- Lista de resultados, sección 5.1.3/5.1.5 -->
+  <div class="mt-1 max-h-[45vh] overflow-y-auto overscroll-contain border-t border-border" aria-live="polite">
+    <!-- ... filas o estados de carga/vacío/error ... -->
+  </div>
+
+  <SheetFooter>
+    <Button type="button" variant="outline" @click="closeSheet">Cancelar</Button>
+  </SheetFooter>
+</SheetContent>
+```
+
+- `dayOptions`: `[{ value: 0, label: 'Hoy' }, { value: 1, label: 'Mañana' },
+  { value: 2, label: 'Pasado mañana' }, { value: 3, label: 'En 3 días' }]`
+  — el texto envuelve naturalmente a 2 líneas dentro de cada celda angosta
+  (`leading-tight text-[11px]`, sin `truncate`), no hace falta abreviar más
+  el copy.
+- **Selector de día: 4 botones tipo pastilla dentro de un contenedor
+  `bg-muted`/`role="radiogroup"`, el mismo lenguaje visual que el segmented
+  control de tema de Ajustes (`theme-toggle-ux.md`) — no `Tabs`.** Se
+  evaluó explícitamente `Tabs` (ya instalado desde Deudas) y se descarta acá
+  por dos motivos, distintos del motivo que ya descartó `Tabs` para el
+  propio dashboard de partidos (sección 3.3, que sigue vigente sin cambios
+  — ese es un caso distinto, "no ocultar nada detrás de una pestaña"):
+  primero, el `TabsList` de shadcn-vue trae más peso visual (padding y
+  chrome propios) del que conviene dentro de un Sheet `side="bottom"` que ya
+  compite por altura con el teclado virtual abierto por el buscador; segundo,
+  a diferencia de los `Tabs` de Deudas (que separan bloques de contenido con
+  forma distinta — cards de resumen, historial), acá el día no cambia la
+  *forma* de lo que se ve, solo filtra la misma lista por fecha — es
+  conceptualmente más un filtro de una sola dimensión que un cambio de
+  panel, y el segmented control ya es el patrón que el proyecto usa para
+  "elegir una de N opciones chicas y ver el resultado inmediatamente al
+  lado" (mismo criterio literal de Ajustes).
+- Cambiar de día dispara un refetch **inmediato**, sin debounce (es un tap
+  discreto, no texto tecleado) — el debounce de 350ms aplica **solo** al
+  campo de búsqueda. Si `searchQuery.trim().length < 2`, se llama a
+  `search-matches` sin `query` (según el contrato, el filtro de equipo
+  requiere 2+ caracteres) — el frontend no espera a llegar a 2 caracteres
+  para mostrar la lista completa del día, la pide igual desde el primer
+  render de cada día.
+- El buscador es `type="search"` (no `type="text"`), consistente con su
+  propósito semántico y con la `X` nativa de limpiado que el navegador ya
+  agrega a este tipo de input en mobile — sin reinventar un botón de limpiar
+  propio.
+
+**5.1.2 — Fila de partido**
+
+Mismo lenguaje visual que la card del dashboard (sección 3.4: equipos
+apilados local/visitante en dos líneas, nunca en una sola línea), pero acá
+**sí puede ser un único `<button>`** — a diferencia de la card del
+dashboard, no convive ningún menú de acciones dentro de la fila, es una
+lista de selección pura:
+
+```html
+<button
+  v-for="result in searchResults"
+  :key="result.matchId"
+  type="button"
+  class="flex w-full items-center gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50"
+  :disabled="isAlreadyFollowed(result)"
+  @click="selectMatch(result)"
+>
+  <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+    <p class="truncate text-sm font-medium">{{ result.homeTeam }}</p>
+    <p class="truncate text-sm font-medium">{{ result.awayTeam }}</p>
+    <p v-if="result.league" class="truncate text-xs text-muted-foreground">{{ result.league }}</p>
+  </div>
+  <div class="flex shrink-0 flex-col items-end gap-1">
+    <span v-if="result.status === 'live'" class="flex items-center gap-1 text-sm font-semibold text-primary">
+      <Radio class="size-3 animate-pulse" />
+      En vivo
+    </span>
+    <Badge v-else variant="secondary" class="text-[10px]">{{ formatKickoffTime(result.kickoffAt) }}</Badge>
+    <Badge v-if="isAlreadyFollowed(result)" variant="outline" class="text-[10px] text-muted-foreground">
+      Ya lo seguís
+    </Badge>
+  </div>
+</button>
+```
+
+- Equipos apilados igual que en toda la app, **sin marcador** (todavía no
+  existe la fila en `live_matches`, no hay nada que mostrar ahí) — el
+  espacio que ocuparía el marcador en la card del dashboard queda libre acá.
+- `league` como subtítulo chico debajo de los equipos (no se agrupa
+  visualmente la lista por liga) — mismo criterio que la sección 3.6 del
+  documento ya dejó anotado ("agrupar por liga no es estrictamente
+  necesario"): con `dayOffset` ya acotando la lista a un solo día, el
+  volumen esperado por búsqueda es chico, un subtítulo alcanza para dar
+  contexto sin la complejidad de encabezados de grupo.
+- `status === 'live'` usa el mismo patrón exacto de 3.4 (`Radio` +
+  `animate-pulse` + `text-primary`, nunca solo el color/pulso); `upcoming`
+  muestra la hora local de kickoff (`formatKickoffTime`, `HH:MM`) en un
+  `Badge variant="secondary"`, mismo tratamiento que los estados sin pulso
+  de 3.4.
+- `formatKickoffTime`: reusa el mismo criterio de formato horario que ya
+  usa `matchClockLabel` (sección 1.4) para "Empieza HH:MM" — no un helper
+  nuevo, solo formatear `kickoffAt` (ISO) a hora local `HH:MM`.
+
+**5.1.3 — Partido ya seguido: fila deshabilitada, no falla reactivamente**
+
+`isAlreadyFollowed(result)` chequea `liveMatchesStore.matches.some(match =>
+match.flashscore_mid === result.matchId)` — mismo dato ya en memoria por la
+cardinalidad chica de 1.1, sin ningún viaje extra al servidor. Se resuelve
+con **fila deshabilitada de antemano + badge "Ya lo seguís"**, no tappable,
+mismo criterio ya usado en el proyecto para "Eliminar" en tarjetas/personas
+con gastos asociados (`credit-cards-ux.md`, deshabilitar de antemano en vez
+de fallar reactivamente al confirmar): la fila baja su opacidad
+(`disabled:opacity-50`), pierde el `hover:bg-accent` y el badge queda
+siempre visible (nunca se oculta el partido de la lista, solo se bloquea
+volver a elegirlo) — el usuario entiende de un vistazo por qué esa fila en
+particular no responde al toque, sin tener que tocarla primero para
+enterarse. El backend igual conserva su propia restricción de unicidad
+(`user_id`+`flashscore_mid`) como red de seguridad real ante una carrera
+rarísima (dos pestañas del mismo usuario, resultado de búsqueda desactualizado
+por unos segundos) — si esa carrera ocurriera, el error de la RPC de alta
+(5.1.5) se muestra con el mismo `toast.error` genérico que cualquier otro
+fallo de guardado, sin un diseño especial para un caso que la UI ya intenta
+prevenir de antemano.
+
+**5.1.4 — Partido elegido: chip/resumen + foto opcional + confirmar**
+
+**Se resuelve con un botón inferior fijo, no con avance directo de paso al
+tocar la fila.** Tocar un partido de la lista lo *selecciona*
+(`form.selectedMatch = result`) pero no dispara por sí solo el paso 2
+(OCR)/alta — reemplaza el contenido de la sección 5.1.1 por un resumen del
+partido elegido más el mismo bloque de foto opcional que ya existía en la
+versión anterior de este paso, sin tocar su comportamiento:
+
+```html
+<SheetContent side="bottom">
+  <SheetHeader>
+    <SheetTitle>Nuevo partido</SheetTitle>
+    <SheetDescription>Revisá el partido elegido y, si querés, sumá la foto de tu cupón.</SheetDescription>
   </SheetHeader>
 
   <form class="flex flex-col gap-4 px-4 pb-4" @submit.prevent="handleSubmitStep1">
-    <div class="flex flex-col gap-1.5">
-      <Label for="match-url">Link del partido</Label>
-      <Input
-        id="match-url"
-        v-model="form.url"
-        type="url"
-        inputmode="url"
-        placeholder="https://www.flashscore.com.ar/partido/..."
-        :disabled="isSubmitting"
-      />
-      <p v-if="errors.url" class="text-xs text-destructive">{{ errors.url }}</p>
+    <div class="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+      <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+        <p class="truncate text-sm font-medium">{{ form.selectedMatch.homeTeam }}</p>
+        <p class="truncate text-sm font-medium">{{ form.selectedMatch.awayTeam }}</p>
+        <p v-if="form.selectedMatch.league" class="truncate text-xs text-muted-foreground">{{ form.selectedMatch.league }}</p>
+      </div>
+      <span v-if="form.selectedMatch.status === 'live'" class="flex items-center gap-1 text-sm font-semibold text-primary">
+        <Radio class="size-3 animate-pulse" />
+        En vivo
+      </span>
+      <Badge v-else variant="secondary" class="text-[10px]">{{ formatKickoffTime(form.selectedMatch.kickoffAt) }}</Badge>
+      <Button type="button" variant="ghost" size="sm" :disabled="isSubmitting" @click="form.selectedMatch = null">
+        Cambiar
+      </Button>
     </div>
 
     <div class="flex flex-col gap-1.5">
@@ -933,41 +1135,91 @@ Estado interno: `step: 'form' | 'processing' | 'review'`.
 </SheetContent>
 ```
 
-- `capture="environment"` invita a la cámara trasera en mobile (photo picker
-  nativo, mismo input que ya evaluó y descartó Storage el resto del
-  proyecto para avatares — acá sí hace falta porque es contenido efímero de
-  evidencia, no un perfil persistente; ver nota de Storage en 5.6).
-- El input `type="file"` real queda `sr-only` (oculto visualmente, sigue
-  siendo accesible/focuseable por teclado) y se dispara por el botón
-  estilizado — mismo patrón que ya usa el proyecto para el campo de fecha
-  nativo (`design-system.md`, "estilizado con las clases de Input" en vez
-  de reinventar el control).
-  Nota de a11y: como el input queda oculto con `sr-only` (no
-  `display:none`), sigue siendo alcanzable con `Tab` — para que el foco de
-  teclado no "aterrice" en un control invisible sin contexto, el botón
-  visible (`fileInputRef?.click()`) debe ser el que efectivamente recibe el
-  foco en el flujo normal de tabulación; esto ya es el comportamiento por
-  defecto con este markup (el input no tiene motivo para recibir foco antes
-  que el botón salvo navegación explícita hacia atrás), no requiere
-  `tabindex` especial.
-- **Label del botón cambia según haya foto o no** ("Continuar" vs. "Agregar
-  partido") — comunica de antemano qué va a pasar al tocar el botón, sin
-  que el usuario tenga que adivinar si el alta es inmediata o hay un paso
-  más.
-- **Validación de URL en submit, no en cada tecla** (mismo criterio del
-  resto del proyecto): al tocar el botón, si `!form.url.includes('?mid=')`
-  (o, más robusto, `new URL(form.url).searchParams.has('mid')` dentro de un
-  `try/catch` por si la URL ni siquiera es válida) → `errors.url = 'El link
-  no parece ser de un partido de Flashscore (tiene que incluir "?mid=" en
-  la URL).'`, foco al campo, no se avanza de paso.
-- **Duplicado**: si el `mid` extraído ya está en la lista de partidos ya
-  seguidos por el usuario (chequeo barato contra el store, ya en memoria
-  por 1.1) → `errors.url = 'Ya estás siguiendo este partido.'` — evita un
-  viaje al servidor para un caso 100% detectable en cliente. El backend
-  igual debería tener su propia restricción de unicidad
-  (`user_id`+`flashscore_mid`) como red de seguridad real (confirmar con
-  `supabase-backend-expert`), este chequeo de cliente es solo para
-  feedback inmediato, no la única barrera.
+- **Por qué no "tocar la fila ya dispara el avance directo de paso"**: el
+  encargo pide explícitamente poder sumar la foto *después* de elegir el
+  partido, no antes (tiene sentido — recién al elegir el partido queda claro
+  a qué cupón corresponde la foto). Si tocar la fila avanzara directo a
+  `processing`/alta, el usuario que sí quiere adjuntar foto tendría que
+  cancelar y volver a abrir el Sheet, perdiendo la selección ya hecha. El
+  botón inferior fijo con label condicional (idéntico al de la versión
+  anterior: "Continuar" si hay foto, "Agregar partido" si no) preserva
+  exactamente el comportamiento ya especificado en 5.5 más abajo, solo
+  cambiando el disparador de "URL válida" a "partido elegido" — ninguna otra
+  pieza del wizard (pasos 5.2/5.3, confirmación 5.5) cambia.
+- **"Cambiar"** (`Button variant="ghost" size="sm"`, no un ícono `X` solo)
+  vuelve a `form.selectedMatch = null`, restaurando la vista de
+  5.1.1/5.1.3 — el texto plano se prefiere sobre un ícono para que quede
+  inequívoco que la acción es "elegir otro partido", no "cancelar el alta"
+  (ese es el propósito ya reservado del botón "Cancelar" del footer).
+  `searchQuery`/`dayOffset` se conservan tal como estaban (no se resetea la
+  búsqueda), para que el usuario no tenga que retipear si solo se equivocó
+  de fila.
+- El resto del paso (bloque de foto, notas de a11y del input oculto, el
+  criterio de "label del botón cambia según haya foto o no") es **exactamente
+  el mismo markup y comportamiento** que ya estaba especificado acá antes de
+  este cambio — no se repite la justificación, solo se removió toda mención
+  al campo de URL.
+
+**5.1.5 — Estados de carga/vacío/error de la búsqueda**
+
+Reemplazan el contenido del contenedor `aria-live="polite"` de 5.1.1 según
+el estado de la llamada a `search-matches` para el `dayOffset`/`searchQuery`
+actuales:
+
+- **Carga** (mientras se resuelve la llamada, tras cambiar de día o al
+  terminar el debounce de la búsqueda): 4 filas `Skeleton`, mismo alto
+  aproximado que una fila real, mismo criterio de skeleton ya usado en el
+  resto de la app.
+
+  ```html
+  <div v-for="n in 4" :key="n" class="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0">
+    <div class="flex flex-1 flex-col gap-1.5">
+      <Skeleton class="h-4 w-36" />
+      <Skeleton class="h-4 w-28" />
+    </div>
+    <Skeleton class="h-5 w-14 rounded-full" />
+  </div>
+  ```
+
+- **Vacío, con búsqueda activa** (`searchQuery.trim().length >= 2` y 0
+  resultados): bloque centrado, ícono `SearchX` `size-8
+  text-muted-foreground`, texto `No encontramos partidos para
+  "{{ searchQuery }}" en {{ dayLabelLowercase(dayOffset) }}.` —
+  `dayLabelLowercase`: "hoy" / "mañana" / "pasado mañana" / "en 3 días"
+  (mismos 4 valores de `dayOptions`, en minúscula para insertarse en la
+  oración).
+- **Vacío, sin búsqueda** (`searchQuery` vacío/menor a 2 caracteres y 0
+  resultados — no hay partidos programados ese día): mismo layout centrado
+  pero ícono `CalendarX` y texto distinto, sin sonar a error: `No hay
+  partidos programados para {{ dayLabelLowercase(dayOffset) }}. Probá otro
+  día.`
+- **Error** (falló la llamada a `search-matches` — timeout/caída del feed no
+  oficial): inline dentro del propio contenedor de resultados, el Sheet
+  sigue abierto — mismo tono "no alarmante" que ya usa el resto de la
+  feature para fallas del feed (sección 1.5): `warning`, nunca
+  `destructive`.
+
+  ```html
+  <div class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+    <TriangleAlert class="size-8 text-warning" />
+    <p class="text-sm text-muted-foreground">
+      No pudimos buscar partidos ahora mismo. Probá de nuevo en un momento.
+    </p>
+    <Button type="button" variant="outline" size="sm" @click="retrySearch">Reintentar</Button>
+  </div>
+  ```
+
+  `retrySearch` reintenta la misma combinación `dayOffset`/`searchQuery`
+  vigente, sin resetear ninguno de los dos.
+- **Primer contenido genuinamente scrolleable dentro de un Sheet de esta
+  app** (`max-h-[45vh] overflow-y-auto` en 5.1.1) — se anota explícitamente
+  porque no hay precedente: todos los Sheets anteriores dejan crecer su
+  altura con el contenido (`data-[side=bottom]:h-auto` del componente base)
+  y confían en el scroll natural del documento. Acá hace falta un techo
+  explícito porque la lista de resultados puede ser larga y el Sheet ya
+  compite por espacio vertical con el teclado virtual abierto por el
+  buscador — sin el `max-h`, una lista larga empujaría el footer/los botones
+  fuera de la pantalla visible en mobile.
 
 ### 5.2 Paso 2 — `step === 'processing'`: leyendo el cupón
 
@@ -1067,7 +1319,7 @@ OCR que va a tardar unos segundos):
   ("Agregar partido" vs. "Continuar sin cupón") — si el usuario descartó
   todos los legs (uno por uno, o porque el OCR no encontró ninguno desde el
   principio), el flujo sigue siendo válido: se guarda el partido sin cupón
-  asociado, igual que el alta solo-URL del paso 1.
+  asociado, igual que el alta sin foto del paso 1.
 - **"Probar con otra foto"** vuelve al paso 1 con el campo de foto vacío
   (no al paso 2 directo) — le da al usuario la chance de elegir una imagen
   distinta, no solo reintentar la misma.
@@ -1086,7 +1338,10 @@ seguir sin cupón") sin bifurcar el flujo.
 ### 5.5 Confirmación final y cierre
 
 `confirmMatch()`/`handleSubmitStep1()` (paso 1 sin foto) llaman al mismo
-método del store, `addMatch({ url, mid, legs })` — inserta la fila de
+método del store, `addMatch({ matchId, homeTeam, awayTeam, league, legs })`
+— ya no `{ url, mid, legs }`, los 4 primeros campos vienen resueltos de
+antemano por la selección del paso 1 (sección 5.1), no se vuelven a derivar
+de ningún link — inserta la fila de
 `monitored_matches` (y sus `bet_slip_legs` si hay) en una sola operación
 server-side (Edge Function o función `rpc`, a definir con
 `supabase-backend-expert` — misma razón que `create_debt` en Deudas: si son
@@ -1478,6 +1733,21 @@ antes de destruir, `prefers-reduced-motion`), específico de esta feature:
    lista con `Separator` ya usado en toda la app (orden de lectura lineal
    natural para lector de pantalla, sin tablas ni grillas complejas que
    requieran navegación 2D).
+10. **Buscador de partidos (sección 5.1) — resultados debounced anunciados
+    por lectores de pantalla**: el contenedor de resultados lleva
+    `aria-live="polite"` (5.1.1) para que un lector de pantalla anuncie
+    cuando la lista cambia tras el debounce de 350ms o un cambio de día, sin
+    que el usuario tenga que navegar manualmente para descubrir que ya
+    llegó una respuesta nueva. El selector de día sigue el mismo contrato
+    `role="radiogroup"`/`role="radio"`/`aria-checked` ya establecido por el
+    segmented control de tema de Ajustes — no se reinventa.
+11. **Filas de partido ya seguido, deshabilitadas (5.1.3)**: usan el
+    atributo `disabled` nativo del `<button>` (no solo una clase visual) —
+    quedan automáticamente fuera del orden de tabulación y un lector de
+    pantalla las anuncia como no interactivas, sin necesitar `aria-disabled`
+    ni manejo manual de foco. El badge "Ya lo seguís" es texto real (no un
+    ícono solo), así que la razón del bloqueo se lee igual de claro con
+    lector de pantalla que a simple vista.
 
 ---
 

@@ -35,6 +35,20 @@ export interface IncomingLeg {
   rawText: string | null
 }
 
+/** Partido devuelto por la Edge Function `search-matches` (live-matches-ux.md
+ * sección 5.1). Es un proxy sobre el feed externo (Flashscore), no una tabla
+ * propia: nunca incluye finalizados y la lista ya viene acotada por `dayOffset`
+ * (sección 1.11). El `matchId` es el `mid` de Flashscore — se compara contra
+ * `live_matches.flashscore_mid` para detectar partidos ya seguidos. */
+export interface SearchMatch {
+  matchId: string
+  homeTeam: string
+  awayTeam: string
+  league: string | null
+  kickoffAt: string
+  status: 'upcoming' | 'live'
+}
+
 const MATCH_SELECT = '*, bet_slip_legs(*)'
 
 /**
@@ -110,16 +124,71 @@ export const useLiveMatchesStore = defineStore('liveMatches', () => {
   }
 
   /**
+   * Busca partidos en vivo/por jugar (live-matches-ux.md sección 5.1) vía la
+   * Edge Function `search-matches` — mismo patrón de invocación que `add-match`
+   * (JWT de usuario automático, `FunctionsHttpError` para el body de error).
+   * Devuelve la lista tipada o un `errorCode` (mismo estilo discriminante que
+   * `addMatch`, para que el componente decida la rama de UI sin `try/catch`).
+   */
+  async function searchMatches(dayOffset: number, query?: string): Promise<
+    { matches: SearchMatch[] } | { errorCode: string }
+  > {
+    const trimmed = query?.trim()
+    const { data, error } = await supabase.functions.invoke('search-matches', {
+      body: {
+        dayOffset,
+        // El contrato exige 2+ caracteres para filtrar por equipo: por debajo
+        // de eso se pide el día completo, sin `query` (sección 5.1.1).
+        ...(trimmed && trimmed.length >= 2 ? { query: trimmed } : {}),
+      },
+    })
+
+    if (error) {
+      let errorCode = 'unknown'
+      if (error instanceof FunctionsHttpError) {
+        try {
+          const body = await error.context.json()
+          if (typeof body?.error === 'string') errorCode = body.error
+        } catch {
+          // Cuerpo no-JSON: se queda con 'unknown' (estado de error genérico).
+        }
+      }
+      console.error('[liveMatches] search-matches falló', error)
+      return { errorCode }
+    }
+
+    const results = (data?.matches ?? []) as SearchMatch[]
+    return { matches: results }
+  }
+
+  /**
    * Alta de partido (sección 1.8/5.5): NO optimista. Llama al Edge Function
    * `add-match`, que hace el primer poll sincrónico y crea partido + legs de
    * forma atómica. Devuelve un discriminante para que el Sheet decida la rama
    * de UI (duplicado → copy específico, resto → toast genérico).
+   *
+   * El partido llega ya resuelto por el buscador del paso 1 (sección 5.1): se
+   * mandan `matchId`/`homeTeam`/`awayTeam` en vez de una URL. OJO: el campo del
+   * backend se llama `competition` (no `league`); el `league` del picker es lo
+   * más cercano que tenemos, así que se mapea `competition: league ?? undefined`.
    */
-  async function addMatch(payload: { url: string, legs?: IncomingLeg[] }): Promise<
+  async function addMatch(payload: {
+    matchId: string
+    homeTeam: string
+    awayTeam: string
+    league?: string | null
+    legs?: IncomingLeg[]
+  }): Promise<
     { match: LiveMatch } | { errorCode: string }
   > {
     const { data, error } = await supabase.functions.invoke('add-match', {
-      body: { url: payload.url, legs: payload.legs ?? [] },
+      body: {
+        matchId: payload.matchId,
+        homeTeam: payload.homeTeam,
+        awayTeam: payload.awayTeam,
+        competition: payload.league ?? undefined,
+        legs: payload.legs ?? [],
+      },
     })
 
     if (error) {
@@ -289,6 +358,7 @@ export const useLiveMatchesStore = defineStore('liveMatches', () => {
     matchById,
     fetchAll,
     fetchOne,
+    searchMatches,
     addMatch,
     toggleMonitoring,
     removeMatch,
