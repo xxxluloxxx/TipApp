@@ -223,13 +223,13 @@ function namesLikelyMatch(a: string, b: string): boolean {
   return n >= 5 && a.slice(0, n) === b.slice(0, n)
 }
 
-/** Un intento de resolución: busca por el equipo local y toma un resultado que
- * comparta un token con ambos equipos del grupo. */
-async function tryResolveTeams(teams: [string, string]): Promise<SearchMatch | null> {
+/** Un intento de resolución en un día puntual: busca por el equipo local y toma
+ * un resultado que comparta un token con ambos equipos del grupo. */
+async function tryResolveTeams(teams: [string, string], dayOffset: number): Promise<SearchMatch | null> {
   const query = teams[0].trim()
   if (query.length < 2) return null
 
-  const result = await liveMatchesStore.searchMatches(0, query)
+  const result = await liveMatchesStore.searchMatches(dayOffset, query)
   if ('errorCode' in result) return null
 
   const home = firstToken(teams[0])
@@ -239,26 +239,38 @@ async function tryResolveTeams(teams: [string, string]): Promise<SearchMatch | n
   )
 }
 
-/** Resolución best-effort de un grupo detectado contra `search-matches` (día 0,
- * §9.4). El feed de Flashscore siempre devuelve nombres de país/selección en
+/** Prueba un juego de nombres contra TODOS los días que soporta el buscador
+ * (mismo rango que `dayOptions`, sección 5.1: hoy a "en 3 días") en paralelo —
+ * un cupón real puede tener partidos de días distintos entre sí (verificado:
+ * la foto real de esta sesión tenía un partido "hoy" y otro "mañana" en el
+ * mismo cupón), así que restringir a `dayOffset=0` dejaba sin resolver
+ * cualquier partido que no fuera literalmente hoy. */
+async function tryResolveAnyDay(teams: [string, string]): Promise<SearchMatch | null> {
+  const attempts = await Promise.all(dayOptions.map(opt => tryResolveTeams(teams, opt.value)))
+  return attempts.find((m): m is SearchMatch => m !== null) ?? null
+}
+
+/** Resolución best-effort de un grupo detectado contra `search-matches`
+ * (§9.4). El feed de Flashscore siempre devuelve nombres de país/selección en
  * inglés ("England", "Germany"...) — el OCR (modelo `spa`) los lee en español
  * ("Inglaterra", "Alemania"...), así que un partido de selecciones nunca
  * matchea con el nombre tal cual. Se intenta primero con los nombres del OCR
  * (funciona para nombres de club, que no se traducen) y, si no encuentra nada,
  * se reintenta traduciendo países conocidos (`countryNames.ts`) al inglés —
  * ver esa nota de cabecera para el detalle de por qué no alcanza con pedirle
- * el feed en otro idioma. Si ninguno de los dos intentos resuelve (partido de
- * otro día, país no cubierto por el diccionario, o el OCR erró los nombres),
- * no resuelve — el usuario lo vincula a mano con "Buscar este partido". */
+ * el feed en otro idioma. Si ninguno de los dos intentos resuelve (país no
+ * cubierto por el diccionario, partido más allá de "en 3 días", o el OCR erró
+ * los nombres), no resuelve — el usuario lo vincula a mano con "Buscar este
+ * partido". */
 async function autoResolveGroup(teams: [string, string] | null): Promise<SearchMatch | null> {
   if (!teams) return null
 
-  const direct = await tryResolveTeams(teams)
+  const direct = await tryResolveAnyDay(teams)
   if (direct) return direct
 
   const translated: [string, string] = [translateCountryEsToEn(teams[0]), translateCountryEsToEn(teams[1])]
   if (translated[0] === teams[0] && translated[1] === teams[1]) return null // nada para traducir, no reintentar en vano
-  return tryResolveTeams(translated)
+  return tryResolveAnyDay(translated)
 }
 
 async function onFileSelected(event: Event) {
