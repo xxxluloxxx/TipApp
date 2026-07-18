@@ -7,13 +7,22 @@ import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import type { Tables } from '@/types/database.types'
 
+/** Tipo de un leg (predicción) — usado por componentes que muestran legs
+ * sueltos. Con el rediseño de cupones multi-partido los legs cuelgan de
+ * `bet_slip_matches`, no de `live_matches`: viven en el store `betSlips.ts`,
+ * no acá. Se conserva el alias por compatibilidad de imports. */
 export type BetSlipLeg = Tables<'bet_slip_legs'>
 
-/** Fila de `live_matches` con sus legs embebidos (sección 1.1: se traen en
- * una sola query, cardinalidad chica). Se conserva el `snake_case` del row
- * real en vez de mapear a `camelCase`: mantener el tipo alineado 1:1 con
- * `Tables<'live_matches'>` evita una capa de transformación que podría
- * desincronizarse, y el "store tonto" (sección 1.2) solo lee/muestra. */
+/** Fila de `live_matches` (sección 1.1: se traen en una sola query,
+ * cardinalidad chica). Se conserva el `snake_case` del row real en vez de
+ * mapear a `camelCase`: mantener el tipo alineado 1:1 con `Tables<'live_matches'>`
+ * evita una capa de transformación que podría desincronizarse, y el "store
+ * tonto" (sección 1.2) solo lee/muestra.
+ *
+ * Rediseño cupones: los legs YA NO se embeben acá (migraron a
+ * `bet_slip_matches.bet_slip_legs`). Un `live_matches` puede estar suelto (sin
+ * cupón) o referenciado por un `bet_slip_matches`; este store es dueño de la
+ * lista completa de partidos y `betSlips.ts` deriva cuáles están vinculados. */
 // `incidents` se reemplaza por `unknown` (se castea a `MatchIncident[]` en la
 // vista): el tipo `Json` recursivo de `database.types.ts`, dentro de un `ref`
 // reactivo + computeds, dispara TS2589 ("type instantiation excessively
@@ -21,18 +30,6 @@ export type BetSlipLeg = Tables<'bet_slip_legs'>
 // (el store es "tonto", no lee `incidents`).
 export type LiveMatch = Omit<Tables<'live_matches'>, 'incidents'> & {
   incidents: unknown
-  bet_slip_legs: BetSlipLeg[]
-}
-
-/** Forma de los legs que ya devolvió `ocr-betslip` y que `add-match` espera
- * tal cual (contrato del encargo) — el store no la transforma. */
-export interface IncomingLeg {
-  marketType: string
-  marketLabel: string
-  selectionLabel: string
-  threshold: number | null
-  selector: string | null
-  rawText: string | null
 }
 
 /** Partido devuelto por la Edge Function `search-matches` (live-matches-ux.md
@@ -49,7 +46,7 @@ export interface SearchMatch {
   status: 'upcoming' | 'live'
 }
 
-const MATCH_SELECT = '*, bet_slip_legs(*)'
+const MATCH_SELECT = '*'
 
 /**
  * Store de partidos en vivo (live-matches-ux.md). **Deliberadamente "tonto"**
@@ -177,17 +174,19 @@ export const useLiveMatchesStore = defineStore('liveMatches', () => {
     homeTeam: string
     awayTeam: string
     league?: string | null
-    legs?: IncomingLeg[]
   }): Promise<
     { match: LiveMatch } | { errorCode: string }
   > {
+    // Rediseño cupones (§9.1 camino A): el alta suelta ya no lleva legs — un
+    // partido sin foto queda suelto, sin predicciones. El cupón multi-partido
+    // se crea por la Edge Function `create-bet-slip` (store `betSlips.ts`).
     const { data, error } = await supabase.functions.invoke('add-match', {
       body: {
         matchId: payload.matchId,
         homeTeam: payload.homeTeam,
         awayTeam: payload.awayTeam,
         competition: payload.league ?? undefined,
-        legs: payload.legs ?? [],
+        legs: [],
       },
     })
 
@@ -210,9 +209,8 @@ export const useLiveMatchesStore = defineStore('liveMatches', () => {
 
     // Inserción/actualización en la lista local (Realtime también podría
     // traer la fila; `upsertMatch` dedupe por id, sin duplicar la card).
-    const normalized: LiveMatch = { ...created, bet_slip_legs: created.bet_slip_legs ?? [] }
-    upsertMatch(normalized)
-    return { match: normalized }
+    upsertMatch(created)
+    return { match: created }
   }
 
   /** Pausar/reanudar el monitoreo (sección 3.4): optimista con rollback. */
@@ -292,39 +290,12 @@ export const useLiveMatchesStore = defineStore('liveMatches', () => {
 
     const row = payload.new as unknown as Tables<'live_matches'>
     if (!row?.id) return
-    // El payload de `postgres_changes` no trae los legs embebidos: se
-    // preservan los ya cargados (los cambios de leg llegan por su propia
-    // suscripción a `bet_slip_legs`).
-    const existing = matchById(row.id)
-    upsertMatch({ ...row, bet_slip_legs: existing?.bet_slip_legs ?? [] })
+    upsertMatch(row as unknown as LiveMatch)
   }
 
-  function applyLegChange(payload: {
-    eventType: 'INSERT' | 'UPDATE' | 'DELETE'
-    new: Record<string, unknown>
-    old: Record<string, unknown>
-  }): void {
-    if (payload.eventType === 'DELETE') {
-      const oldLeg = payload.old as unknown as BetSlipLeg
-      const parent = matchById(oldLeg?.match_id)
-      if (!parent) return
-      upsertMatch({ ...parent, bet_slip_legs: parent.bet_slip_legs.filter(leg => leg.id !== oldLeg.id) })
-      return
-    }
-
-    const leg = payload.new as unknown as BetSlipLeg
-    const parent = matchById(leg?.match_id)
-    if (!parent) return
-    const idx = parent.bet_slip_legs.findIndex(existing => existing.id === leg.id)
-    const legs = [...parent.bet_slip_legs]
-    if (idx === -1) legs.push(leg)
-    else legs.splice(idx, 1, leg)
-    upsertMatch({ ...parent, bet_slip_legs: legs })
-  }
-
-  /** Suscribe a `postgres_changes` de `live_matches` y `bet_slip_legs`,
-   * filtrado por `user_id` (sección 1.3). Idempotente: si ya hay un canal,
-   * no crea otro. */
+  /** Suscribe a `postgres_changes` de `live_matches`, filtrado por `user_id`
+   * (sección 1.3). Idempotente: si ya hay un canal, no crea otro. Los legs de
+   * cupón viven en `betSlips.ts` (su propia suscripción), no acá. */
   function subscribeRealtime(): void {
     if (channel) return
     const authStore = useAuthStore()
@@ -337,11 +308,6 @@ export const useLiveMatchesStore = defineStore('liveMatches', () => {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'live_matches', filter: `user_id=eq.${userId}` },
         payload => applyMatchChange(payload as never),
-      )
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'bet_slip_legs', filter: `user_id=eq.${userId}` },
-        payload => applyLegChange(payload as never),
       )
       .subscribe()
   }

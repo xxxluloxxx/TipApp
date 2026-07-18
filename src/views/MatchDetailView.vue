@@ -17,6 +17,8 @@ import {
   type LucideIcon,
 } from '@lucide/vue'
 import { useLiveMatchesStore, type LiveMatch } from '@/stores/liveMatches'
+import { supabase } from '@/lib/supabase'
+import type { BetSlipLeg } from '@/stores/betSlips'
 import { isLiveStage, matchClockLabel } from '@/lib/matchClock'
 import { relativeTimeShort } from '@/lib/relativeTime'
 import {
@@ -61,11 +63,40 @@ let tickerId: ReturnType<typeof setInterval> | null = null
 
 const match = computed<LiveMatch | undefined>(() => liveMatchesStore.matchById(matchId.value))
 
+// §8: los legs (predicciones) ya no cuelgan de `live_matches` — con el rediseño
+// de cupones viven en `bet_slip_matches.bet_slip_legs`. Se consulta si ESTE
+// partido pertenece a algún cupón y, si es así, se traen sus predicciones para
+// la sección "Tus pronósticos". Pertenecer a un cupón también deshabilita
+// Quitar/Pausar (se gestiona el cupón entero desde Partidos).
+const couponLegs = ref<BetSlipLeg[]>([])
+const belongsToCoupon = ref(false)
+
+async function fetchCouponMembership() {
+  // Un mismo `live_match` puede estar en más de un cupón (find-or-create por
+  // `flashscore_mid`), así que se traen todas las filas (no `maybeSingle`) y se
+  // juntan sus predicciones.
+  const { data, error } = await supabase
+    .from('bet_slip_matches')
+    .select('id, bet_slip_legs(*)')
+    .eq('live_match_id', matchId.value)
+
+  if (error) {
+    console.error('[matchDetail] No se pudo verificar el cupón del partido', error)
+    return
+  }
+  const rows = (data ?? []) as unknown as { bet_slip_legs: BetSlipLeg[] | null }[]
+  belongsToCoupon.value = rows.length > 0
+  couponLegs.value = rows.flatMap(row => row.bet_slip_legs ?? [])
+}
+
 async function loadMatch() {
   loadError.value = false
   isInitialLoading.value = true
   try {
-    const found = await liveMatchesStore.fetchOne(matchId.value)
+    const [found] = await Promise.all([
+      liveMatchesStore.fetchOne(matchId.value),
+      fetchCouponMembership(),
+    ])
     if (!found) loadError.value = true
   } finally {
     isInitialLoading.value = false
@@ -75,6 +106,7 @@ async function loadMatch() {
 function onVisibilityChange() {
   if (document.visibilityState === 'visible') {
     void liveMatchesStore.fetchOne(matchId.value)
+    void fetchCouponMembership()
   }
 }
 
@@ -248,7 +280,12 @@ function removeMatch() {
             </div>
           </CardHeader>
 
-          <div class="flex gap-2 border-t border-border px-6 py-4">
+          <!-- §8: solo los partidos SUELTOS conservan Pausar/Quitar individuales.
+               Un partido de un cupón se gestiona entero desde Partidos. -->
+          <p v-if="belongsToCoupon" class="border-t border-border px-6 py-4 text-sm text-muted-foreground">
+            Este partido es parte de un cupón. Quitá el cupón completo desde Partidos.
+          </p>
+          <div v-else class="flex gap-2 border-t border-border px-6 py-4">
             <Button variant="outline" class="flex-1" @click="toggleMonitoring">
               <component :is="match.state === 'paused' ? Play : Pause" class="size-4" />
               {{ match.state === 'paused' ? 'Reanudar' : 'Pausar' }}
@@ -264,7 +301,7 @@ function removeMatch() {
                 <AlertDialogHeader>
                   <AlertDialogTitle>¿Quitar "{{ match.home_team }} vs. {{ match.away_team }}"?</AlertDialogTitle>
                   <AlertDialogDescription>
-                    Dejamos de monitorear este partido. Si tenía un cupón asociado, también se quita. Esta acción no se puede deshacer.
+                    Dejamos de monitorear este partido. Esta acción no se puede deshacer.
                   </AlertDialogDescription>
                 </AlertDialogHeader>
                 <AlertDialogFooter>
@@ -346,15 +383,16 @@ function removeMatch() {
           </div>
         </Card>
 
-        <!-- Legs del cupón (sección 4.4) -->
-        <Card v-if="match.bet_slip_legs.length > 0">
+        <!-- Predicciones del cupón (§8 / sección 4.4). Con el rediseño de
+             cupones cuelgan de `bet_slip_matches`, no de `live_matches`. -->
+        <Card v-if="couponLegs.length > 0">
           <CardHeader>
             <CardTitle class="text-base font-semibold">
-              Tu cupón
+              Tus pronósticos
             </CardTitle>
           </CardHeader>
           <div class="flex flex-col">
-            <template v-for="(leg, idx) in match.bet_slip_legs" :key="leg.id">
+            <template v-for="(leg, idx) in couponLegs" :key="leg.id">
               <Separator v-if="idx > 0" />
               <div class="flex items-start gap-3 px-4 py-3">
                 <component

@@ -3,23 +3,26 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import {
   CalendarX,
   Camera,
+  CircleCheck,
   CircleX,
   Loader2,
   Radio,
   Search,
   SearchX,
   TriangleAlert,
-  X,
 } from '@lucide/vue'
 import { createWorker, type Worker } from 'tesseract.js'
 import { toast } from 'vue-sonner'
-import { useLiveMatchesStore, type IncomingLeg, type SearchMatch } from '@/stores/liveMatches'
+import { useLiveMatchesStore, type SearchMatch } from '@/stores/liveMatches'
+import { useBetSlipsStore, type CreateBetSlipGroup } from '@/stores/betSlips'
 import { betSlipFromOcrBlocks, type RecognizedBlock } from '@/lib/betSlipOcr'
 import { formatKickoffTime } from '@/lib/matchClock'
+import { formatOdds } from '@/lib/currency'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
   Sheet,
@@ -30,22 +33,18 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet'
 
-// Alta de partido — Sheet "wizard" de 3 pasos (live-matches-ux.md sección 5),
-// primer Sheet multi-paso del proyecto. `step: 'form' | 'processing' |
-// 'review'`. NO optimista (sección 1.8): tanto el OCR como el alta atómica
-// necesitan resolverse antes de que exista ninguna fila / de mostrar el review.
+// Alta de partido/cupón — wizard de dos caminos (live-coupons-ux.md §9).
+// `step: 'entry' | 'processing' | 'review'`, `mode: 'search' | 'photo'`.
 //
-// Paso 1 (`step === 'form'`, sección 5.1): buscador de partidos contra la Edge
-// Function `search-matches` (reemplaza al viejo campo de URL pegada). Mientras
-// `form.selectedMatch === null` se muestra el buscador/lista; al elegir un
-// partido se pasa al resumen + foto opcional (sección 5.1.4).
+// Camino A ("Buscar un partido", default): reusa el buscador contra
+// `search-matches` (debounce 350ms, selector de día) → crea un PARTIDO SUELTO
+// (sin legs, sin cupón).
 //
-// El OCR del cupón corre 100% en el navegador con Tesseract.js (createWorker →
-// recognize → terminate), NO en una Edge Function: Tesseract.js no funciona en
-// el runtime Deno de Supabase (Worker.prototype.constructor ausente) pero sí
-// en el browser, que es su entorno soportado. El parseo del texto a legs vive
-// en `src/lib/betSlipParser.ts`/`marketMapper.ts` (TypeScript puro) y el
-// adaptador del resultado en `src/lib/betSlipOcr.ts`.
+// Camino B ("Subir foto del cupón"): OCR client-side (Tesseract.js) → detecta N
+// grupos (partidos) → resuelve cada uno contra `search-matches` → review
+// multi-grupo → crea un CUPÓN multi-partido vía la Edge Function
+// `create-bet-slip` (atómica, NO optimista). El buscador se reusa por dentro
+// del review para resolver a mano un grupo que no vinculó.
 
 const props = defineProps<{
   open: boolean
@@ -56,27 +55,46 @@ const emit = defineEmits<{
 }>()
 
 const liveMatchesStore = useLiveMatchesStore()
+const betSlipsStore = useBetSlipsStore()
 
-type Step = 'form' | 'processing' | 'review'
+type Step = 'entry' | 'processing' | 'review'
+type Mode = 'search' | 'photo'
 
-// Leg extraído del OCR client-side (con `tempId` local para la lista de review).
-interface ExtractedLeg extends IncomingLeg {
+interface ReviewPrediction {
   tempId: string
+  marketType: string
+  marketLabel: string
+  selectionLabel: string
+  threshold: number | null
+  selector: string | null
+  odds: number | null
+  rawText: string | null
+}
+interface ReviewGroup {
+  tempId: string
+  teams: [string, string] | null
+  resolved: SearchMatch | null
+  predictions: ReviewPrediction[]
 }
 
-const step = ref<Step>('form')
+const step = ref<Step>('entry')
+const mode = ref<Mode>('search')
 const isSubmitting = ref(false)
 
 const form = reactive({
+  // Camino A
   selectedMatch: null as SearchMatch | null,
-  photoFile: null as File | null,
-  photoPreviewUrl: null as string | null,
-  extractedLegs: [] as ExtractedLeg[],
+  // Camino B (review)
+  detectedGroups: [] as ReviewGroup[],
+  reference: null as string | null,
+  stakeAmount: '',
+  // Cuando el usuario resuelve a mano un grupo, se reusa el buscador acotado.
+  resolvingGroupId: null as string | null,
 })
 
 const fileInputRef = ref<HTMLInputElement | null>(null)
 
-// --- Buscador de partidos (paso 1, sección 5.1) -------------------------------
+// --- Buscador de partidos (§9.2, reusado en camino A y en el resolver) -------
 
 const dayOptions = [
   { value: 0, label: 'Hoy' },
@@ -84,8 +102,6 @@ const dayOptions = [
   { value: 2, label: 'Pasado mañana' },
   { value: 3, label: 'En 3 días' },
 ]
-// Mismos 4 valores en minúscula para insertarse en las oraciones de vacío
-// (sección 5.1.5): "...para {{ dayLabelLowercase(dayOffset) }}".
 const DAY_LABELS_LOWERCASE = ['hoy', 'mañana', 'pasado mañana', 'en 3 días']
 function dayLabelLowercase(offset: number): string {
   return DAY_LABELS_LOWERCASE[offset] ?? ''
@@ -96,15 +112,8 @@ const dayOffset = ref(0)
 const searchResults = ref<SearchMatch[]>([])
 const searchState = ref<'loading' | 'ready' | 'error'>('loading')
 
-// El filtro por equipo requiere 2+ caracteres (contrato de `search-matches`);
-// por debajo de eso se pide el día completo. Este flag distingue los dos
-// estados de vacío (con búsqueda activa vs. sin búsqueda, sección 5.1.5).
 const hasActiveQuery = computed(() => searchQuery.value.trim().length >= 2)
 
-// Debounce de 350ms (primer uso de debounce del proyecto, sección 5.1): un
-// `setTimeout`/`clearTimeout` simple, sin librería. `searchRequestId` descarta
-// respuestas viejas si el usuario cambia de día/query mientras una está en
-// vuelo (evita que un resultado tardío pise a uno más nuevo).
 let searchDebounceTimer: ReturnType<typeof setTimeout> | null = null
 let searchRequestId = 0
 
@@ -113,7 +122,6 @@ async function runSearch() {
   searchState.value = 'loading'
 
   const result = await liveMatchesStore.searchMatches(dayOffset.value, searchQuery.value)
-  // Respuesta obsoleta: cambió el día o la query mientras se resolvía.
   if (requestId !== searchRequestId) return
 
   if ('errorCode' in result) {
@@ -126,7 +134,6 @@ async function runSearch() {
   searchState.value = 'ready'
 }
 
-// El debounce aplica SOLO al campo de búsqueda (texto tecleado), no al día.
 watch(searchQuery, () => {
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   searchDebounceTimer = setTimeout(() => {
@@ -137,37 +144,53 @@ watch(searchQuery, () => {
 function selectDay(value: number) {
   if (dayOffset.value === value) return
   dayOffset.value = value
-  // Tap discreto → refetch inmediato, sin debounce (sección 5.1.1).
   if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
   void runSearch()
 }
 
 function retrySearch() {
-  // Reintenta la misma combinación día/query vigente (sección 5.1.5).
   void runSearch()
 }
 
-/** Partido ya seguido (sección 5.1.3): chequeo barato contra la lista ya en
- * memoria por `flashscore_mid`, sin viaje al servidor. La fila se deshabilita
- * de antemano en vez de fallar reactivamente al elegirla. */
+/** ¿Se muestra el buscador? Camino A (entry sin partido elegido) o el resolver
+ * de un grupo dentro del review. */
+const searchVisible = computed(() =>
+  (step.value === 'entry' && mode.value === 'search' && !form.selectedMatch)
+  || (step.value === 'review' && form.resolvingGroupId !== null),
+)
+const searchContext = computed<'entry' | 'resolver'>(() =>
+  form.resolvingGroupId !== null ? 'resolver' : 'entry',
+)
+
+/** Partido ya seguido (§5.1.3): solo deshabilita en el camino A (en el resolver
+ * de cupón se permite igual — un cupón puede incluir un partido ya seguido, el
+ * backend hace find-or-create). */
 function isAlreadyFollowed(result: SearchMatch): boolean {
   return liveMatchesStore.matches.some(match => match.flashscore_mid === result.matchId)
 }
+function isResultDisabled(result: SearchMatch): boolean {
+  return searchContext.value === 'entry' && isAlreadyFollowed(result)
+}
 
-function selectMatch(result: SearchMatch) {
+function onPickResult(result: SearchMatch) {
+  if (searchContext.value === 'resolver') {
+    const groupId = form.resolvingGroupId
+    if (!groupId) return
+    const group = form.detectedGroups.find(g => g.tempId === groupId)
+    if (group) group.resolved = result
+    form.resolvingGroupId = null
+    return
+  }
   if (isAlreadyFollowed(result)) return
   form.selectedMatch = result
 }
 
 function changeMatch() {
-  // Vuelve a la lista (sección 5.1.4). Se conservan searchQuery/dayOffset para
-  // no obligar a retipear si solo se equivocó de fila.
   form.selectedMatch = null
 }
 
-// Web Worker de Tesseract.js activo mientras corre el OCR. Se termina siempre
-// (éxito, error o cierre/cancelación del Sheet) para no dejarlo vivo en memoria
-// — ver `terminateOcrWorker` (requisito 5 del encargo del OCR client-side).
+// --- Camino B: foto → OCR → resolución de grupos -----------------------------
+
 let ocrWorker: Worker | null = null
 
 async function terminateOcrWorker() {
@@ -177,142 +200,134 @@ async function terminateOcrWorker() {
   try {
     await worker.terminate()
   } catch {
-    // El worker ya podría estar terminado; no hay nada útil que hacer acá.
+    // El worker ya podría estar terminado; nada útil que hacer acá.
   }
 }
 
-function revokePreview() {
-  if (form.photoPreviewUrl) {
-    URL.revokeObjectURL(form.photoPreviewUrl)
-    form.photoPreviewUrl = null
-  }
+function startPhotoFlow() {
+  fileInputRef.value?.click()
 }
 
-function resetForm() {
-  step.value = 'form'
-  isSubmitting.value = false
-  searchQuery.value = ''
-  dayOffset.value = 0
-  searchResults.value = []
-  searchState.value = 'loading'
-  form.selectedMatch = null
-  clearPhoto()
-  form.extractedLegs = []
+/** Resolución best-effort de un grupo detectado contra `search-matches` (día 0):
+ * busca por el equipo local y toma un resultado que comparta un token con ambos
+ * equipos del grupo. Si el partido es de otro día o el OCR erró los nombres, no
+ * resuelve — el usuario lo vincula a mano con "Buscar este partido" (§9.4). */
+async function autoResolveGroup(teams: [string, string] | null): Promise<SearchMatch | null> {
+  if (!teams) return null
+  const query = teams[0].trim()
+  if (query.length < 2) return null
 
-  // Dispara la primera búsqueda (día 0, sin query) sin esperar interacción
-  // (sección 5.1, "fetch al abrir"). El `nextTick` cancela la búsqueda
-  // debounced que el `watch(searchQuery)` pudo agendar por resetear el campo
-  // de forma programática, dejando una sola llamada inicial.
-  void nextTick(() => {
-    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-    void runSearch()
-  })
+  const result = await liveMatchesStore.searchMatches(0, query)
+  if ('errorCode' in result) return null
+
+  const firstToken = (s: string) => s.toLowerCase().split(/\s+/).find(t => t.length >= 3) ?? s.toLowerCase()
+  const home = firstToken(teams[0])
+  const away = firstToken(teams[1])
+  return (
+    result.matches.find((m) => {
+      const mh = m.homeTeam.toLowerCase()
+      const ma = m.awayTeam.toLowerCase()
+      return (mh.includes(home) || home.includes(firstToken(m.homeTeam)))
+        && (ma.includes(away) || away.includes(firstToken(m.awayTeam)))
+    }) ?? null
+  )
 }
 
-watch(() => props.open, (isOpen) => {
-  if (isOpen) {
-    resetForm()
-  } else {
-    revokePreview()
-    // Si el Sheet se cierra con un OCR en vuelo, no dejamos el worker vivo.
-    void terminateOcrWorker()
-    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-  }
-})
-
-// Red de seguridad: si el componente se desmonta (cambio de ruta, etc.) con un
-// OCR en curso, terminamos el worker igual.
-onBeforeUnmount(() => {
-  void terminateOcrWorker()
-  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
-})
-
-function onFileSelected(event: Event) {
+async function onFileSelected(event: Event) {
   const input = event.target as HTMLInputElement
   const file = input.files?.[0]
+  // Permite volver a elegir el mismo archivo si el usuario reintenta.
+  input.value = ''
   if (!file) return
 
-  revokePreview()
-  form.photoFile = file
-  form.photoPreviewUrl = URL.createObjectURL(file)
-  // Tesseract.js acepta el `File` directamente en `recognize`, así que no hace
-  // falta convertir a base64 (a diferencia del viejo Edge Function, que recibía
-  // la imagen en base64 por el body JSON).
-  // Permite volver a elegir el mismo archivo si el usuario lo quita y reintenta.
-  input.value = ''
-}
+  mode.value = 'photo'
+  step.value = 'processing'
+  try {
+    // OCR client-side con Tesseract.js (§9.4). El cupón está en español → `spa`.
+    ocrWorker = await createWorker('spa')
+    const { data } = await ocrWorker.recognize(file)
+    const result = betSlipFromOcrBlocks(data.blocks as RecognizedBlock[] | null)
 
-function clearPhoto() {
-  revokePreview()
-  form.photoFile = null
-}
+    // Resolución de cada grupo contra el buscador (en paralelo).
+    const resolvedList = await Promise.all(result.groups.map(g => autoResolveGroup(g.teams)))
 
-async function handleSubmitStep1() {
-  if (isSubmitting.value) return
-  if (!form.selectedMatch) return
+    form.reference = result.reference
+    form.stakeAmount = result.stakeAmount != null ? String(result.stakeAmount) : ''
+    form.detectedGroups = result.groups.map((group, idx) => ({
+      tempId: group.tempId,
+      teams: group.teams,
+      resolved: resolvedList[idx] ?? null,
+      predictions: group.predictions.map(p => ({ ...p })),
+    }))
 
-  if (form.photoFile) {
-    // Paso 2: OCR client-side con Tesseract.js (sección 5.2). El cupón está en
-    // español → modelo `spa`. El worker se termina siempre en el `finally`.
-    step.value = 'processing'
-    try {
-      ocrWorker = await createWorker('spa')
-      const { data } = await ocrWorker.recognize(form.photoFile)
-      const result = betSlipFromOcrBlocks(data.blocks as RecognizedBlock[] | null)
-      form.extractedLegs = result.legs
-      // Sección 5.3/5.4: se llega al review aunque `extractedLegs` esté vacío
-      // (el usuario puede continuar sin cupón).
-      step.value = 'review'
-    } catch (ocrError) {
-      // Falla real del motor OCR (distinto de "no encontró legs"): vuelve al
-      // paso 1 conservando la foto para reintentar (sección 5.2).
-      console.error('OCR del cupón (Tesseract.js) falló', ocrError)
-      step.value = 'form'
-      toast.error('No pudimos leer la foto. Probá de nuevo o seguí sin cupón.')
-    } finally {
-      await terminateOcrWorker()
-    }
-    return
+    step.value = 'review'
+  } catch (ocrError) {
+    console.error('OCR del cupón (Tesseract.js) falló', ocrError)
+    mode.value = 'search'
+    step.value = 'entry'
+    toast.error('No pudimos leer la foto. Probá de nuevo o buscá los partidos a mano.')
+  } finally {
+    await terminateOcrWorker()
   }
-
-  // Alta sin foto (sección 5.1): directo, sin paso de review.
-  await confirmMatch()
 }
 
-function discardLeg(tempId: string) {
-  form.extractedLegs = form.extractedLegs.filter(leg => leg.tempId !== tempId)
+function discardGroup(tempId: string) {
+  form.detectedGroups = form.detectedGroups.filter(g => g.tempId !== tempId)
+}
+function discardPrediction(groupId: string, predId: string) {
+  const group = form.detectedGroups.find(g => g.tempId === groupId)
+  if (!group) return
+  group.predictions = group.predictions.filter(p => p.tempId !== predId)
 }
 
-function retakePhoto() {
-  // Sección 5.3: vuelve al paso 1 con el campo de foto vacío (no reintenta la
-  // misma imagen). El partido elegido se conserva.
-  clearPhoto()
-  form.extractedLegs = []
-  step.value = 'form'
+function openResolverFor(groupId: string) {
+  const group = form.detectedGroups.find(g => g.tempId === groupId)
+  form.resolvingGroupId = groupId
+  dayOffset.value = 0
+  // Prefill con el equipo local del grupo para acotar la búsqueda.
+  searchQuery.value = group?.teams?.[0] ?? ''
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  void runSearch()
+}
+function cancelResolver() {
+  form.resolvingGroupId = null
 }
 
-async function confirmMatch() {
+const groupsWithPredictions = computed(() => form.detectedGroups.filter(g => g.predictions.length > 0))
+const confirmLabel = computed(() => (groupsWithPredictions.value.length > 0 ? 'Crear cupón' : 'Continuar sin cupón'))
+
+/** Parseo es-AR del monto apostado ("1.500,50" → 1500.5). `null` si vacío/NaN. */
+function parseStake(raw: string): number | null {
+  const trimmed = raw.trim()
+  if (!trimmed) return null
+  let normalized = trimmed.replace(/[$\s]/g, '')
+  if (normalized.includes('.') && normalized.includes(',')) {
+    normalized = normalized.replace(/\./g, '').replace(',', '.')
+  } else {
+    normalized = normalized.replace(',', '.')
+  }
+  const value = Number(normalized)
+  return Number.isNaN(value) || value <= 0 ? null : value
+}
+
+// --- Confirmaciones ----------------------------------------------------------
+
+async function confirmLooseMatch() {
   if (isSubmitting.value) return
   const selected = form.selectedMatch
   if (!selected) return
 
   isSubmitting.value = true
   try {
-    const legs: IncomingLeg[] = form.extractedLegs.map(({ tempId: _tempId, ...leg }) => leg)
     const result = await liveMatchesStore.addMatch({
       matchId: selected.matchId,
       homeTeam: selected.homeTeam,
       awayTeam: selected.awayTeam,
       league: selected.league,
-      legs,
     })
 
     if ('errorCode' in result) {
       if (result.errorCode === 'duplicate_match') {
-        // Carrera rarísima (sección 5.1.3): la UI ya deshabilita las filas ya
-        // seguidas, pero el backend es la barrera real. No hay campo al que
-        // atar el error → toast genérico + volver a la lista para reelegir.
-        step.value = 'form'
         form.selectedMatch = null
         toast.error('Ya estás siguiendo este partido.')
         return
@@ -328,17 +343,96 @@ async function confirmMatch() {
   }
 }
 
+async function confirmCoupon() {
+  if (isSubmitting.value) return
+
+  const usableGroups = groupsWithPredictions.value
+  if (usableGroups.length === 0) {
+    // El usuario descartó todo: no hay cupón que crear, solo cerrar (§9.4).
+    emit('update:open', false)
+    return
+  }
+
+  isSubmitting.value = true
+  try {
+    const groups: CreateBetSlipGroup[] = usableGroups.map(group => ({
+      matchId: group.resolved?.matchId,
+      homeTeam: group.resolved?.homeTeam ?? group.teams?.[0],
+      awayTeam: group.resolved?.awayTeam ?? group.teams?.[1],
+      competition: group.resolved?.league ?? undefined,
+      legs: group.predictions.map(p => ({
+        marketType: p.marketType,
+        marketLabel: p.marketLabel,
+        selectionLabel: p.selectionLabel,
+        threshold: p.threshold,
+        selector: p.selector,
+        odds: p.odds,
+        rawText: p.rawText,
+      })),
+    }))
+
+    const result = await betSlipsStore.createBetSlip({
+      stakeAmount: parseStake(form.stakeAmount),
+      reference: form.reference,
+      groups,
+    })
+
+    if ('errorCode' in result) {
+      toast.error('No pudimos crear el cupón. Revisá tu conexión e intentá de nuevo.')
+      return
+    }
+
+    toast.success('¡Listo! Ya estamos siguiendo tu cupón.')
+    emit('update:open', false)
+  } finally {
+    isSubmitting.value = false
+  }
+}
+
+// --- Ciclo de vida del Sheet ------------------------------------------------
+
+function resetForm() {
+  step.value = 'entry'
+  mode.value = 'search'
+  isSubmitting.value = false
+  searchQuery.value = ''
+  dayOffset.value = 0
+  searchResults.value = []
+  searchState.value = 'loading'
+  form.selectedMatch = null
+  form.detectedGroups = []
+  form.reference = null
+  form.stakeAmount = ''
+  form.resolvingGroupId = null
+
+  void nextTick(() => {
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+    void runSearch()
+  })
+}
+
+watch(() => props.open, (isOpen) => {
+  if (isOpen) {
+    resetForm()
+  } else {
+    void terminateOcrWorker()
+    if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+  }
+})
+
+onBeforeUnmount(() => {
+  void terminateOcrWorker()
+  if (searchDebounceTimer) clearTimeout(searchDebounceTimer)
+})
+
 function closeSheet() {
   emit('update:open', false)
 }
-
 function handleOpenChange(value: boolean) {
   emit('update:open', value)
 }
 
-// Secciones 5.2/5.5: mientras hay un roundtrip de alta/OCR en vuelo, el Sheet
-// no se cierra por tap-fuera / Escape / swipe. La búsqueda del paso 1 NO
-// bloquea el cierre: no hay dato del usuario en riesgo (se re-busca al reabrir).
+// El Sheet no se cierra por tap-fuera/Escape mientras hay un roundtrip en vuelo.
 const isBlocking = () => isSubmitting.value || step.value === 'processing'
 function preventCloseWhileBusy(event: Event) {
   if (isBlocking()) event.preventDefault()
@@ -353,201 +447,179 @@ function preventCloseWhileBusy(event: Event) {
       @escape-key-down="preventCloseWhileBusy"
       @interact-outside="preventCloseWhileBusy"
     >
-      <!-- Paso 1 (sección 5.1): buscar y elegir un partido -->
-      <template v-if="step === 'form'">
-        <!-- 5.1.1/5.1.2/5.1.3/5.1.5: buscador + lista mientras no hay elegido -->
-        <template v-if="!form.selectedMatch">
-          <SheetHeader>
-            <SheetTitle>Nuevo partido</SheetTitle>
-            <SheetDescription>
-              Buscá un partido en vivo o por jugar para empezar a seguirlo.
-            </SheetDescription>
-          </SheetHeader>
-
-          <div class="flex flex-col gap-3 px-4">
-            <div class="relative">
-              <Search class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                v-model="searchQuery"
-                type="search"
-                inputmode="search"
-                placeholder="Buscar equipo…"
-                class="pl-9"
-                aria-label="Buscar equipo"
-              />
-            </div>
-
-            <div role="radiogroup" aria-label="Día" class="grid grid-cols-4 gap-1 rounded-lg bg-muted p-1">
-              <button
-                v-for="option in dayOptions"
-                :key="option.value"
-                type="button"
-                role="radio"
-                :aria-checked="dayOffset === option.value"
-                class="flex min-h-9 items-center justify-center rounded-md px-1 py-1.5 text-center text-[11px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                :class="dayOffset === option.value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
-                @click="selectDay(option.value)"
-              >
-                {{ option.label }}
-              </button>
-            </div>
-          </div>
-
-          <!-- Lista de resultados / estados (sección 5.1.5). Primer contenido
-               genuinamente scrolleable dentro de un Sheet del proyecto. -->
-          <div class="mt-1 max-h-[45vh] overflow-y-auto overscroll-contain border-t border-border" aria-live="polite">
-            <!-- Carga -->
-            <template v-if="searchState === 'loading'">
-              <div
-                v-for="n in 4"
-                :key="n"
-                class="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0"
-              >
-                <div class="flex flex-1 flex-col gap-1.5">
-                  <Skeleton class="h-4 w-36" />
-                  <Skeleton class="h-4 w-28" />
-                </div>
-                <Skeleton class="h-5 w-14 rounded-full" />
-              </div>
+      <!-- ============ Buscador (camino A entry, o resolver de grupo) ========= -->
+      <template v-if="searchVisible">
+        <SheetHeader>
+          <SheetTitle>{{ searchContext === 'resolver' ? 'Buscá este partido' : 'Nuevo partido o cupón' }}</SheetTitle>
+          <SheetDescription>
+            <template v-if="searchContext === 'resolver'">
+              Elegí el partido real que corresponde a esta selección de tu cupón.
             </template>
-
-            <!-- Error -->
-            <div v-else-if="searchState === 'error'" class="flex flex-col items-center gap-3 px-4 py-8 text-center">
-              <TriangleAlert class="size-8 text-warning" />
-              <p class="text-sm text-muted-foreground">
-                No pudimos buscar partidos ahora mismo. Probá de nuevo en un momento.
-              </p>
-              <Button type="button" variant="outline" size="sm" @click="retrySearch">
-                Reintentar
-              </Button>
-            </div>
-
-            <!-- Resultados -->
-            <template v-else-if="searchResults.length > 0">
-              <button
-                v-for="result in searchResults"
-                :key="result.matchId"
-                type="button"
-                class="flex w-full items-center gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50"
-                :disabled="isAlreadyFollowed(result)"
-                @click="selectMatch(result)"
-              >
-                <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <p class="truncate text-sm font-medium">{{ result.homeTeam }}</p>
-                  <p class="truncate text-sm font-medium">{{ result.awayTeam }}</p>
-                  <p v-if="result.league" class="truncate text-xs text-muted-foreground">{{ result.league }}</p>
-                </div>
-                <div class="flex shrink-0 flex-col items-end gap-1">
-                  <span v-if="result.status === 'live'" class="flex items-center gap-1 text-sm font-semibold text-primary">
-                    <Radio class="size-3 animate-pulse" aria-hidden="true" />
-                    En vivo
-                  </span>
-                  <Badge v-else variant="secondary" class="text-[10px]">{{ formatKickoffTime(result.kickoffAt) }}</Badge>
-                  <Badge v-if="isAlreadyFollowed(result)" variant="outline" class="text-[10px] text-muted-foreground">
-                    Ya lo seguís
-                  </Badge>
-                </div>
-              </button>
+            <template v-else>
+              Buscá un partido para seguirlo, o subí la foto de tu cupón para seguir todas sus selecciones.
             </template>
+          </SheetDescription>
+        </SheetHeader>
 
-            <!-- Vacío, con búsqueda activa -->
-            <div v-else-if="hasActiveQuery" class="flex flex-col items-center gap-3 px-4 py-8 text-center">
-              <SearchX class="size-8 text-muted-foreground" />
-              <p class="text-sm text-muted-foreground">
-                No encontramos partidos para "{{ searchQuery.trim() }}" en {{ dayLabelLowercase(dayOffset) }}.
-              </p>
-            </div>
-
-            <!-- Vacío, sin búsqueda -->
-            <div v-else class="flex flex-col items-center gap-3 px-4 py-8 text-center">
-              <CalendarX class="size-8 text-muted-foreground" />
-              <p class="text-sm text-muted-foreground">
-                No hay partidos programados para {{ dayLabelLowercase(dayOffset) }}. Probá otro día.
-              </p>
-            </div>
+        <!-- Acceso al camino B, solo en el entry (no en el resolver, §9.2) -->
+        <template v-if="searchContext === 'entry'">
+          <div class="px-4">
+            <Button type="button" variant="outline" class="w-full" @click="startPhotoFlow">
+              <Camera class="size-4" />
+              Subir foto del cupón
+            </Button>
           </div>
-
-          <SheetFooter>
-            <Button type="button" variant="outline" @click="closeSheet">Cancelar</Button>
-          </SheetFooter>
+          <div class="relative px-4 py-2">
+            <Separator />
+            <span class="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 bg-background px-2 text-xs text-muted-foreground">o buscá un partido</span>
+          </div>
         </template>
 
-        <!-- 5.1.4: partido elegido → resumen + foto opcional + confirmar -->
-        <template v-else>
-          <SheetHeader>
-            <SheetTitle>Nuevo partido</SheetTitle>
-            <SheetDescription>
-              Revisá el partido elegido y, si querés, sumá la foto de tu cupón.
-            </SheetDescription>
-          </SheetHeader>
+        <div class="flex flex-col gap-3 px-4">
+          <div class="relative">
+            <Search class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              v-model="searchQuery"
+              type="search"
+              inputmode="search"
+              placeholder="Buscar equipo…"
+              class="pl-9 text-base"
+              aria-label="Buscar equipo"
+            />
+          </div>
 
-          <form id="match-form" class="flex flex-col gap-4 px-4 pb-4" novalidate @submit.prevent="handleSubmitStep1">
-            <div class="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+          <div role="radiogroup" aria-label="Día" class="grid grid-cols-4 gap-1 rounded-lg bg-muted p-1">
+            <button
+              v-for="option in dayOptions"
+              :key="option.value"
+              type="button"
+              role="radio"
+              :aria-checked="dayOffset === option.value"
+              class="flex min-h-9 items-center justify-center rounded-md px-1 py-1.5 text-center text-[11px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="dayOffset === option.value ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'"
+              @click="selectDay(option.value)"
+            >
+              {{ option.label }}
+            </button>
+          </div>
+        </div>
+
+        <div class="mt-1 max-h-[45vh] overflow-y-auto overscroll-contain border-t border-border" aria-live="polite">
+          <template v-if="searchState === 'loading'">
+            <div
+              v-for="n in 4"
+              :key="n"
+              class="flex items-center gap-3 border-b border-border px-4 py-3 last:border-b-0"
+            >
+              <div class="flex flex-1 flex-col gap-1.5">
+                <Skeleton class="h-4 w-36" />
+                <Skeleton class="h-4 w-28" />
+              </div>
+              <Skeleton class="h-5 w-14 rounded-full" />
+            </div>
+          </template>
+
+          <div v-else-if="searchState === 'error'" class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+            <TriangleAlert class="size-8 text-warning" />
+            <p class="text-sm text-muted-foreground">
+              No pudimos buscar partidos ahora mismo. Probá de nuevo en un momento.
+            </p>
+            <Button type="button" variant="outline" size="sm" @click="retrySearch">
+              Reintentar
+            </Button>
+          </div>
+
+          <template v-else-if="searchResults.length > 0">
+            <button
+              v-for="result in searchResults"
+              :key="result.matchId"
+              type="button"
+              class="flex w-full items-center gap-3 border-b border-border px-4 py-3 text-left transition-colors last:border-b-0 hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset disabled:pointer-events-none disabled:opacity-50"
+              :disabled="isResultDisabled(result)"
+              @click="onPickResult(result)"
+            >
               <div class="flex min-w-0 flex-1 flex-col gap-0.5">
-                <p class="truncate text-sm font-medium">{{ form.selectedMatch.homeTeam }}</p>
-                <p class="truncate text-sm font-medium">{{ form.selectedMatch.awayTeam }}</p>
-                <p v-if="form.selectedMatch.league" class="truncate text-xs text-muted-foreground">{{ form.selectedMatch.league }}</p>
+                <p class="truncate text-sm font-medium">{{ result.homeTeam }}</p>
+                <p class="truncate text-sm font-medium">{{ result.awayTeam }}</p>
+                <p v-if="result.league" class="truncate text-xs text-muted-foreground">{{ result.league }}</p>
               </div>
-              <span v-if="form.selectedMatch.status === 'live'" class="flex shrink-0 items-center gap-1 text-sm font-semibold text-primary">
-                <Radio class="size-3 animate-pulse" aria-hidden="true" />
-                En vivo
-              </span>
-              <Badge v-else variant="secondary" class="shrink-0 text-[10px]">{{ formatKickoffTime(form.selectedMatch.kickoffAt) }}</Badge>
-              <Button type="button" variant="ghost" size="sm" class="shrink-0" :disabled="isSubmitting" @click="changeMatch">
-                Cambiar
-              </Button>
-            </div>
-
-            <div class="flex flex-col gap-1.5">
-              <Label>Foto del cupón (opcional)</Label>
-              <input
-                ref="fileInputRef"
-                type="file"
-                accept="image/*"
-                class="sr-only"
-                @change="onFileSelected"
-              >
-
-              <div v-if="!form.photoPreviewUrl">
-                <Button type="button" variant="outline" class="w-full" :disabled="isSubmitting" @click="fileInputRef?.click()">
-                  <Camera class="size-4" />
-                  Subir foto del cupón
-                </Button>
-                <p class="mt-1 text-xs text-muted-foreground">
-                  Leemos las selecciones automáticamente. Podés revisarlas antes de confirmar.
-                </p>
+              <div class="flex shrink-0 flex-col items-end gap-1">
+                <span v-if="result.status === 'live'" class="flex items-center gap-1 text-sm font-semibold text-primary">
+                  <Radio class="size-3 animate-pulse" aria-hidden="true" />
+                  En vivo
+                </span>
+                <Badge v-else variant="secondary" class="text-[10px]">{{ formatKickoffTime(result.kickoffAt) }}</Badge>
+                <Badge v-if="isResultDisabled(result)" variant="outline" class="text-[10px] text-muted-foreground">
+                  Ya lo seguís
+                </Badge>
               </div>
+            </button>
+          </template>
 
-              <div v-else class="relative overflow-hidden rounded-lg border border-border">
-                <img :src="form.photoPreviewUrl" alt="Vista previa del cupón subido" class="max-h-48 w-full bg-muted object-contain">
-                <Button
-                  type="button"
-                  variant="secondary"
-                  size="icon"
-                  class="absolute right-2 top-2 size-9"
-                  aria-label="Quitar foto"
-                  :disabled="isSubmitting"
-                  @click="clearPhoto"
-                >
-                  <X class="size-4" />
-                </Button>
-              </div>
-            </div>
-          </form>
+          <div v-else-if="hasActiveQuery" class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+            <SearchX class="size-8 text-muted-foreground" />
+            <p class="text-sm text-muted-foreground">
+              No encontramos partidos para "{{ searchQuery.trim() }}" en {{ dayLabelLowercase(dayOffset) }}.
+            </p>
+          </div>
 
-          <SheetFooter class="flex-row gap-2">
-            <Button type="button" variant="outline" class="flex-1" :disabled="isSubmitting" @click="closeSheet">
-              Cancelar
-            </Button>
-            <Button type="submit" form="match-form" class="flex-1" :disabled="isSubmitting">
-              <Loader2 v-if="isSubmitting" class="size-4 animate-spin" />
-              {{ isSubmitting ? 'Guardando…' : (form.photoFile ? 'Continuar' : 'Agregar partido') }}
-            </Button>
-          </SheetFooter>
-        </template>
+          <div v-else class="flex flex-col items-center gap-3 px-4 py-8 text-center">
+            <CalendarX class="size-8 text-muted-foreground" />
+            <p class="text-sm text-muted-foreground">
+              No hay partidos programados para {{ dayLabelLowercase(dayOffset) }}. Probá otro día.
+            </p>
+          </div>
+        </div>
+
+        <SheetFooter>
+          <Button v-if="searchContext === 'resolver'" type="button" variant="outline" @click="cancelResolver">
+            Volver al cupón
+          </Button>
+          <Button v-else type="button" variant="outline" @click="closeSheet">
+            Cancelar
+          </Button>
+        </SheetFooter>
       </template>
 
-      <!-- Paso 2: leyendo el cupón (sección 5.2) -->
+      <!-- ============ Camino A: partido elegido → confirmar ================= -->
+      <template v-else-if="step === 'entry' && form.selectedMatch">
+        <SheetHeader>
+          <SheetTitle>Nuevo partido</SheetTitle>
+          <SheetDescription>
+            Vas a empezar a seguir este partido en vivo.
+          </SheetDescription>
+        </SheetHeader>
+
+        <div class="px-4 pb-2">
+          <div class="flex items-center gap-3 rounded-lg border border-border px-3 py-2.5">
+            <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+              <p class="truncate text-sm font-medium">{{ form.selectedMatch.homeTeam }}</p>
+              <p class="truncate text-sm font-medium">{{ form.selectedMatch.awayTeam }}</p>
+              <p v-if="form.selectedMatch.league" class="truncate text-xs text-muted-foreground">{{ form.selectedMatch.league }}</p>
+            </div>
+            <span v-if="form.selectedMatch.status === 'live'" class="flex shrink-0 items-center gap-1 text-sm font-semibold text-primary">
+              <Radio class="size-3 animate-pulse" aria-hidden="true" />
+              En vivo
+            </span>
+            <Badge v-else variant="secondary" class="shrink-0 text-[10px]">{{ formatKickoffTime(form.selectedMatch.kickoffAt) }}</Badge>
+            <Button type="button" variant="ghost" size="sm" class="shrink-0" :disabled="isSubmitting" @click="changeMatch">
+              Cambiar
+            </Button>
+          </div>
+        </div>
+
+        <SheetFooter class="flex-row gap-2">
+          <Button type="button" variant="outline" class="flex-1" :disabled="isSubmitting" @click="closeSheet">
+            Cancelar
+          </Button>
+          <Button type="button" class="flex-1" :disabled="isSubmitting" @click="confirmLooseMatch">
+            <Loader2 v-if="isSubmitting" class="size-4 animate-spin" />
+            {{ isSubmitting ? 'Guardando…' : 'Agregar partido' }}
+          </Button>
+        </SheetFooter>
+      </template>
+
+      <!-- ============ Camino B paso 2: leyendo el cupón ==================== -->
       <template v-else-if="step === 'processing'">
         <SheetHeader>
           <SheetTitle>Leyendo el cupón…</SheetTitle>
@@ -560,60 +632,116 @@ function preventCloseWhileBusy(event: Event) {
         </div>
       </template>
 
-      <!-- Paso 3: review de legs extraídos (sección 5.3/5.4) -->
-      <template v-else>
+      <!-- ============ Camino B paso 3: review multi-grupo ================== -->
+      <template v-else-if="step === 'review'">
         <SheetHeader>
-          <SheetTitle>Revisá las selecciones</SheetTitle>
+          <SheetTitle>Revisá tu cupón</SheetTitle>
           <SheetDescription>
-            Leímos esto automáticamente y puede tener errores. Sacá las que no correspondan.
+            Leímos esto de la foto y puede tener errores. Revisá cada partido y sacá lo que no corresponda.
           </SheetDescription>
         </SheetHeader>
 
-        <div class="flex flex-col gap-2 px-4">
+        <div class="flex max-h-[50vh] flex-col gap-3 overflow-y-auto overscroll-contain px-4 pb-2">
           <div
-            v-for="leg in form.extractedLegs"
-            :key="leg.tempId"
-            class="flex items-center gap-3 rounded-md border border-border px-3 py-2.5"
+            v-for="group in form.detectedGroups"
+            :key="group.tempId"
+            class="flex flex-col gap-2 rounded-lg border border-border p-3"
           >
-            <div class="flex min-w-0 flex-1 flex-col">
-              <p class="truncate text-sm font-medium">
-                {{ leg.selectionLabel }}
-              </p>
-              <p class="truncate text-xs text-muted-foreground">
-                {{ leg.marketLabel }}
+            <div class="flex items-start justify-between gap-2">
+              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
+                <template v-if="group.resolved">
+                  <p class="truncate text-sm font-medium">{{ group.resolved.homeTeam }}</p>
+                  <p class="truncate text-sm font-medium">{{ group.resolved.awayTeam }}</p>
+                </template>
+                <template v-else>
+                  <p class="truncate text-sm font-medium">{{ group.teams?.[0] ?? 'Partido' }}</p>
+                  <p v-if="group.teams" class="truncate text-sm font-medium">{{ group.teams[1] }}</p>
+                </template>
+                <p v-if="group.resolved" class="flex items-center gap-1 text-xs text-success">
+                  <CircleCheck class="size-3.5 shrink-0" />
+                  Partido encontrado{{ group.resolved.league ? ' · ' + group.resolved.league : '' }}
+                </p>
+                <p v-else class="flex items-center gap-1 text-xs text-warning">
+                  <TriangleAlert class="size-3.5 shrink-0" />
+                  No encontramos este partido · no se va a poder seguir en vivo
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon"
+                class="size-9 shrink-0"
+                :aria-label="`Quitar partido ${group.teams?.[0] ?? ''} ${group.teams?.[1] ?? ''}`"
+                :disabled="isSubmitting"
+                @click="discardGroup(group.tempId)"
+              >
+                <CircleX class="size-4 text-muted-foreground" />
+              </Button>
+            </div>
+
+            <div class="flex flex-col gap-1.5 border-t border-border pt-2">
+              <div v-for="pred in group.predictions" :key="pred.tempId" class="flex items-center gap-2">
+                <div class="flex min-w-0 flex-1 flex-col">
+                  <p class="truncate text-sm">{{ pred.selectionLabel }}</p>
+                  <p class="truncate text-xs text-muted-foreground">{{ pred.marketLabel }}</p>
+                </div>
+                <Badge v-if="pred.marketType === 'unknown'" variant="outline" class="shrink-0 text-[10px]">No monitoreable</Badge>
+                <span class="shrink-0 text-xs font-semibold tabular-nums">{{ formatOdds(pred.odds) }}</span>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="icon"
+                  class="size-8 shrink-0"
+                  :aria-label="`Quitar selección ${pred.selectionLabel}`"
+                  :disabled="isSubmitting"
+                  @click="discardPrediction(group.tempId, pred.tempId)"
+                >
+                  <CircleX class="size-3.5 text-muted-foreground" />
+                </Button>
+              </div>
+              <p v-if="group.predictions.length === 0" class="text-xs text-muted-foreground">
+                Sin selecciones en este partido.
               </p>
             </div>
-            <Badge v-if="leg.marketType === 'unknown'" variant="outline" class="shrink-0 text-[10px]">
-              No monitoreable
-            </Badge>
-            <Button
-              type="button"
-              variant="ghost"
-              size="icon"
-              class="size-9 shrink-0"
-              :aria-label="`Quitar '${leg.selectionLabel}'`"
-              :disabled="isSubmitting"
-              @click="discardLeg(leg.tempId)"
-            >
-              <CircleX class="size-4 text-muted-foreground" />
+
+            <Button v-if="!group.resolved" type="button" variant="outline" size="sm" :disabled="isSubmitting" @click="openResolverFor(group.tempId)">
+              <Search class="size-4" />
+              Buscar este partido
             </Button>
           </div>
 
-          <p v-if="form.extractedLegs.length === 0" class="py-6 text-center text-sm text-muted-foreground">
-            No encontramos selecciones en la foto.
+          <p v-if="form.detectedGroups.length === 0" class="py-6 text-center text-sm text-muted-foreground">
+            No encontramos partidos en la foto.
           </p>
         </div>
 
+        <div class="flex flex-col gap-1.5 border-t border-border px-4 py-3">
+          <Label for="stake">Monto apostado (opcional)</Label>
+          <Input id="stake" v-model="form.stakeAmount" type="text" inputmode="decimal" placeholder="0,00" class="text-base" :disabled="isSubmitting" />
+          <p class="text-xs text-muted-foreground">La usamos para calcular tu posible ganancia. No la registramos como gasto.</p>
+        </div>
+
         <SheetFooter class="flex-row gap-2">
-          <Button type="button" variant="outline" class="flex-1" :disabled="isSubmitting" @click="retakePhoto">
+          <Button type="button" variant="outline" class="flex-1" :disabled="isSubmitting" @click="startPhotoFlow">
             Probar con otra foto
           </Button>
-          <Button type="button" class="flex-1" :disabled="isSubmitting" @click="confirmMatch">
+          <Button type="button" class="flex-1" :disabled="isSubmitting" @click="confirmCoupon">
             <Loader2 v-if="isSubmitting" class="size-4 animate-spin" />
-            {{ form.extractedLegs.length > 0 ? 'Agregar partido' : 'Continuar sin cupón' }}
+            {{ isSubmitting ? 'Guardando…' : confirmLabel }}
           </Button>
         </SheetFooter>
       </template>
     </SheetContent>
   </Sheet>
+
+  <!-- Input de archivo oculto (compartido por "Subir foto" y "Probar con otra foto") -->
+  <!-- Sin `capture`: un cupón suele ser una captura de pantalla (galería), no
+       una foto de cámara — se deja elegir libremente el origen. -->
+  <input
+    ref="fileInputRef"
+    type="file"
+    accept="image/*"
+    class="sr-only"
+    @change="onFileSelected"
+  >
 </template>

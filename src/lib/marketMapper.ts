@@ -107,6 +107,23 @@ export function isPickLine(text: string): boolean {
   return extractPickToken(text) !== null
 }
 
+/**
+ * Extrae la cuota (odds) pegada al final de una línea OCR del pick, si la hay.
+ * A diferencia de `extractPickToken` (que la DESCARTA para no confundirla con
+ * el threshold de un over/under), esta la DEVUELVE: la cuota es un dato de la
+ * línea completa (rediseño de cupones multi-partido — `bet_slip_legs.odds`),
+ * necesaria para que el backend calcule `total_odds` como producto. Se captura
+ * en `parseBetSlip` desde la línea cruda del pick, antes de tokenizar. Devuelve
+ * el decimal (ej. 1.42) o `null` si no hay cuota al final.
+ */
+export function extractTrailingOdds(text: string): number | null {
+  const m = TRAILING_QUOTA.exec(text.trim())
+  if (!m) return null
+  const cleaned = m[0].trim().replace('$', '').replace(',', '.')
+  const v = Number(cleaned)
+  return Number.isNaN(v) ? null : v
+}
+
 export { extractPickToken }
 
 export function isMarketLine(text: string): boolean {

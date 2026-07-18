@@ -74,11 +74,12 @@ export type Database = {
       }
       bet_slip_legs: {
         Row: {
+          bet_slip_match_id: string
           created_at: string
           id: string
           market_label: string
           market_type: string
-          match_id: string
+          odds: number | null
           raw_text: string | null
           selection_label: string
           selector: string | null
@@ -88,11 +89,12 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          bet_slip_match_id: string
           created_at?: string
           id?: string
           market_label: string
           market_type: string
-          match_id: string
+          odds?: number | null
           raw_text?: string | null
           selection_label: string
           selector?: string | null
@@ -102,11 +104,12 @@ export type Database = {
           user_id: string
         }
         Update: {
+          bet_slip_match_id?: string
           created_at?: string
           id?: string
           market_label?: string
           market_type?: string
-          match_id?: string
+          odds?: number | null
           raw_text?: string | null
           selection_label?: string
           selector?: string | null
@@ -117,13 +120,96 @@ export type Database = {
         }
         Relationships: [
           {
-            foreignKeyName: "bet_slip_legs_match_id_fkey"
-            columns: ["match_id"]
+            foreignKeyName: "bet_slip_legs_bet_slip_match_id_fkey"
+            columns: ["bet_slip_match_id"]
+            isOneToOne: false
+            referencedRelation: "bet_slip_match_status"
+            referencedColumns: ["bet_slip_match_id"]
+          },
+          {
+            foreignKeyName: "bet_slip_legs_bet_slip_match_id_fkey"
+            columns: ["bet_slip_match_id"]
+            isOneToOne: false
+            referencedRelation: "bet_slip_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bet_slip_matches: {
+        Row: {
+          bet_slip_id: string
+          created_at: string
+          id: string
+          live_match_id: string | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          bet_slip_id: string
+          created_at?: string
+          id?: string
+          live_match_id?: string | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          bet_slip_id?: string
+          created_at?: string
+          id?: string
+          live_match_id?: string | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bet_slip_matches_bet_slip_id_fkey"
+            columns: ["bet_slip_id"]
+            isOneToOne: false
+            referencedRelation: "bet_slip_summary"
+            referencedColumns: ["bet_slip_id"]
+          },
+          {
+            foreignKeyName: "bet_slip_matches_bet_slip_id_fkey"
+            columns: ["bet_slip_id"]
+            isOneToOne: false
+            referencedRelation: "bet_slips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bet_slip_matches_live_match_id_fkey"
+            columns: ["live_match_id"]
             isOneToOne: false
             referencedRelation: "live_matches"
             referencedColumns: ["id"]
           },
         ]
+      }
+      bet_slips: {
+        Row: {
+          created_at: string
+          id: string
+          reference: string | null
+          stake_amount: number | null
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          reference?: string | null
+          stake_amount?: number | null
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          reference?: string | null
+          stake_amount?: number | null
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
       }
       budgets: {
         Row: {
@@ -737,6 +823,62 @@ export type Database = {
         }
         Relationships: []
       }
+      bet_slip_match_status: {
+        Row: {
+          bet_slip_id: string | null
+          bet_slip_match_id: string | null
+          leg_count: number | null
+          live_match_id: string | null
+          lost_legs: number | null
+          not_monitorable_legs: number | null
+          pending_legs: number | null
+          status: string | null
+          user_id: string | null
+          won_legs: number | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "bet_slip_matches_bet_slip_id_fkey"
+            columns: ["bet_slip_id"]
+            isOneToOne: false
+            referencedRelation: "bet_slip_summary"
+            referencedColumns: ["bet_slip_id"]
+          },
+          {
+            foreignKeyName: "bet_slip_matches_bet_slip_id_fkey"
+            columns: ["bet_slip_id"]
+            isOneToOne: false
+            referencedRelation: "bet_slips"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "bet_slip_matches_live_match_id_fkey"
+            columns: ["live_match_id"]
+            isOneToOne: false
+            referencedRelation: "live_matches"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      bet_slip_summary: {
+        Row: {
+          bet_slip_id: string | null
+          leg_count: number | null
+          legs_missing_odds: number | null
+          live_matches_count: number | null
+          lost_matches: number | null
+          match_count: number | null
+          pending_matches: number | null
+          potential_winnings: number | null
+          reference: string | null
+          stake_amount: number | null
+          status: string | null
+          total_odds: number | null
+          user_id: string | null
+          won_matches: number | null
+        }
+        Relationships: []
+      }
       debt_balances: {
         Row: {
           balance: number | null
@@ -751,6 +893,10 @@ export type Database = {
       category_is_accessible: {
         Args: { p_category_id: string; p_user_id: string }
         Returns: boolean
+      }
+      create_bet_slip: {
+        Args: { p_groups?: Json; p_reference?: string; p_stake_amount?: number }
+        Returns: string
       }
       create_debt: {
         Args: {
@@ -778,7 +924,6 @@ export type Database = {
           p_home_team?: string
           p_incidents?: Json
           p_last_poll_ok?: boolean
-          p_legs?: Json
           p_poll_interval_seconds?: number
           p_red_cards_away?: number
           p_red_cards_home?: number

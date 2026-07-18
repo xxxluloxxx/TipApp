@@ -1,5 +1,24 @@
 # TipApp — UX de Partidos en vivo (seguimiento con notificaciones)
 
+> ⚠️ **REDISEÑO VIGENTE — cupones multi-partido**: un cupón dejó de ser "un
+> partido con selecciones" y pasó a ser **un grupo de varios partidos, cada uno
+> con 1+ predicciones** (anillo de 4 estados, cuota total, posible ganancia,
+> `Tabs` Todos/En vivo/Finalizados, expansión inline). La fuente de verdad de
+> ese rediseño es **`docs/features/live-coupons-ux.md`**, que **supersede** de
+> este documento: la **sección 2** (rutas — sigue 2 rutas pero cambia qué
+> muestra `/partidos`), la **sección 3 completa** (dashboard como lista plana de
+> cards → dashboard de cupones + partidos sueltos) y la **sección 5 completa**
+> (wizard → dos caminos: buscar-un-partido vs. foto-de-cupón-multi-partido). La
+> **sección 3.3** ("por qué NO `Tabs`") queda **matizada, no contradicha** (ver
+> §3.4 del doc nuevo: los `Tabs` operan a nivel de ítems de primer nivel, los
+> partidos dentro de un cupón siguen todos visibles). **Siguen vigentes tal
+> cual** de este documento: la **sección 1** (estrategia de datos/tiempo real),
+> la **sección 4** (`/partidos/:id`, con dos ajustes menores en §8 del doc
+> nuevo), la **sección 6** (notificaciones), la **sección 7** (drawer), la
+> **sección 8** (paleta, extendida por §4 del doc nuevo con el anillo) y la
+> **sección 9** (a11y, extendida por §10 del doc nuevo). Leé el doc nuevo antes
+> de tocar `/partidos`, la card de cupón, el anillo o el wizard.
+
 Documento de especificación funcional/UX para `vue-frontend-expert` y
 `supabase-backend-expert`. Da por sentado todo lo ya resuelto en
 `docs/design-system.md` (tokens, tipografía, Card-list, Sheet inferior,

@@ -17,25 +17,35 @@
 
 import { parseBetSlip, type OcrLine } from './betSlipParser'
 
-/** Leg extraído del cupón, con la misma forma que `IncomingLeg` del store
- * (`src/stores/liveMatches.ts`) más un `tempId` local para la lista de review
- * del Sheet. Mismo contrato exacto que devolvía el Edge Function `ocr-betslip`. */
-export interface ExtractedBetSlipLeg {
+/** Predicción extraída del cupón (un leg), con `tempId` local para la lista de
+ * review del Sheet. Alineada con el leg que espera la Edge Function
+ * `create-bet-slip` (`marketType`/`marketLabel`/`selectionLabel`/`threshold`/
+ * `selector`/`odds`/`rawText`). `selector` se deja `null` client-side y lo
+ * resuelve el backend a partir de `marketType`/`threshold` (comportamiento ya
+ * verificado con OCR real, sin cambios). */
+export interface ExtractedBetSlipPrediction {
   tempId: string
   marketType: string
   marketLabel: string
   selectionLabel: string
   threshold: number | null
   selector: string | null
+  odds: number | null
   rawText: string | null
 }
 
-export interface BetSlipOcrResult {
+/** Un partido detectado en el cupón: par de equipos (o `null`) + sus
+ * predicciones. `tempId` local para las listas del review multi-grupo. */
+export interface ExtractedBetSlipGroup {
+  tempId: string
   teams: [string, string] | null
-  scoreHome: number | null
-  scoreAway: number | null
-  minute: number | null
-  legs: ExtractedBetSlipLeg[]
+  predictions: ExtractedBetSlipPrediction[]
+}
+
+export interface BetSlipOcrResult {
+  groups: ExtractedBetSlipGroup[]
+  reference: string | null
+  stakeAmount: number | null
 }
 
 // Forma mínima que consumimos del resultado de Tesseract.js (`data.blocks`).
@@ -86,30 +96,34 @@ function flattenOcrLines(blocks: RecognizedBlock[] | null | undefined): OcrLine[
 }
 
 /**
- * Convierte el `data.blocks` de Tesseract.js en los legs del cupón. Devuelve
- * `legs: []` (sin lanzar) si no se reconoció ninguna selección — el Sheet ya
- * sabe interpretar eso como "no encontramos selecciones, continuá sin cupón"
- * (live-matches-ux.md sección 5.4). Mapeo idéntico al que hacía el Edge
- * Function `ocr-betslip` (incluido `selector: null`: el selector se resuelve
- * más adelante en el backend a partir de `marketType`/`threshold`).
+ * Convierte el `data.blocks` de Tesseract.js en los grupos (partidos) del
+ * cupón. Devuelve `groups: []` (sin lanzar) si no se reconoció ninguna
+ * selección — el Sheet lo interpreta como "no encontramos partidos en la foto"
+ * (live-coupons-ux.md §9.4). `selector: null` se conserva: lo resuelve el
+ * backend a partir de `marketType`/`threshold` (comportamiento verificado con
+ * OCR real, sin cambios).
  */
 export function betSlipFromOcrBlocks(
   blocks: RecognizedBlock[] | null | undefined,
 ): BetSlipOcrResult {
   const slip = parseBetSlip(flattenOcrLines(blocks))
+  const stamp = Date.now()
   return {
-    teams: slip.teams,
-    scoreHome: slip.scoreHome,
-    scoreAway: slip.scoreAway,
-    minute: slip.minute,
-    legs: slip.legs.map((leg, idx) => ({
-      tempId: `${Date.now()}-${idx}`,
-      marketType: leg.marketType,
-      marketLabel: leg.market,
-      selectionLabel: leg.pick,
-      threshold: leg.threshold,
-      selector: null,
-      rawText: leg.raw,
+    reference: slip.reference,
+    stakeAmount: slip.stakeAmount,
+    groups: slip.groups.map((group, gi) => ({
+      tempId: `${stamp}-g${gi}`,
+      teams: group.teams,
+      predictions: group.legs.map((leg, li) => ({
+        tempId: `${stamp}-g${gi}-l${li}`,
+        marketType: leg.marketType,
+        marketLabel: leg.market,
+        selectionLabel: leg.pick,
+        threshold: leg.threshold,
+        selector: null,
+        odds: leg.odds,
+        rawText: leg.raw,
+      })),
     })),
   }
 }

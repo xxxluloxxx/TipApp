@@ -21,6 +21,17 @@
 // cuando el feed indica partido terminado (DA=3/DB=3), dejando de pollearlo
 // (el filtro state='monitoring' de la query principal ya lo excluye de la
 // próxima corrida).
+//
+// Rediseño multi-partido (20260718): bet_slip_legs ya NO cuelga directo de
+// live_matches (match_id) -- pasa por bet_slip_matches (un partido dentro
+// de un cupón). Un mismo live_match puede estar referenciado por
+// bet_slip_matches de VARIOS cupones distintos (find-or-create de
+// create_bet_slip, ver 20260718100500_create_bet_slip_function.sql) -- la
+// query de legs de abajo ya no filtra por match_id=match.id directo, sino
+// por bet_slip_matches.live_match_id=match.id vía embed + !inner (fuerza
+// join interno para poder filtrar sobre la tabla embebida), trayendo TODOS
+// los legs de TODOS los cupones que referencian este partido en una sola
+// llamada.
 // =============================================================================
 import { createClient, type SupabaseClient } from 'jsr:@supabase/supabase-js@2'
 import { fetchFeed } from '../_shared/flashscoreClient.ts'
@@ -72,6 +83,7 @@ interface BetSlipLegRow {
   status: LegStatus
   selection_label: string
   market_label: string
+  bet_slip_match_id: string
 }
 
 interface NotificationEvent {
@@ -278,10 +290,15 @@ async function pollOneMatch(supabase: SupabaseClient, match: LiveMatchRow, fsign
   }
 
   // --- Motor de reglas: evaluar cada leg pendiente contra el snapshot nuevo ---
+  // bet_slip_legs ya no tiene match_id -- se filtra vía el embed de
+  // bet_slip_matches (!inner fuerza join interno para que el .eq() sobre la
+  // tabla embebida realmente filtre las filas, no solo el objeto anidado).
+  // Trae los legs de TODOS los cupones que tengan un bet_slip_match
+  // apuntando a este live_match (mismo partido puede estar en 2+ cupones).
   const { data: legs } = await supabase
     .from('bet_slip_legs')
-    .select('id, market_type, threshold, selector, status, selection_label, market_label')
-    .eq('match_id', match.id)
+    .select('id, market_type, threshold, selector, status, selection_label, market_label, bet_slip_match_id, bet_slip_matches!inner(live_match_id)')
+    .eq('bet_slip_matches.live_match_id', match.id)
 
   const snapshotForRules: MatchSnapshotForRules = {
     statusId,

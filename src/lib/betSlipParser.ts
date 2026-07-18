@@ -19,7 +19,7 @@
 // exacta de OCR usada.
 // =============================================================================
 
-import { extractPickToken, isMarketLine, isPickLine, mapMarket, type MarketType } from './marketMapper'
+import { extractPickToken, extractTrailingOdds, isMarketLine, isPickLine, mapMarket, type MarketType } from './marketMapper'
 
 export interface OcrLine {
   text: string
@@ -35,16 +35,29 @@ export interface ParsedLeg {
   marketType: MarketType
   value: number | null
   threshold: number | null
+  /** Cuota individual de la predicción (rediseño cupones multi-partido). El
+   * backend la usa para calcular `total_odds` como producto. `null` si el OCR
+   * no la leyó. */
+  odds: number | null
   raw: string
 }
 
-export interface BetSlip {
+/** Un partido detectado en el cupón: el par de equipos (o `null` si no se
+ * pudieron aislar 2 nombres) más sus predicciones. Un cupón es una lista de
+ * estos grupos (antes el parser asumía UN solo partido por imagen). */
+export interface BetSlipGroup {
   teams: [string, string] | null
-  scoreHome: number | null
-  scoreAway: number | null
-  minute: number | null
-  totalOdds: number | null
   legs: ParsedLeg[]
+}
+
+export interface BetSlip {
+  groups: BetSlipGroup[]
+  /** Número/identificador del cupón leído del OCR (best-effort, p. ej.
+   * "Cupón #25481"); `null` si no hay señal confiable. */
+  reference: string | null
+  /** Monto apostado total leído del OCR (best-effort); `null` si no se detectó
+   * — el usuario lo tipea en el review. */
+  stakeAmount: number | null
 }
 
 // Palabras de cabecera/pie que NO son equipos ni legs (branding, totales, impuestos...).
@@ -70,13 +83,6 @@ export function stripLeadingGlyph(text: string): string {
   return m[1].length === 1 ? m[2].trim() : t
 }
 
-function numberOf(text: string): number | null {
-  const m = /(\d+(?:[.,]\d+)?)/.exec(text)
-  if (!m || m[1] === undefined) return null
-  const v = Number(m[1].replace(',', '.'))
-  return Number.isNaN(v) ? null : v
-}
-
 function isNumericLike(text: string): boolean {
   const t = text.trim()
   return DECIMAL.test(t) || INTEGER.test(t) || MINUTE.test(t)
@@ -92,12 +98,85 @@ interface Line extends OcrLine {
   centerY: number
 }
 
+// Patrones best-effort para el número de cupón y el monto apostado a nivel
+// top (rediseño multi-partido). No bloqueantes: si no matchean, quedan `null`
+// y el usuario los completa en el review.
+const REFERENCE_LINE = /(cup[oó]n|boleto|ticket|c[oó]digo|apuesta)\s*[#nº°:]*\s*([a-z]?\d{4,})/i
+const STAKE_LINE = /(apuesta|importe|apostado|stake|monto)\D{0,12}(\$?\s*\d+(?:[.,]\d+)?)/i
+
+/** Busca best-effort el identificador del cupón ("Cupón #25481", "N° 12345").
+ * Devuelve un string normalizado "Cupón #<id>" o `null`. */
+function extractReference(clean: Line[]): string | null {
+  for (const l of clean) {
+    const m = REFERENCE_LINE.exec(l.text.trim())
+    if (m && m[2]) return `Cupón #${m[2].toUpperCase()}`
+  }
+  return null
+}
+
+/** Busca best-effort el monto apostado total del cupón. Devuelve el número o
+ * `null` — el review permite tipearlo/editarlo igual. */
+function extractStakeAmount(clean: Line[]): number | null {
+  for (const l of clean) {
+    const m = STAKE_LINE.exec(l.text.trim())
+    if (m && m[2]) {
+      const v = Number(m[2].replace('$', '').replace(/\s/g, '').replace(',', '.'))
+      if (!Number.isNaN(v) && v > 0) return v
+    }
+  }
+  return null
+}
+
+/**
+ * Agrupa los nombres de equipo en "pares" (un partido). En un cupón la
+ * estructura por partido es [EquipoA, EquipoB, pick, mercado, pick, ...], luego
+ * el siguiente partido. Los nombres vienen en corridas de 2 líneas consecutivas
+ * SIN ningún pick entre ellas; la aparición de un pick cierra el par y abre el
+ * bloque de predicciones. Cada corrida es un ancla de grupo con su `startY` (el
+ * Y de la línea más alta del par) — los picks debajo de ese `startY` y por
+ * encima del `startY` del siguiente par pertenecen a este partido.
+ */
+function clusterTeamPairs(
+  names: Line[],
+  pickYs: number[],
+): { teams: [string, string] | null; startY: number }[] {
+  const clusters: Line[][] = []
+  let current: Line[] = []
+  let lastY = Number.NEGATIVE_INFINITY
+  for (const name of names) {
+    const hasPickBetween = pickYs.some((y) => y > lastY && y < name.centerY)
+    if (current.length > 0 && hasPickBetween) {
+      clusters.push(current)
+      current = []
+    }
+    current.push(name)
+    lastY = name.centerY
+  }
+  if (current.length > 0) clusters.push(current)
+
+  return clusters.map((members) => {
+    // Las DOS más cercanas al bloque de picks de abajo (mismo criterio que la
+    // heurística original de tomar las 2 últimas por encima del primer pick).
+    const pair = members.slice(-2)
+    const teams: [string, string] | null =
+      pair.length >= 2 ? [cleanTeam(pair[0]!.text), cleanTeam(pair[1]!.text)] : null
+    const startY = Math.min(...members.map((m) => m.centerY))
+    return { teams, startY }
+  })
+}
+
 /**
  * Estrategia robusta y agnóstica de fuente: se ordena TODO por Y (orden
  * vertical real) y se usa la coordenada X para separar la columna izquierda
  * (equipos/picks/mercados) de la derecha (cuota/minuto/marcador/valores). El
  * emparejamiento pick<->mercado es "el siguiente mercado por debajo de este
  * pick y por encima del siguiente pick".
+ *
+ * Rediseño multi-partido: detecta N pares de equipos a lo largo de la imagen
+ * (no 1) y asocia cada leg al par más cercano POR ENCIMA de él, devolviendo una
+ * lista de grupos (partidos) en vez de una lista plana de legs. Además captura
+ * la cuota individual de cada leg y, best-effort, `reference`/`stakeAmount` del
+ * cupón.
  */
 export function parseBetSlip(raw: OcrLine[]): BetSlip {
   const stripped = raw.map((l) => ({ ...l, text: stripLeadingGlyph(l.text) }))
@@ -108,7 +187,7 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
   }))
   const clean = lines.filter((l) => l.text.trim().length > 0).sort((a, b) => a.centerY - b.centerY)
   if (clean.length === 0) {
-    return { teams: null, scoreHome: null, scoreAway: null, minute: null, totalOdds: null, legs: [] }
+    return { groups: [], reference: null, stakeAmount: null }
   }
 
   const minLeft = Math.min(...clean.map((l) => l.left))
@@ -117,21 +196,7 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
   const isRight = (l: Line) => l.centerX > rightThreshold
   const isNoise = (l: Line) => NOISE.some((n) => l.text.toLowerCase().includes(n))
 
-  // 1) Cuota total: primer decimal de la COLUMNA DERECHA.
-  const totalOddsLine = clean.find((l) => isRight(l) && DECIMAL.test(l.text.trim()))
-  const totalOdds = totalOddsLine ? numberOf(totalOddsLine.text) : null
-
-  // 2) Minuto: línea "NN'".
-  let minute: number | null = null
-  for (const l of clean) {
-    const m = MINUTE.exec(l.text.trim())
-    if (m) {
-      minute = Number(m[1])
-      break
-    }
-  }
-
-  // 3) Picks/mercados en la COLUMNA IZQUIERDA (para no confundir un dígito
+  // 1) Picks/mercados en la COLUMNA IZQUIERDA (para no confundir un dígito
   //    del marcador "1" con el pick de resultado "1"). `pickToken` es el pick
   //    ya limpio (ver `extractPickToken`): en fotos reales la línea puede
   //    traer basura pegada (ícono mal leído + cuota, ej. "ES Sí 1.42"), así
@@ -144,38 +209,36 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
     .sort((a, b) => a.line.centerY - b.line.centerY)
   const marketLines = clean.filter((l) => !isRight(l) && !isNoise(l) && isMarketLine(l.text)).sort((a, b) => a.centerY - b.centerY)
 
-  const firstPickY = pickLines[0]?.line.centerY ?? Number.MAX_SAFE_INTEGER
-
-  // 4) Equipos: líneas "con nombre" por encima del primer pick. Tomamos las
-  //    DOS más cercanas al primer pick (justo encima).
+  // 2) Equipos: TODAS las líneas "con nombre" (no solo por encima del primer
+  //    pick — el rediseño detecta varios partidos), agrupadas en pares.
   const nameCandidates = clean
     .filter(
       (l) =>
-        l.centerY < firstPickY && !isRight(l) && !isNoise(l) &&
+        !isRight(l) && !isNoise(l) &&
         !isNumericLike(l.text) && !isPickLine(l.text) && !isMarketLine(l.text) &&
         /[a-zA-Z]/.test(l.text),
     )
     .sort((a, b) => a.centerY - b.centerY)
-  const teams: [string, string] | null =
-    nameCandidates.length >= 2
-      ? (() => {
-          const two = nameCandidates.slice(-2)
-          return [cleanTeam(two[0]!.text), cleanTeam(two[1]!.text)] as [string, string]
-        })()
-      : null
+  const pickYs = pickLines.map((p) => p.line.centerY)
+  const clusters = clusterTeamPairs(nameCandidates, pickYs).sort((a, b) => a.startY - b.startY)
 
-  // 5) Marcador: dígitos enteros en la COLUMNA DERECHA por encima del
-  //    primer pick (excluye la cuota decimal y el minuto).
-  const scoreDigits = clean
-    .filter((l) => l.centerY < firstPickY && isRight(l) && INTEGER.test(l.text.trim()) && !MINUTE.test(l.text))
-    .sort((a, b) => a.centerY - b.centerY)
-  const scoreHome = scoreDigits[0] ? Number(scoreDigits[0].text.trim()) : null
-  const scoreAway = scoreDigits[1] ? Number(scoreDigits[1].text.trim()) : null
+  /** Índice del cluster (partido) al que pertenece un Y de pick: el último
+   * cluster cuyo `startY` está por encima del pick. `-1` = pick huérfano (por
+   * encima de cualquier par de equipos → grupo con `teams: null`). */
+  function clusterIndexForY(y: number): number {
+    let idx = -1
+    for (let i = 0; i < clusters.length; i++) {
+      if (clusters[i]!.startY < y) idx = i
+      else break
+    }
+    return idx
+  }
 
-  // 6) Legs: por cada pick, su mercado es el primer marketLine por debajo y
+  // 3) Legs: por cada pick, su mercado es el primer marketLine por debajo y
   //    por encima del siguiente pick. El valor de contexto (córners "10")
-  //    es un entero en la columna derecha dentro de la franja Y del leg.
-  const legs: ParsedLeg[] = []
+  //    es un entero en la columna derecha dentro de la franja Y del leg. La
+  //    cuota se captura de la línea cruda del pick.
+  const legsByCluster = new Map<number, ParsedLeg[]>()
   pickLines.forEach((pick, i) => {
     const pickY = pick.line.centerY
     const nextPickY = pickLines[i + 1]?.line.centerY ?? Number.MAX_SAFE_INTEGER
@@ -189,15 +252,36 @@ export function parseBetSlip(raw: OcrLine[]): BetSlip {
     )
     const contextValue = contextLine ? Number(contextLine.text.trim()) : null
 
-    legs.push({
+    const leg: ParsedLeg = {
       pick: m.pick,
       market: m.market,
       marketType: m.marketType,
       value: contextValue,
       threshold: m.threshold,
+      odds: extractTrailingOdds(pick.line.text),
       raw: [pick.line.text.trim(), marketText.trim()].filter((s) => s.length > 0).join(' · '),
-    })
+    }
+
+    const ci = clusterIndexForY(pickY)
+    const arr = legsByCluster.get(ci) ?? []
+    arr.push(leg)
+    legsByCluster.set(ci, arr)
   })
 
-  return { teams, scoreHome, scoreAway, minute, totalOdds, legs }
+  // 4) Ensamblado de grupos en orden de lectura: primero los picks huérfanos
+  //    (si los hay), luego cada par de equipos con sus legs. Grupos sin legs se
+  //    descartan (par de equipos falso, sin predicciones).
+  const groups: BetSlipGroup[] = []
+  const orphanLegs = legsByCluster.get(-1)
+  if (orphanLegs && orphanLegs.length > 0) groups.push({ teams: null, legs: orphanLegs })
+  clusters.forEach((cluster, i) => {
+    const legs = legsByCluster.get(i)
+    if (legs && legs.length > 0) groups.push({ teams: cluster.teams, legs })
+  })
+
+  return {
+    groups,
+    reference: extractReference(clean),
+    stakeAmount: extractStakeAmount(clean),
+  }
 }
