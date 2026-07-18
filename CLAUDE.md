@@ -24,6 +24,14 @@ de la contraparte, mismo criterio "sin multi-usuario real" ya usado para
 `card_people`. No confundir el modelo de datos actual con gastos
 compartidos/grupales.
 
+**Nota de alcance**: además del dominio financiero descrito arriba, TipApp
+incorpora una feature de utilidad personal sin relación con gastos/ingresos —
+**"Partidos en vivo"** (seguimiento de partidos de fútbol + cupones de
+apuestas, ver "Estado actual" abajo), pedida explícitamente por el Product
+Owner como una sección más del drawer. Es intencional que conviva con el
+dominio financiero en la misma PWA (misma app instalada, mismo login), no una
+inconsistencia de producto.
+
 El proyecto se construye de forma incremental: primero se validó el pipeline
 de deploy con un esqueleto mínimo, luego backend (Supabase) y sistema de
 diseño en paralelo, y a continuación pantallas de features reales, PWA y
@@ -50,6 +58,140 @@ Todo el stack se eligió priorizando permanecer dentro de los límites de los
 planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
+
+Se agregó **Partidos en vivo**, una feature de utilidad personal sin
+relación con el dominio financiero de la app (ver nota de alcance arriba):
+seguimiento de partidos de fútbol en vivo (feeds no oficiales de
+Flashscore) con notificaciones push cuando cambian stats relevantes (gol,
+tarjeta = prioridad alta; córner, remate = prioridad normal), y adjunto
+opcional de una foto de cupón de apuestas cuyas selecciones se intentan
+marcar ganadas/perdidas/pendientes a medida que el partido avanza.
+Inspirada en un proyecto Android existente del usuario, FottStat
+(`/home/lulo/Proyectos/Propios/FottStat`, fuera de este repo) — se replicó
+su *funcionalidad*, no su implementación nativa. Decisión de arquitectura
+clave, tomada por el Product Owner antes de delegar: a diferencia del
+original (que usa un Foreground Service Android), acá el polling **no
+depende del cliente/navegador abierto** — corre 100% server-side. Trabajo
+de las tres capas (`ui-ux-designer` → `supabase-backend-expert` →
+`vue-frontend-expert`, coordinados por `product-owner-tipapp`).
+
+- **Backend** (`supabase-backend-expert`): 7 migraciones nuevas en
+  `supabase/migrations/` (`20260717150300` a `20260717150900`), aplicadas
+  al proyecto remoto real vía `supabase db push`.
+  - `live_matches(id, user_id, flashscore_mid, home_team, away_team,
+    state, last_snapshot, etag_dc/etag_df_st/etag_df_su, created_at,
+    updated_at)` — un partido monitoreado por el usuario; los `etag_*`
+    cachean la respuesta del feed de Flashscore entre polls (evita
+    reprocesar si no cambió nada). Igual que el original, solo guarda el
+    **último** snapshot, no historial — no había razón concreta para más.
+  - `bet_slip_legs(id, user_id, live_match_id on delete cascade, pick,
+    market, market_type, threshold, status)` — selecciones del cupón,
+    hijas de un partido (mismo criterio de `on delete cascade` que
+    `debt_movements` respecto de `debts`: no tiene sentido un leg sin su
+    partido).
+  - `push_subscriptions(id, user_id, endpoint, keys, created_at)` — una
+    suscripción Web Push por dispositivo/navegador del usuario, primera
+    tabla de este tipo en el proyecto.
+  - RLS explícito por operación en las 3 tablas, mismo patrón
+    `user_id = auth.uid()` de siempre.
+  - RPC `create_live_match` (`security invoker`, mismo patrón que
+    `create_debt`): inserta el partido y hace el primer poll sincrónico
+    para no dejar una fila sin datos hasta el próximo ciclo de cron.
+  - 3 Edge Functions desplegadas (`supabase functions deploy`):
+    `add-match` (JWT de usuario, invoca la RPC), `poll-matches` (corre por
+    `pg_cron` cada 20s con `service_role`, motor de reglas de apuestas +
+    envío de Web Push en cambios relevantes), `ocr-betslip` (JWT de
+    usuario, ver deuda técnica abajo). Lógica compartida en
+    `supabase/functions/_shared/` (`flashscoreClient`/`flashscoreFeed`
+    para el feed propietario con delimitadores `~`/`¬`/`÷`,
+    `betRuleEngine`/`marketMapper`/`betSlipParser`, `webpush`), portada
+    del Kotlin/Python original de FottStat (`PLAN.md`/`fottstat.py`) a
+    TypeScript.
+  - `pg_cron`/`pg_net` habilitados en el proyecto remoto (no estaban
+    activos) — el cron de `poll-matches` corre cada 20s en producción real
+    (mejor que el piso de 60s anticipado; `pg_cron` 1.6.4 sí soporta
+    segundos).
+  - Secrets configurados vía `supabase secrets set` (nunca hardcodeados ni
+    commiteados): `FLASHSCORE_FSIGN` (token del feed no oficial, ver deuda
+    técnica), `VAPID_PUBLIC_KEY`/`VAPID_PRIVATE_KEY`/`VAPID_SUBJECT` (Web
+    Push), `CRON_SECRET`.
+  - Verificado: RLS con dos usuarios reales, motor de reglas contra 68
+    casos literales tomados de `PLAN.md`, `add-match` probado de punta a
+    punta contra un partido real de Flashscore.
+  - `src/types/database.types.ts` regenerado.
+- **Diseño** (`ui-ux-designer`): especificación completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/live-matches-ux.md` —
+  consultar antes de tocar `/partidos`, `/partidos/:id` o cualquier
+  componente de `Match*`. Decisiones clave: 2 rutas (`/partidos` dashboard
+  de cards + `/partidos/:id` detalle), ítem de drawer "Partidos en vivo" en
+  6ª posición de 10, Sheet de alta en wizard de 3 pasos (URL → foto de
+  cupón opcional con preview de legs detectados → confirmar), reloj de
+  partido tickeando localmente en cliente entre polls (no un valor estático
+  hasta el próximo refetch), banner + toggle de notificaciones en Ajustes
+  con copy explícito de la limitación de Web Push en iOS (solo funciona con
+  la PWA instalada a la pantalla de inicio).
+- **Frontend** (`vue-frontend-expert`): store `src/stores/liveMatches.ts`
+  (optimista en pausar/reanudar/quitar; **no** optimista en el alta, mismo
+  motivo que `debts.createDebt` — depende de una RPC server-side que ya
+  hace el primer poll) y `src/stores/pushNotifications.ts` (suscripción Web
+  Push). Vistas nuevas `LiveMatchesView.vue` (`/partidos`) y
+  `MatchDetailView.vue` (`/partidos/:id`). Componentes nuevos
+  `MatchFormSheet.vue`, `MatchStatsRow.vue`, `MatchLegsSummary.vue`.
+  Helpers `src/lib/matchClock.ts`, `src/lib/matchDisplay.ts`,
+  `src/lib/relativeTime.ts`, `src/lib/pushSupport.ts`. **Migración de
+  `vite-plugin-pwa` de `generateSW` a `injectManifest`**
+  (`vite.config.ts`): necesaria porque Web Push requiere listeners propios
+  de `push`/`notificationclick` en el service worker, que `generateSW` no
+  permite agregar — el SW ahora se escribe a mano en `src/sw.ts` (Vite lo
+  compila con esbuild e inyecta el precache en `self.__WB_MANIFEST`),
+  preservando el precache/auto-update que ya funcionaba en producción.
+  `src/sw.ts` excluido del type-check de `vue-tsc --build`
+  (`tsconfig.app.json`) porque corre en contexto Service Worker
+  (`WebWorker`), no DOM. `env.d.ts` tipa `VITE_VAPID_PUBLIC_KEY` (clave
+  pública, segura de exponer en cliente — la privada vive solo en las Edge
+  Functions). `src/views/HomeView.vue`: ítem de drawer nuevo.
+  `SettingsView.vue`: toggle de notificaciones push.
+  - `npm run build` (`vue-tsc --build` + `vite build`) verificado sin
+    errores, tanto por el agente como de forma independiente por el
+    Product Owner.
+- **Deploy**: a diferencia de todas las iteraciones previas (donde el
+  commit/push quedaba pendiente de revisión del usuario), acá el Product
+  Owner autorizó explícitamente commit + push + verificación de deploy
+  como parte del mismo encargo. Commit `e31af94` en `main`, pusheado, y
+  deploy a producción en Vercel verificado directamente vía la API de
+  Vercel (`readyState: READY`, build limpio en 16s, alias
+  `tip-app-lac.vercel.app` actualizado) — primera vez que se verifica el
+  deploy real de esta forma en vez de asumirlo por el auto-deploy de
+  Vercel.
+
+**Deuda técnica nueva de esta iteración**:
+- **El OCR del cupón no funciona hoy** — no es una limitación teórica, se
+  probó y falla: Tesseract.js no corre en el runtime de las Supabase Edge
+  Functions (Deno Deploy), `Worker.prototype.constructor` no está
+  implementado ahí. El flujo degrada correctamente (avisa "no encontramos
+  selecciones, continuá sin cupón" en vez de romperse), pero ningún cupón
+  se lee de verdad todavía. Resolverlo requiere una API de visión externa
+  (Google Vision, AWS Textract, etc.) — decisión pendiente del Product
+  Owner (qué proveedor, nueva API key), evaluada y diferida explícitamente
+  en esta iteración, no un olvido.
+- **Falta agregar `VITE_VAPID_PUBLIC_KEY` al panel de Vercel**
+  (Production/Preview/Development) — hoy solo está en `.env.local`
+  (gitignored). Sin esto, el toggle de notificaciones push va a fallar en
+  producción aunque el resto del deploy esté OK. Pendiente para la próxima
+  sesión (requiere `vercel-devops-expert` o acceso al dashboard, no se hizo
+  en esta iteración porque implica tocar configuración compartida de
+  Vercel sin la CLI instalada localmente).
+- No se probó de punta a punta con un partido en vivo real recibiendo una
+  notificación push real en un dispositivo (mismo caveat recurrente de
+  todas las iteraciones del proyecto: verificación de esta sesión fue
+  build + revisión de código + deploy verificado, no un flujo manual
+  completo en el navegador/celular).
+- El feed de Flashscore es no oficial (`flashscore.ninja`) y el token
+  `x-fsign` es estático — podría rotar y romper el polling sin aviso,
+  igual que en el proyecto Android original. Aislado como secret
+  (`FLASHSCORE_FSIGN`) para poder actualizarlo sin tocar código si rota.
+- Sin archivado automático de partidos finalizados — decisión de producto
+  explícitamente diferida, no un olvido.
 
 Se **separó `card_people` de las contrapartes de deuda** (revierte
 parcialmente una decisión de arquitectura tomada en la iteración anterior,
@@ -1135,49 +1277,68 @@ en todos los anchos).
    revisar las cards resumen/saldo neto/resumen rápido/gráfico "Evolución de
    saldos" con datos reales, y confirmar que el selector de "Persona" en
    `/tarjetas/gestionar` y el de "Contraparte" en Deudas ya NO comparten
-   ninguna persona entre sí** → drawer de 9 ítems (resaltado
-   de ruta activa) → logout → refresh de página (verificar que no hay flash
-   de contenido ni de tema incorrecto) → **probar la instalación real como
-   PWA en un celular** (Chrome Android: banner/menú "Instalar app"; Safari
-   iOS: "Compartir" → "Agregar a pantalla de inicio") una vez deployado. No
-   se hizo en esta iteración ni en las anteriores (la verificación fue build
-   + revisión de código) — recomendado antes de dar estas features por
-   cerradas en producción.
-2. **Estrategia offline real** (opcional, evaluar prioridad): hoy la PWA es
+   ninguna persona entre sí** → **`/partidos`: agregar un partido real
+   pegando una URL de Flashscore (con y sin foto de cupón — con foto, hoy
+   siempre va a mostrar "no encontramos selecciones" porque el OCR no
+   funciona, ver deuda técnica), confirmar que el minuto/reloj tickea en
+   cliente entre polls, activar el toggle de notificaciones push desde
+   Ajustes (instalando la PWA primero si es iOS) y confirmar que llega una
+   notificación real cuando cambia una stat del partido, pausar/reanudar/
+   quitar un partido, y revisar el detalle en `/partidos/:id`** → drawer de
+   10 ítems (resaltado de ruta activa) → logout → refresh de página
+   (verificar que no hay flash de contenido ni de tema incorrecto) →
+   **probar la instalación real como PWA en un celular** (Chrome Android:
+   banner/menú "Instalar app"; Safari iOS: "Compartir" → "Agregar a
+   pantalla de inicio") una vez deployado. No se hizo en esta iteración ni
+   en las anteriores (la verificación fue build + revisión de código,
+   salvo el deploy en sí — ver "Estado actual" arriba, esta vez sí
+   verificado directo contra la API de Vercel) — recomendado antes de dar
+   estas features por cerradas en producción.
+2. **Agregar `VITE_VAPID_PUBLIC_KEY` al panel de Vercel** (Production/
+   Preview/Development) — sin esto el toggle de notificaciones push de
+   "Partidos en vivo" va a fallar en producción aunque el resto de la app
+   funcione bien. Pendiente de esta iteración, ver deuda técnica arriba.
+3. **Resolver el OCR real del cupón de apuestas** (`ocr-betslip`, hoy no
+   funcional porque Tesseract.js no corre en el runtime de Supabase Edge
+   Functions): requiere que el Product Owner elija un proveedor de OCR/
+   visión externo (Google Vision, AWS Textract, OCR.space, etc.) y provea
+   una API key nueva — evaluado y diferido explícitamente en la iteración
+   de "Partidos en vivo", no bloqueante para el resto de la feature.
+4. **Estrategia offline real** (opcional, evaluar prioridad): hoy la PWA es
    instalable pero no "offline-first" — decidir si vale la pena cachear
    algo de los datos de Supabase (p. ej. último snapshot de gastos) para
    una experiencia degradada sin conexión, o si no es prioritario para v1.
-3. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
+5. **Presupuestos** (`budgets`, ya existe la tabla): pantalla de definir
    presupuesto por categoría/mes y barra de progreso (componente `Progress`,
    Fase 2 del design system) — diseñar primero con `ui-ux-designer`.
-4. **Reportes reales**: reemplazar el estado "Próximamente" de `/reportes`
+6. **Reportes reales**: reemplazar el estado "Próximamente" de `/reportes`
    por funcionalidad real (exportar/filtrar) una vez que haya claridad de
    producto sobre qué formato/alcance tiene sentido — hoy es honestamente
    un placeholder, no un MVP recortado.
-5. **Revisar el orden de categorías default**: agregar columna `sort_order`
+7. **Revisar el orden de categorías default**: agregar columna `sort_order`
    en `categories` con `supabase-backend-expert` si el orden fijo de
    categorías (Comida, Transporte, ...) necesita quedar garantizado (ver
    deuda técnica arriba).
-6. **Revisar la paleta de colores de categorías** (hallazgo de esta
+8. **Revisar la paleta de colores de categorías** (hallazgo de esta
    iteración, ver arriba): el par Vivienda/Transporte no separa lo
    suficiente para daltonismo — evaluar una migración de colores con
    `supabase-backend-expert` + `ui-ux-designer`.
-7. **`AppShell` compartido**: si a futuro se quiere un sidebar persistente
+9. **`AppShell` compartido**: si a futuro se quiere un sidebar persistente
    en desktop (descartado en esta iteración por ser retrabajo grande sin un
    layout compartido hoy), es el momento de extraerlo — candidato natural
-   una vez que el número de secciones (hoy 9) se estabilice.
-8. **`AccountDetailView`** (opcional, no pedido todavía): historial de
-   movimientos por cuenta, análogo a `CardDetailView.vue` — candidata
-   natural si el Product Owner pide poder ver el detalle de una cuenta
-   puntual (hoy las tiles de "Mis cuentas" y las filas de `/cuentas` son de
-   solo lectura/gestión, sin detalle; `/deudas/:id` sí tiene detalle propio,
-   ver arriba).
-9. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
-   grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement
-   automático entre usuarios reales. Requiere rediseño de esquema (tablas de
-   grupos/miembros) y de UX; no mezclar con el modelo mono-usuario actual
-   (distinto también de Deudas/Préstamos, ya implementado arriba, que es
-   1:1 sin grupos ni multi-usuario real).
+   una vez que el número de secciones (hoy 10) se estabilice.
+10. **`AccountDetailView`** (opcional, no pedido todavía): historial de
+    movimientos por cuenta, análogo a `CardDetailView.vue` — candidata
+    natural si el Product Owner pide poder ver el detalle de una cuenta
+    puntual (hoy las tiles de "Mis cuentas" y las filas de `/cuentas` son de
+    solo lectura/gestión, sin detalle; `/deudas/:id` sí tiene detalle propio,
+    ver arriba).
+11. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
+    grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement
+    automático entre usuarios reales. Requiere rediseño de esquema (tablas de
+    grupos/miembros) y de UX; no mezclar con el modelo mono-usuario actual
+    (distinto también de Deudas/Préstamos, ya implementado arriba, que es
+    1:1 sin grupos ni multi-usuario real).
 
 ## Convenciones y principios del proyecto
 
