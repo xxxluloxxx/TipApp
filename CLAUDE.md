@@ -59,6 +59,114 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se reemplazó el campo manual "Link del partido" del alta de "Partidos en
+vivo" (ver bloque completo de esa feature más abajo) por un **buscador
+automático de partidos en vivo o por jugar** (nunca finalizados ni de días
+pasados) — pedido explícito del Product Owner tras usar la feature y notar
+que copiar la URL de Flashscore a mano era fricción innecesaria. Antes de
+delegar la implementación, el Product Owner (esta sesión) **reverse-engineó
+personalmente** (probando con `fetch` real, no fue un agente) un feed
+HERMANO de Flashscore que no estaba documentado en ningún lado del proyecto
+FottStat ni de TipApp:
+
+- **URL**: `https://2.flashscore.ninja/2/x/feed/f_1_<dayOffset>_3_en_1` —
+  mismo host y mismo header `x-fsign` que ya usan `add-match`/`poll-matches`
+  para el feed de estadísticas por partido. `dayOffset`: `0`=hoy, `1`=mañana,
+  etc.; confirmado con fetches reales que offsets negativos devuelven días
+  pasados (**por eso nunca se piden**) y que cada offset positivo avanza un
+  día calendario.
+- Devuelve ~300-900 partidos por día agrupados por liga, con un **código de
+  estado** (`AB`/`CR`, idénticos entre sí): `1`=no empezó, `2`=en vivo,
+  `3`=finalizado — confirmado correlacionando el timestamp de kickoff (`AD`)
+  contra la hora real: partidos con kickoff muchas horas atrás tenían
+  siempre `3`, partidos con kickoff futuro siempre `1`.
+- El **matchId** de este feed (`AA÷<id>`, 8 caracteres alfanuméricos) es el
+  mismo formato exacto que el `mid` que ya extrae `extractMatchId` del feed
+  de estadísticas — **compatible 1:1 sin ningún cambio en el pipeline de
+  polling ya existente**, fue la validación clave antes de comprometerse a
+  implementar esto.
+
+Con ese contrato ya validado, se delegó la implementación completa a
+`product-owner-tipapp` (backend + diseño + frontend en una sola pasada):
+
+- **Backend** (`supabase-backend-expert`): Edge Function nueva
+  `search-matches` (JWT de usuario, sin `service_role` — no toca tablas
+  propias, solo hace de proxy/parser del feed público) que pide el feed de
+  arriba, filtra con **allowlist** (solo estado `1`/`2`; cualquier código no
+  reconocido se descarta también, no solo el `3` explícito — más
+  conservador ante estados no vistos como pospuesto/cancelado) y filtra por
+  nombre de equipo si viene `query` (2+ caracteres, case/diacritic-
+  insensitive). Nunca reenvía el texto crudo del feed al cliente (mismo
+  criterio que `add-match`/`poll-matches`). Reusa el parser genérico
+  `parseRecords`/`epochToIso` de `flashscoreFeed.ts` ya existente — no
+  duplicó lógica de parseo. `flashscoreClient.ts`: `fetchDayFeed()` nueva
+  (sin soporte de ETag a diferencia de `fetchFeed`, porque se pide una vez
+  por búsqueda, no en loop de poll). `add-match`: extendido de forma
+  **retrocompatible** — acepta `{ matchId, homeTeam, awayTeam, competition
+  }` directo del picker (salta el scrape HTML `fetchMeta`, redundante
+  cuando el partido ya viene resuelto) manteniendo el camino legacy `{ url
+  }` intacto (compat con una PWA vieja cacheada que todavía no actualizó su
+  service worker). Si no hay `url` real, arma una sintética
+  `?mid=<matchId>` para el link "Ver en Flashscore" (`flashscore_url` sigue
+  siendo `NOT NULL`). Verificado con fetches reales contra el feed
+  (667 partidos de un día, 0 finalizados en la salida filtrada) y guard de
+  duplicado probado con dos usuarios.
+- **Diseño** (`ui-ux-designer`): sección 5.1 de `docs/features/
+  live-matches-ux.md` reescrita — buscador con debounce de 350ms (primer
+  debounce del proyecto) + selector de día (4 pastillas: Hoy/Mañana/Pasado
+  mañana/En 3 días, tap = refetch inmediato sin debounce) + lista de
+  resultados (liga como subtítulo, badge "En vivo" con ícono pulsante o
+  hora de kickoff, fila deshabilitada con "Ya lo seguís" para duplicados) +
+  vista de "partido elegido" (chip + botón "Cambiar") antes del paso de
+  foto opcional — 5 estados del contenedor (carga con skeletons/error/
+  vacío-con-query/vacío-sin-query/resultados). El resto del wizard (paso 2
+  OCR client-side, paso 3 review) no cambió.
+- **Frontend** (`vue-frontend-expert`): `src/stores/liveMatches.ts`:
+  `SearchMatch` + `searchMatches()` (mismo patrón discriminante
+  `{ matches } | { errorCode }` que `addMatch`), `addMatch()` con firma
+  nueva (`matchId`/`homeTeam`/`awayTeam`/`league` en vez de `url` —
+  cuidado: el campo del backend sigue llamándose `competition`, se mapea
+  `competition: league ?? undefined`). `MatchFormSheet.vue`: paso 1
+  reescrito por completo según la spec, `requestId` incremental para
+  descartar respuestas de búsqueda obsoletas si el usuario cambia de día/
+  query mientras una está en vuelo; código muerto del campo URL manual
+  eliminado (`validateUrl`, `extractMid`, `errors.url`, `form.url`).
+  `src/lib/matchClock.ts`: `formatKickoffTime()` exportado (antes privado),
+  reusado sin duplicar.
+  - `npm run build` (`vue-tsc --build` + `vite build`) verificado sin
+    errores, tanto por el agente como de forma independiente por el
+    Product Owner.
+- **Deploy**: commit `cf5e8bd` en `main`, pusheado, deploy a producción en
+  Vercel verificado `READY` vía la API de Vercel. Edge Functions `search-
+  matches` (nueva) y `add-match` (actualizada) confirmadas `ACTIVE` en el
+  proyecto remoto real vía `supabase functions list`. De paso, se eliminó
+  la Edge Function `ocr-betslip` del proyecto remoto (`supabase functions
+  delete`) — había quedado activa pero huérfana desde que el OCR se migró
+  a client-side (ver más abajo, "Corrección post-deploy"), sin código
+  correspondiente en el repo desde ese commit.
+
+**Deuda técnica nueva de esta iteración**:
+- **No se probó un alta completa en el navegador** con un partido real
+  elegido desde el buscador nuevo (elegir de la lista → confirmar → ver el
+  detalle en `MatchDetailView` con nombres/hora/estado correctos) — mismo
+  caveat recurrente de todas las iteraciones del proyecto, verificación fue
+  build + revisión de código + fetches reales contra el feed (no contra la
+  UI en un navegador).
+- **La URL sintética `?mid=<matchId>` no se abrió en un navegador** para
+  confirmar que el link "Ver en Flashscore" de `MatchDetailView` resuelve
+  bien cuando el partido se agregó por el buscador (sin una URL real de
+  Flashscore de por medio).
+- Búsqueda acotada a **4 días hacia adelante** (`dayOffset` 0-3) — alcance
+  fijado como razonable, ampliable si hace falta.
+- El feed de listado usa el mismo token estático `x-fsign` que el feed de
+  estadísticas — mismo riesgo ya conocido de que rote y rompa ambos a la
+  vez (ver deuda técnica de la feature original más abajo).
+- Quedó un usuario de prueba sin confirmar
+  (`claude-search-matches-test-*@bayteq.com`) en `auth.users` del proyecto
+  remoto, creado por el agente de backend al probar el guard de RLS/JWT —
+  inofensivo (sin acceso a ninguna tabla con datos reales), pendiente de
+  borrado manual si se quiere dejar `auth.users` prolijo.
+
 Se agregó **Partidos en vivo**, una feature de utilidad personal sin
 relación con el dominio financiero de la app (ver nota de alcance arriba):
 seguimiento de partidos de fútbol en vivo (feeds no oficiales de
@@ -1304,12 +1412,16 @@ en todos los anchos).
    revisar las cards resumen/saldo neto/resumen rápido/gráfico "Evolución de
    saldos" con datos reales, y confirmar que el selector de "Persona" en
    `/tarjetas/gestionar` y el de "Contraparte" en Deudas ya NO comparten
-   ninguna persona entre sí** → **`/partidos`: agregar un partido real
-   pegando una URL de Flashscore (con y sin foto de cupón — con foto, hoy
-   siempre va a mostrar "no encontramos selecciones" porque el OCR no
-   funciona, ver deuda técnica), confirmar que el minuto/reloj tickea en
-   cliente entre polls, activar el toggle de notificaciones push desde
-   Ajustes (instalando la PWA primero si es iOS) y confirmar que llega una
+   ninguna persona entre sí** → **`/partidos`: buscar y elegir un partido
+   real desde el buscador nuevo (por nombre de equipo y por día, ver "Estado
+   actual" arriba — ya NO se pega una URL a mano), con y sin foto de cupón
+   (el OCR client-side con Tesseract.js ya funciona de verdad, verificado
+   con una foto real de Betano — ver "Corrección post-deploy"; ojo que un
+   cupón "combinada" con selecciones de 2+ partidos distintos es una
+   limitación conocida, ver esa misma sección), confirmar que el minuto/
+   reloj tickea en cliente entre polls, activar el toggle de notificaciones
+   push desde Ajustes (instalando la PWA primero si es iOS — la clave
+   pública VAPID ya está configurada en Vercel) y confirmar que llega una
    notificación real cuando cambia una stat del partido, pausar/reanudar/
    quitar un partido, y revisar el detalle en `/partidos/:id`** → drawer de
    10 ítems (resaltado de ruta activa) → logout → refresh de página
@@ -1321,10 +1433,10 @@ en todos los anchos).
    salvo el deploy en sí — ver "Estado actual" arriba, esta vez sí
    verificado directo contra la API de Vercel) — recomendado antes de dar
    estas features por cerradas en producción.
-2. **Agregar `VITE_VAPID_PUBLIC_KEY` al panel de Vercel** (Production/
-   Preview/Development) — sin esto el toggle de notificaciones push de
-   "Partidos en vivo" va a fallar en producción aunque el resto de la app
-   funcione bien. Pendiente de esta iteración, ver deuda técnica arriba.
+2. ~~Agregar `VITE_VAPID_PUBLIC_KEY` al panel de Vercel~~ — **resuelto**:
+   ya está configurada en Production/Preview/Development (vía Vercel CLI,
+   autenticado con la sesión ya vinculada del plugin) y redeployada a
+   producción.
 3. ~~Resolver el OCR real del cupón de apuestas~~ — **resuelto el mismo
    día de la iteración de "Partidos en vivo"**: se movió a Tesseract.js
    client-side en `MatchFormSheet.vue`, gratis y sin API key externa (ver
