@@ -17,6 +17,7 @@ import { useAccountTransfersStore } from '@/stores/accountTransfers'
 import { useCategoriesStore } from '@/stores/categories'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
+import { buildTransactionItems, type TransactionItem } from '@/lib/transactionItems'
 import { formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, resolveAccountColor } from '@/lib/colors'
@@ -106,32 +107,15 @@ onMounted(async () => {
 // Sheet de alta quedaría roto.
 const showMainActions = computed(() => !isInitialLoading.value && !loadError.value)
 
-type TransactionItem =
-  | { kind: 'expense', id: string, date: string, data: ExpenseWithCategory }
-  | { kind: 'income', id: string, date: string, data: IncomeWithAccount }
-
-// Sección 7.5: gasto e ingreso conviven en una sola lista, ordenada
-// `date desc` (cada store ya trae su propia lista `expense_date`/
-// `income_date desc, created_at desc`, así que solo hace falta un merge +
-// re-orden por fecha).
-const mergedItems = computed<TransactionItem[]>(() => {
-  const expenseItems: TransactionItem[] = expensesStore.expenses.map(expense => ({
-    kind: 'expense',
-    id: expense.id,
-    date: expense.expense_date,
-    data: expense,
-  }))
-  const incomeItems: TransactionItem[] = incomesStore.incomes.map(income => ({
-    kind: 'income',
-    id: income.id,
-    date: income.income_date,
-    data: income,
-  }))
-  return [...expenseItems, ...incomeItems].sort((a, b) => {
-    if (a.date !== b.date) return a.date < b.date ? 1 : -1
-    return b.data.created_at.localeCompare(a.data.created_at)
-  })
-})
+// Sección 7.5 + account-transfers-ux.md sección 6.4: gasto, ingreso y las 2
+// caras sintéticas de cada transferencia conviven en una sola lista ordenada
+// `date desc`. El merge/orden vive en `buildTransactionItems` (compartido con
+// "Transacciones recientes" de HomeView para que el union de 4 variantes no se
+// desincronice entre las dos vistas). Los ítems de transferencia NO tocan
+// `expensesStore`/`incomesStore` ni ningún total agregado.
+const mergedItems = computed<TransactionItem[]>(() =>
+  buildTransactionItems(expensesStore.expenses, incomesStore.incomes, accountTransfersStore.transfers),
+)
 
 const isEmpty = computed(() => mergedItems.value.length === 0)
 
@@ -162,35 +146,83 @@ function openAddSheet() {
   editingTransaction.value = null
   isSheetOpen.value = true
 }
+// Solo se invoca sobre filas reales de gasto/ingreso (los ítems de
+// transferencia no ofrecen "Editar" en su menú, sección 6.4.5).
 function openEditSheet(item: TransactionItem) {
-  editingTransaction.value = item.kind === 'expense'
-    ? { kind: 'expense', expense: item.data }
-    : { kind: 'income', income: item.data }
+  if (item.kind === 'expense') {
+    editingTransaction.value = { kind: 'expense', expense: item.data }
+  } else if (item.kind === 'income') {
+    editingTransaction.value = { kind: 'income', income: item.data }
+  } else {
+    return
+  }
   isSheetOpen.value = true
 }
 
 function deleteItem(item: TransactionItem) {
   if (item.kind === 'expense') {
     expensesStore.deleteExpense(item.id)
-  } else {
+  } else if (item.kind === 'income') {
     incomesStore.deleteIncome(item.id)
   }
 }
 
-// Sección 7.5: título/subtítulo/estilo por tipo de fila.
+// account-transfers-ux.md sección 6.4: un ítem sintético de transferencia
+// (`transfer-out`/`transfer-in`) no es un recurso propio.
+function isTransfer(item: TransactionItem): boolean {
+  return item.kind === 'transfer-out' || item.kind === 'transfer-in'
+}
+// Filas con monto en verde y signo `+`: ingreso real y la cara de entrada de
+// una transferencia (sección 6.4.2). El resto (gasto real —sección 6.6— y la
+// cara de salida) va en `text-destructive`.
+function isPositive(item: TransactionItem): boolean {
+  return item.kind === 'income' || item.kind === 'transfer-in'
+}
+// El fondo `opacity-70` de "guardando…" solo aplica a gasto/ingreso optimistas
+// (`_pending`); una transferencia no es optimista y su `data` no lo modela.
+function itemPending(item: TransactionItem): boolean {
+  return (item.kind === 'expense' || item.kind === 'income') && !!item.data._pending
+}
+
+function accountName(id: string): string {
+  return accountsStore.accountById(id)?.name ?? 'Cuenta'
+}
+function accountColor(id: string): string {
+  return accountsStore.accountById(id)?.color ?? '#6b7280'
+}
+
+// Sección 7.5 + 6.4.1: título por tipo de fila. El título de una transferencia
+// nombra "la otra punta" (destino para la salida, origen para la entrada), no
+// la cuenta de su propio badge.
 function itemTitle(item: TransactionItem): string {
-  if (item.kind === 'expense') return item.data.description || item.data.category.name
-  return item.data.description || 'Ingreso'
+  switch (item.kind) {
+    case 'expense': return item.data.description || item.data.category.name
+    case 'income': return item.data.description || 'Ingreso'
+    case 'transfer-out': return `Transferencia a ${accountName(item.data.to_account_id)}`
+    case 'transfer-in': return `Transferencia desde ${accountName(item.data.from_account_id)}`
+  }
 }
-function itemSubtitle(item: TransactionItem): string {
-  return item.kind === 'expense' ? item.data.category.name : item.data.account.name
+// Badge sólido (clasificador primario de la fila, sección 6.4.3/6.5): categoría
+// en un gasto, cuenta en un ingreso, y la cuenta de la propia cara de la
+// transferencia (origen en la salida, destino en la entrada).
+function primaryBadgeText(item: TransactionItem): string {
+  switch (item.kind) {
+    case 'expense': return item.data.category.name
+    case 'income': return item.data.account.name
+    case 'transfer-out': return accountName(item.data.from_account_id)
+    case 'transfer-in': return accountName(item.data.to_account_id)
+  }
 }
-function itemBadgeColor(item: TransactionItem): string | undefined {
-  if (item.kind === 'expense') return item.data.category.color ?? undefined
-  return resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow.value)
+function primaryBadgeColor(item: TransactionItem): string | undefined {
+  switch (item.kind) {
+    case 'expense': return item.data.category.color ?? undefined
+    case 'income': return resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow.value)
+    case 'transfer-out': return resolveAccountColor(accountColor(item.data.from_account_id), isDarkNow.value)
+    case 'transfer-in': return resolveAccountColor(accountColor(item.data.to_account_id), isDarkNow.value)
+  }
 }
 function itemDeleteTitle(item: TransactionItem): string {
-  return item.kind === 'expense' ? '¿Eliminar este gasto?' : '¿Eliminar este ingreso?'
+  return item.kind === 'income' ? '¿Eliminar este ingreso?' : '¿Eliminar este gasto?'
 }
 
 // account-transfers-ux.md sección 6.3: un gasto generado por la comisión de
@@ -272,26 +304,42 @@ function goToTransfers() {
               v-for="item in group.items"
               :key="`${item.kind}-${item.id}`"
               class="p-4 sm:p-6"
-              :class="{ 'opacity-70': item.data._pending }"
+              :class="{ 'opacity-70': itemPending(item) }"
             >
               <div class="flex items-start justify-between gap-3">
-                <div class="flex flex-col gap-1.5">
+                <div class="flex min-w-0 flex-col gap-1.5">
                   <div class="flex items-center gap-1.5">
-                    <ArrowDownCircle v-if="item.kind === 'income'" class="size-4 shrink-0 text-success" />
+                    <ArrowDownCircle v-if="isPositive(item)" class="size-4 shrink-0 text-success" />
                     <p class="font-medium">
                       {{ itemTitle(item) }}
                     </p>
                   </div>
                   <div class="flex flex-wrap items-center gap-1.5">
+                    <!-- Badge sólido: clasificador primario de la fila (6.4.3/6.5). -->
                     <Badge
                       class="w-fit border-transparent"
                       :style="{
-                        backgroundColor: itemBadgeColor(item),
-                        color: readableTextColor(itemBadgeColor(item)),
+                        backgroundColor: primaryBadgeColor(item),
+                        color: readableTextColor(primaryBadgeColor(item)),
                       }"
                     >
-                      {{ itemSubtitle(item) }}
+                      {{ primaryBadgeText(item) }}
                     </Badge>
+                    <!-- Sección 6.5: cuenta de un gasto real como marcador
+                         secundario (outline + punto de color), nunca sólido. -->
+                    <Badge v-if="item.kind === 'expense'" variant="outline" class="w-fit gap-1.5">
+                      <span
+                        class="size-2 shrink-0 rounded-full"
+                        :style="{ backgroundColor: resolveAccountColor(accountColor(item.data.account_id), isDarkNow) }"
+                      />
+                      {{ accountName(item.data.account_id) }}
+                    </Badge>
+                    <!-- Sección 6.4.4: marca de ítem sintético de transferencia. -->
+                    <Badge v-if="isTransfer(item)" variant="outline" class="w-fit gap-1">
+                      <ArrowRightLeft class="size-3" />
+                      Transferencia entre cuentas
+                    </Badge>
+                    <!-- Sección 6.3: gasto real que proviene de una comisión. -->
                     <Badge v-if="isTransferCommission(item)" variant="outline" class="w-fit gap-1">
                       <ArrowRightLeft class="size-3" />
                       Vinculado a una transferencia
@@ -302,9 +350,9 @@ function goToTransfers() {
                 <div class="flex items-center gap-2">
                   <p
                     class="text-right text-base font-semibold tabular-nums"
-                    :class="item.kind === 'income' ? 'text-success' : 'text-foreground'"
+                    :class="isPositive(item) ? 'text-success' : 'text-destructive'"
                   >
-                    <span class="text-sm font-normal text-muted-foreground">{{ item.kind === 'income' ? '+$' : '$' }}</span>{{ formatAmount(item.data.amount) }}
+                    <span class="text-sm font-normal text-muted-foreground">{{ isPositive(item) ? '+$' : '$' }}</span>{{ formatAmount(item.data.amount) }}
                   </p>
 
                   <DropdownMenu>
@@ -314,10 +362,10 @@ function goToTransfers() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <!-- Comisión de transferencia: no se edita/borra desde
-                           acá (sección 6.3), sólo se navega a la transferencia
-                           dueña que maneja el efecto combinado. -->
-                      <template v-if="isTransferCommission(item)">
+                      <!-- Ítem sintético de transferencia (6.4.5) o gasto de
+                           comisión (6.3): no se edita/borra desde acá, sólo se
+                           navega a la transferencia dueña. -->
+                      <template v-if="isTransfer(item) || isTransferCommission(item)">
                         <DropdownMenuItem @select="goToTransfers">
                           <ArrowRightLeft class="size-4" />
                           Ver transferencia

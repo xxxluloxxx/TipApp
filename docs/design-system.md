@@ -164,11 +164,31 @@ Regla dura: **el color nunca es el único indicador**. Un badge o barra de
 progreso en estos colores siempre va acompañado de texto o ícono (ver sección
 de a11y).
 
-**No pintar de rojo cada monto de gasto.** Todos los montos en v1 son gastos
-(no hay ingresos todavía), así que colorear cada fila de rojo sería ruido
-visual constante y le quitaría peso a las alertas reales. Los montos usan el
-color de texto normal (`foreground`); reservar `destructive`/`success` para
-estados de presupuesto, no para el signo del monto.
+~~**No pintar de rojo cada monto de gasto.** Todos los montos en v1 son
+gastos (no hay ingresos todavía), así que colorear cada fila de rojo sería
+ruido visual constante y le quitaría peso a las alertas reales. Los montos
+usan el color de texto normal (`foreground`); reservar `destructive`/
+`success` para estados de presupuesto, no para el signo del monto.~~
+
+**Corregido — `docs/features/account-transfers-ux.md` sección 6.4**: la
+premisa de arriba ("no hay ingresos todavía") ya no es cierta desde la
+feature de Cuentas + Ingresos — hoy gasto e ingreso conviven en la misma
+lista (Transacciones/"Transacciones recientes" de Inicio) y el ingreso
+**ya** usa `text-success` verde para su monto. Dejar el gasto en
+`foreground` neutro mientras el ingreso es verde no es "restringir el color
+a alertas reales", es una asimetría que obliga a leer el signo (`+`) para
+saber si un monto es positivo o negativo en vez de poder leerlo por color a
+simple vista — exactamente el patrón "rojo gasta / verde ingresa" que ya
+usan sin excepción bancos y apps financieras de referencia. **Regla nueva
+vigente**: el monto de un gasto usa `text-destructive`; el de un ingreso
+sigue usando `text-success` (sin cambios ahí). Esto no reabre la regla dura
+de arriba ("el color nunca es el único indicador"): cada fila sigue
+mostrando signo (`$`/`+$`) y badges de categoría/cuenta en texto, el color
+es refuerzo, no el único indicador. `success`/`warning`/`destructive`
+siguen reservados para estados de presupuesto **además** de este uso ya
+existente/confirmado para el signo del monto — no hay conflicto porque
+nunca compiten en la misma superficie (un badge de presupuesto y el monto
+de una fila de transacción no aparecen juntos en el mismo componente).
 
 ### Colores de categoría (badges)
 

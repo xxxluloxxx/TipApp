@@ -4,6 +4,7 @@ import { useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowDownCircle,
+  ArrowRightLeft,
   ArrowUp,
   ArrowDown,
   CircleDollarSign,
@@ -14,10 +15,12 @@ import {
   Scale,
 } from '@lucide/vue'
 import { useAccountsStore } from '@/stores/accounts'
+import { useAccountTransfersStore } from '@/stores/accountTransfers'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
-import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
-import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
+import { useExpensesStore } from '@/stores/expenses'
+import { useIncomesStore } from '@/stores/incomes'
+import { buildTransactionItems, type TransactionItem } from '@/lib/transactionItems'
 import { currentMonthLabel, formatExpenseDateHeading, parseDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
@@ -42,6 +45,7 @@ const expensesStore = useExpensesStore()
 const incomesStore = useIncomesStore()
 const categoriesStore = useCategoriesStore()
 const accountsStore = useAccountsStore()
+const accountTransfersStore = useAccountTransfersStore()
 
 const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
@@ -62,6 +66,10 @@ async function loadAll() {
       incomesStore.fetchAll(),
       accountsStore.fetchAccounts(),
       accountsStore.fetchBalances(),
+      // account-transfers-ux.md sección 6.4: alimenta los 2 ítems sintéticos
+      // de transferencia de "Transacciones recientes". Su fallo no bloquea la
+      // vista (degradación: sin esas filas).
+      accountTransfersStore.fetchAll(),
     ])
     if (expensesStore.error || incomesStore.error) loadError.value = true
   } finally {
@@ -160,41 +168,57 @@ const topAccounts = computed(() =>
     .slice(0, 5),
 )
 
-type TransactionItem =
-  | { kind: 'expense', id: string, date: string, data: ExpenseWithCategory }
-  | { kind: 'income', id: string, date: string, data: IncomeWithAccount }
+// Sección 7.5 + account-transfers-ux.md sección 6.4: "Transacciones recientes"
+// mezcla gasto, ingreso y las 2 caras sintéticas de cada transferencia,
+// ordenadas por fecha desc — mismo merge compartido que `TransactionsView.vue`
+// (`buildTransactionItems`), recortado a las últimas 5 (sigue siendo de solo
+// lectura). Los ítems de transferencia no tocan ningún total agregado.
+const recentItems = computed<TransactionItem[]>(() =>
+  buildTransactionItems(expensesStore.expenses, incomesStore.incomes, accountTransfersStore.transfers).slice(0, 5),
+)
 
-// Sección 7.5: "Transacciones recientes" mezcla gasto e ingreso, ordenadas
-// por fecha desc — mismo criterio de merge que `TransactionsView.vue`,
-// recortado a las últimas 5 (sección 2.4, sin cambios de alcance: sigue
-// siendo de solo lectura).
-const recentItems = computed<TransactionItem[]>(() => {
-  const expenseItems: TransactionItem[] = expensesStore.expenses.map(expense => ({
-    kind: 'expense',
-    id: expense.id,
-    date: expense.expense_date,
-    data: expense,
-  }))
-  const incomeItems: TransactionItem[] = incomesStore.incomes.map(income => ({
-    kind: 'income',
-    id: income.id,
-    date: income.income_date,
-    data: income,
-  }))
-  return [...expenseItems, ...incomeItems]
-    .sort((a, b) => {
-      if (a.date !== b.date) return a.date < b.date ? 1 : -1
-      return b.data.created_at.localeCompare(a.data.created_at)
-    })
-    .slice(0, 5)
-})
-
-function itemTitle(item: TransactionItem): string {
-  if (item.kind === 'expense') return item.data.description || item.data.category.name
-  return item.data.description || 'Ingreso'
+function accountName(id: string): string {
+  return accountsStore.accountById(id)?.name ?? 'Cuenta'
 }
+function accountColor(id: string): string {
+  return accountsStore.accountById(id)?.color ?? '#6b7280'
+}
+
+// Filas con monto en verde y signo `+`: ingreso real y la cara de entrada de
+// una transferencia (sección 6.4.2). Gasto real (sección 6.6) y la cara de
+// salida van en `text-destructive`.
+function isPositive(item: TransactionItem): boolean {
+  return item.kind === 'income' || item.kind === 'transfer-in'
+}
+
+// Sección 6.4.1: el título de una transferencia nombra "la otra punta"
+// (destino para la salida, origen para la entrada).
+function itemTitle(item: TransactionItem): string {
+  switch (item.kind) {
+    case 'expense': return item.data.description || item.data.category.name
+    case 'income': return item.data.description || 'Ingreso'
+    case 'transfer-out': return `Transferencia a ${accountName(item.data.to_account_id)}`
+    case 'transfer-in': return `Transferencia desde ${accountName(item.data.from_account_id)}`
+  }
+}
+// Sección 6.5: el subtítulo de un gasto real pasa a "Categoría · Cuenta" (sin
+// punto de color, ese layout ya usa el color en el círculo del ícono). El de
+// una transferencia nombra la cuenta de su propia cara (origen en la salida,
+// destino en la entrada), coherente con el color del círculo.
 function itemSubtitle(item: TransactionItem): string {
-  return item.kind === 'expense' ? item.data.category.name : item.data.account.name
+  switch (item.kind) {
+    case 'expense': return `${item.data.category.name} · ${accountName(item.data.account_id)}`
+    case 'income': return item.data.account.name
+    case 'transfer-out': return accountName(item.data.from_account_id)
+    case 'transfer-in': return accountName(item.data.to_account_id)
+  }
+}
+// Color del círculo del ícono de una transferencia (6.4.2): origen para la
+// salida, destino para la entrada.
+function transferCircleColor(item: TransactionItem): string {
+  if (item.kind === 'transfer-out') return resolveAccountColor(accountColor(item.data.from_account_id), isDarkNow.value)
+  if (item.kind === 'transfer-in') return resolveAccountColor(accountColor(item.data.to_account_id), isDarkNow.value)
+  return resolveAccountColor('#6b7280', isDarkNow.value)
 }
 
 // Sección 2.6: desde el estado vacío, "Agregar tu primer gasto" navega a
@@ -448,6 +472,7 @@ function goAddFirstExpense() {
             <template v-for="(item, idx) in recentItems" :key="`${item.kind}-${item.id}`">
               <Separator v-if="idx > 0" />
               <div class="flex items-center gap-3 px-6 py-3">
+                <!-- Gasto real: círculo con color de categoría + emoji. -->
                 <span
                   v-if="item.kind === 'expense'"
                   class="flex size-9 shrink-0 items-center justify-center rounded-full border"
@@ -455,12 +480,23 @@ function goAddFirstExpense() {
                 >
                   <span v-if="item.data.category.icon" class="text-sm leading-none">{{ item.data.category.icon }}</span>
                 </span>
+                <!-- Ingreso real: círculo con color de cuenta + ArrowDownCircle. -->
                 <span
-                  v-else
+                  v-else-if="item.kind === 'income'"
                   class="flex size-9 shrink-0 items-center justify-center rounded-full border"
                   :style="{ backgroundColor: withAlpha(resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow), 0.12), borderColor: resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow) }"
                 >
                   <ArrowDownCircle class="size-4" :style="{ color: resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow) }" />
+                </span>
+                <!-- Transferencia (6.4.2): círculo con color de su propia cara
+                     (origen/destino) + ArrowRightLeft, NO ArrowDownCircle (que
+                     se reserva para ingreso real en este layout sin badge). -->
+                <span
+                  v-else
+                  class="flex size-9 shrink-0 items-center justify-center rounded-full border"
+                  :style="{ backgroundColor: withAlpha(transferCircleColor(item), 0.12), borderColor: transferCircleColor(item) }"
+                >
+                  <ArrowRightLeft class="size-4" :style="{ color: transferCircleColor(item) }" />
                 </span>
                 <div class="flex min-w-0 flex-1 flex-col">
                   <p class="truncate text-sm font-medium">
@@ -473,9 +509,9 @@ function goAddFirstExpense() {
                 <div class="flex flex-col items-end gap-0.5">
                   <p
                     class="text-sm font-semibold tabular-nums"
-                    :class="item.kind === 'income' ? 'text-success' : 'text-foreground'"
+                    :class="isPositive(item) ? 'text-success' : 'text-destructive'"
                   >
-                    {{ item.kind === 'income' ? '+' : '' }}${{ formatAmount(item.data.amount) }}
+                    {{ isPositive(item) ? '+' : '' }}${{ formatAmount(item.data.amount) }}
                   </p>
                   <p class="text-xs text-muted-foreground">
                     {{ formatExpenseDateHeading(item.date) }}

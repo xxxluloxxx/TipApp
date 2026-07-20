@@ -840,6 +840,366 @@ significativamente más barata de implementar y no bloquea el resto de
 esta feature. Se deja explícitamente a criterio del Product Owner cuál
 de las dos priorizar, con la recomendación técnica ya sentada.
 
+### 6.4 El monto transferido en sí sigue invisible como fila real — pero se agregan 2 ítems VISUALES SINTÉTICOS para que deje de ser invisible en el historial
+
+**Problema real detectado en producción** (Product Owner, tras usar la
+feature): la sección 1.1 confirmó correctamente que el monto transferido
+nunca debe ser una fila real de `expenses`/`incomes` (evita el doble
+conteo). Pero esa decisión, correcta a nivel de datos, dejó un agujero de
+UX no anticipado: en `/transacciones` y en "Transacciones recientes" de
+Inicio, una transferencia hoy **solo** se ve si tuvo comisión (la fila real
+de "Comisiones bancarias", sección 6.3) — si la comisión fue $0 (sección
+1.2, el caso más común entre cuentas propias del mismo usuario), la
+transferencia **no deja ningún rastro visible** en ninguno de los dos
+listados. El usuario ve bajar el saldo de una cuenta y subir el de otra sin
+ninguna fila que explique por qué, salvo que recuerde ir a
+`/transferencias` a buscarla.
+
+**Solución: 2 ítems visuales sintéticos por transferencia, derivados en el
+propio componente, nunca en el backend.** Mismo espíritu exacto que ya usa
+`linkedExpenseIds`/`isTransferCommission` (sección 6.3) para saber qué fila
+de `expenses` viene de una comisión: **no hay tabla ni columna nueva**, el
+componente deriva estos 2 ítems en el `computed` de merge
+(`mergedItems`/`recentItems`) a partir de
+`accountTransfersStore.transfers`, con la misma fuente de datos que ya se
+carga para resolver `linkedExpenseIds`. No confundir con una fila real:
+estos 2 ítems no tienen `id` propio en ninguna tabla, no se pueden editar
+ni borrar como recurso propio (su edición/borrado real sigue viviendo
+exclusivamente en `/transferencias`, sección 4.3), y no participan de
+ningún total/agregado calculado en cliente (`monthTotal`, deltas, dona) —
+esos siguen sumando exclusivamente `expensesStore`/`incomesStore`, sin
+tocarse por este cambio.
+
+**Extensión del tipo discriminante `TransactionItem`** (ambas vistas
+duplican hoy este tipo, sección 3 nota de cabecera de
+`TransactionsView.vue`): agregar 2 variantes nuevas al union ya existente
+(`{ kind: 'expense', ... } | { kind: 'income', ... }`):
+
+```ts
+// Ilustrativo — mismo union ya existente en TransactionsView.vue/HomeView.vue,
+// extendido con las 2 variantes sintéticas de esta sección.
+type TransactionItem =
+  | { kind: 'expense', id: string, date: string, data: ExpenseWithCategory }
+  | { kind: 'income', id: string, date: string, data: IncomeWithAccount }
+  | { kind: 'transfer-out', id: string, date: string, data: AccountTransfer } // NUEVO
+  | { kind: 'transfer-in', id: string, date: string, data: AccountTransfer }  // NUEVO
+```
+
+- `id` de ambas variantes nuevas = `transfer.id` (el mismo para las dos,
+  `transfer-out` y `transfer-in` del mismo transfer) — no hace falta un id
+  sintético con sufijo porque la clave de `:key` ya combina
+  `` `${item.kind}-${item.id}` ``, y `kind` ya las distingue entre sí.
+- `date` = `transfer.transfer_date` — ambos ítems (salida y entrada)
+  quedan en la misma fecha/grupo del listado, es un único evento con dos
+  caras.
+- Por cada transfer en `accountTransfersStore.transfers` se generan
+  **siempre las 2** variantes (nunca solo una) — salida y entrada son
+  inseparables, igual que hoy `bet_slip_matches`/`bet_slip_legs` nunca se
+  muestran a medias.
+- Fuente ya seteada: `accountTransfersStore.fetchAll()` **ya se llama** en
+  el `loadAll()` de ambas vistas (sección 6.3, para `linkedExpenseIds`) —
+  no hace falta ningún fetch nuevo, solo consumir la misma lista para
+  derivar estos 2 ítems además del `Set` de ids de comisión.
+
+#### 6.4.1 Copy del título — se confirma la propuesta del encargo, sin cambios
+
+| Ítem | Título |
+|---|---|
+| `transfer-out` (salida) | `Transferencia a {{ toAccount.name }}` (cuenta de **destino**) |
+| `transfer-in` (entrada) | `Transferencia desde {{ fromAccount.name }}` (cuenta de **origen**) |
+
+Aclaración, porque es el detalle más fácil de invertir por error al
+implementar: la fila `transfer-in` vive del lado de la cuenta de
+**destino** (es la cuenta de su badge, sección 6.4.3), pero su copy dice
+de dónde **vino** la plata, que es la cuenta de **origen** — el título y
+el badge de cada ítem sintético apuntan a cuentas distintas a propósito
+(el título siempre nombra "la otra punta", el badge siempre nombra "la
+cuenta que sufre/recibe esta fila puntual"). Confirmado ambos textos, sin
+ajustes: son simétricos, leen naturalmente como un resumen bancario real
+("a"/"desde"), y la dirección queda inequívoca sin necesidad de leer el
+monto o su color.
+
+#### 6.4.2 Apariencia — se reusan literalmente los mismos patrones ya establecidos para gasto/ingreso, sin inventar un tercer estilo de fila
+
+**`transfer-out` (salida) = misma apariencia que una fila de gasto real**
+(sección 6.6 confirma `text-destructive` para todo gasto real, este ítem
+usa el mismo token, por la misma razón: plata que sale de una cuenta):
+
+- Monto: `text-destructive`, sin signo `+` — `${{ formatAmount(transfer.amount) }}`.
+- `TransactionsView.vue` (layout Card + Badge): **sin** ícono inline junto
+  al título (un gasto real hoy tampoco lleva ícono inline — solo el
+  ingreso lleva `ArrowDownCircle`, sección 6.4 del código actual línea
+  280 — no se inventa un ícono nuevo tipo `ArrowUpCircle` solo para este
+  caso, para no introducir una tercera convención de ícono-inline que el
+  resto de filas de gasto no comparte).
+- `HomeView.vue` "Transacciones recientes" (layout icono-círculo +
+  subtítulo plano): círculo con el color de la cuenta de **origen**
+  (`withAlpha(resolveAccountColor(fromAccount.color, isDarkNow), 0.12)` de
+  fondo, mismo color de borde — idéntico mecanismo que ya usa el círculo
+  de ingreso, sección 6.4 línea ~458), conteniendo el ícono `ArrowRightLeft`
+  (no un emoji, no hay categoría) — **se reusa el mismo ícono ya elegido
+  para toda la identidad de la feature** (badge de comisión, ítem del
+  drawer, sección 7.1), en vez de inventar `ArrowUpCircle` como contraparte
+  de `ArrowDownCircle`: mantiene un único vocabulario de ícono para
+  "esto es una transferencia" en toda la app, más reconocible que dos
+  íconos de flecha distintos con el mismo significado.
+
+**`transfer-in` (entrada) = misma apariencia que una fila de ingreso
+real**, sin ninguna diferencia de tratamiento:
+
+- Monto: `text-success`, con signo `+` — `+${{ formatAmount(transfer.amount) }}`.
+- `TransactionsView.vue`: **mismo** ícono inline `ArrowDownCircle
+  text-success` que ya usa cualquier ingreso real junto al título (sección
+  6.4 línea 280) — no se distingue de un ingreso real en este punto
+  puntual, la distinción la da el badge (6.4.4) y el copy del título.
+- `HomeView.vue`: círculo con el color de la cuenta de **destino**,
+  mismo mecanismo, con el ícono `ArrowRightLeft` adentro (mismo criterio de
+  vocabulario único de ícono explicado arriba para `transfer-out`, en vez
+  de reusar el `ArrowDownCircle` del círculo — ese ícono ya está reservado
+  para "ingreso real" en ese layout compacto y reusarlo acá sería
+  ambiguo sin badge visible para desambiguar, ver 6.4.4).
+
+#### 6.4.3 Badge de cuenta — **una sola** badge por ítem sintético, estilo SÓLIDO (igual que ya hace el ingreso), no outline
+
+- `transfer-out`: badge de cuenta = **origen** (`from_account_id` —
+  confirmado, es "la que sufre esta fila"). Estilo: **idéntico al badge de
+  cuenta que ya muestra hoy un ingreso real** (`class="w-fit
+  border-transparent"`, `backgroundColor: resolveAccountColor(...)`,
+  `color: readableTextColor(...)`) — **sólido**, no outline. Motivo: para
+  este ítem la cuenta es el único clasificador de la fila (no hay
+  categoría, como tampoco la hay en un ingreso), cumple el mismo rol que
+  el badge de cuenta de un ingreso — mismo rol, mismo estilo, no se
+  inventa un tercero.
+- `transfer-in`: badge de cuenta = **destino** (`to_account_id`), mismo
+  estilo sólido de arriba.
+- **Esto es distinto del badge de cuenta nuevo de la sección 6.4.4 para un
+  gasto real** (que sí es outline) — la diferencia de estilo no es
+  arbitraria, ver la regla general al final de 6.4.4.
+
+#### 6.4.4 Badge de "esto es una transferencia" — texto DISTINTO al de la comisión, mismo estilo de componente
+
+**Confirmado: NO reusar el texto "Vinculado a una transferencia"** de la
+sección 6.3. Motivo semántico, no cosmético: la fila de comisión (6.3) es
+un gasto real que **está vinculado a** una transferencia (existe como
+recurso propio en `expenses`, solo que su edición está restringida) — en
+cambio estos 2 ítems sintéticos no son un recurso propio en absoluto, ellos
+**son**, literalmente, las dos caras de la transferencia — decir
+"vinculado a" sugiere (incorrectamente) que hay algo editable detrás de
+esta fila puntual, distinto de la transferencia misma.
+
+**Texto nuevo, exclusivo de estos 2 ítems**: **"Transferencia entre
+cuentas"**.
+
+**Estilo del badge: sí, idéntico** al de la sección 6.3 en todo lo demás —
+mismo componente y mismas clases, solo cambia el texto:
+
+```html
+<Badge variant="outline" class="w-fit gap-1">
+  <ArrowRightLeft class="size-3" />
+  Transferencia entre cuentas
+</Badge>
+```
+
+`variant="outline"`, ícono `ArrowRightLeft` `size-3`, mismo `gap-1` — cero
+diferencias de tamaño/color/ícono respecto al badge ya existente de 6.3,
+para no introducir un tercer estilo de badge en el proyecto (ya son 2:
+sólido con color de dato — categoría/cuenta — y outline neutro para
+metadatos/marcadores, ver regla general abajo). Solo el copy distingue el
+significado.
+
+**Regla general de estilo de badge, ahora explícita para las 3 secciones
+que la usan (6.3, 6.4.3, 6.4.4 y el punto 3 del encargo, sección 6.5)**:
+
+- **Sólido, con color de dato** (`border-transparent` + `backgroundColor`
+  inline + `readableTextColor`): para el **clasificador primario** de una
+  fila — el dato que define "de qué se trata" este movimiento. Hoy:
+  categoría de un gasto real, cuenta de un ingreso real, cuenta de un
+  ítem sintético de transferencia (6.4.3).
+- **`variant="outline"` neutro**: para un **marcador/metadato secundario**
+  — información adicional sobre la fila que no es su clasificador
+  primario. Hoy: "Vinculado a una transferencia" (6.3), "Transferencia
+  entre cuentas" (6.4.4), y el badge de cuenta nuevo en un gasto real
+  (6.5, porque ahí la cuenta ya no es la primaria — la categoría lo es).
+
+Con esta regla, cada fila tiene como máximo un badge sólido (su
+clasificador primario) y N badges outline (sus marcadores secundarios) —
+sin ambigüedad de cuál mirar primero, y sin una tercera paleta de badge
+que aprender.
+
+**Orden de los badges dentro de la fila** (`flex flex-wrap`, ya soporta
+2+ líneas si no entran en una): primero el sólido (clasificador primario),
+después el/los outline (marcadores) — mismo orden que ya usa 6.3
+(categoría sólida, después "Vinculado a una transferencia" outline).
+
+**`HomeView.vue` "Transacciones recientes": sin badge nuevo, layout sin
+cambios estructurales.** Esta sección **nunca usó `Badge`** para ningún
+tipo de fila (ni gasto, ni ingreso) — es icono-círculo + título + subtítulo
+de texto plano (`text-xs text-muted-foreground`), no chips. Agregar un
+badge acá sería el primer chip de ese layout, un cambio estructural más
+grande que lo que amerita una vista de preview de 5 filas con "Ver todas"
+al lado. En cambio, la señal de "esto es una transferencia" en este layout
+ya queda inequívoca sin badge, por 3 elementos que ya existen o ya se
+agregan acá: el ícono `ArrowRightLeft` dentro del círculo (6.4.2, distinto
+del emoji de categoría o el `ArrowDownCircle` de ingreso), el título
+explícito ("Transferencia a/desde…"), y el color del monto. No se pierde
+información, solo se adapta al vocabulario visual ya establecido de esa
+sección puntual — mismo criterio de "adaptarse al layout existente en vez
+de forzar el de la otra vista" que ya dejó documentado
+`TransactionsView.vue` (comentario de cabecera: "no se migra a la fila
+plana de icono+texto que usa Transacciones recientes de Inicio", y
+viceversa acá).
+
+#### 6.4.5 Menú "⋮" — solo en `TransactionsView.vue`, restringido a "Ver transferencia" (mismo patrón que 6.3)
+
+`HomeView.vue` "Transacciones recientes" no tiene menú `⋮` en ninguna fila
+hoy (es de solo lectura, sin `@click` en ninguna fila) — los 2 ítems
+sintéticos **tampoco** lo llevan ahí, consistente con el resto de esa
+sección. No se agrega interacción nueva a un layout que hoy no la tiene
+para ningún tipo de fila.
+
+En `TransactionsView.vue`, donde sí existe el menú `⋮` con `DropdownMenu`,
+`transfer-out`/`transfer-in` siguen **exactamente** el mismo patrón ya
+implementado para `isTransferCommission` (sección 6.3, código actual línea
+320-325): extender la condición existente (o agregar una rama hermana) para
+que, cuando `item.kind === 'transfer-out' || item.kind === 'transfer-in'`,
+el `DropdownMenuContent` muestre **únicamente**:
+
+```html
+<DropdownMenuItem @select="goToTransfers">
+  <ArrowRightLeft class="size-4" />
+  Ver transferencia
+</DropdownMenuItem>
+```
+
+Nunca "Editar"/"Eliminar" — ninguna de las dos operaciones tiene sentido
+sobre un ítem que no es un recurso propio (6.4). `goToTransfers()` ya
+existe en el componente (sección 6.3, línea 206), se reusa tal cual, sin
+ningún parámetro nuevo (mismo destino sin resaltado puntual de fila, ya
+documentado como limitación aceptada en 6.3 — no hay ruta de detalle de
+transferencia, sección 2).
+
+### 6.5 Segundo pedido: badge de cuenta en un GASTO real (`TransactionsView.vue`/`HomeView.vue`)
+
+Hoy un gasto real muestra un único badge (categoría, sólido). Se agrega un
+**segundo badge con el nombre de la cuenta**, al lado, en
+`TransactionsView.vue`:
+
+```html
+<div class="flex flex-wrap items-center gap-1.5">
+  <Badge
+    class="w-fit border-transparent"
+    :style="{ backgroundColor: itemBadgeColor(item), color: readableTextColor(itemBadgeColor(item)) }"
+  >
+    {{ itemSubtitle(item) }}
+  </Badge>
+  <!-- NUEVO — badge de cuenta en un gasto real -->
+  <Badge v-if="item.kind === 'expense'" variant="outline" class="w-fit gap-1.5">
+    <span
+      class="size-2 shrink-0 rounded-full"
+      :style="{ backgroundColor: resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow) }"
+    />
+    {{ item.data.account.name }}
+  </Badge>
+  <Badge v-if="isTransferCommission(item)" variant="outline" class="w-fit gap-1">
+    <ArrowRightLeft class="size-3" />
+    Vinculado a una transferencia
+  </Badge>
+</div>
+```
+
+**Confirmado: `variant="outline"`, NUNCA el color sólido de la cuenta**
+(`resolveAccountColor` como `backgroundColor`) — la pregunta del encargo
+tenía la respuesta correcta ya intuida ("la cuenta probablemente debería
+ir más neutra/outline para no competir"): un gasto real ya tiene su
+clasificador primario (categoría, sólido, con color de la paleta de 8
+tonos ya validada) — agregar un SEGUNDO badge sólido con un color fuerte
+distinto (paleta de 8 tonos "jewel tone" de cuentas) al lado del primero
+generaría exactamente el ruido de "3 gastos con 3 badges de colores fuertes
+compitiendo" que el encargo pidió evitar, y ninguno de los dos colores
+tendría prioridad visual clara sobre el otro. Con `outline` la cuenta se
+lee como información secundaria (mismo rol que "Vinculado a una
+transferencia", misma familia de estilo, sección 6.4.4) sin competir por
+atención con el color de categoría.
+
+**El único agregado sobre el outline plano ya existente**: un punto de
+color de `size-2` (no un ícono) con el color real de la cuenta
+(`resolveAccountColor`, mismo helper ya importado en el archivo) — preserva
+la identificación rápida por color que la paleta de cuentas ya fue
+validada para dar (`accounts-income-ux.md` sección 4.4), sin llegar a ser
+un badge sólido de fondo fuerte. Mismo patrón visual "punto de color +
+nombre" que ya usa `AccountTransfersView.vue` (sección 3.3 de este mismo
+documento) para mostrar cuenta de origen/destino inline — se reusa acá
+adentro de un `Badge`, no se inventa un cuarto patrón.
+
+**Sin cambios para el badge de cuenta de un ingreso real** (sigue sólido,
+sin punto — es su único badge, cumple el rol de clasificador primario, no
+el de marcador secundario, sección 6.4.4 regla general).
+
+**Consecuencia de conteo en la fila de comisión de transferencia (6.3)**:
+esa fila es un gasto real con `account_id` propio, así que ahora muestra
+**3** badges (categoría "Comisiones bancarias" sólida + cuenta outline con
+punto, nueva + "Vinculado a una transferencia" outline, existente) — el
+contenedor ya es `flex flex-wrap`, así que envuelve a una segunda línea en
+pantallas angostas sin romper el layout. No se propone ninguna excepción
+para ocultar el badge de cuenta en ese caso puntual: es consistente que
+**todo** gasto real muestre su cuenta, sin importar su origen.
+
+**`HomeView.vue` "Transacciones recientes"**: mismo criterio de 6.4.4 (sin
+`Badge`, layout de texto plano) — el subtítulo de un gasto real pasa de
+mostrar solo la categoría a mostrar **categoría y cuenta separadas por
+"·"**, mismo texto `text-xs text-muted-foreground` sin color:
+
+```html
+<p class="truncate text-xs text-muted-foreground">
+  {{ item.data.category.name }} · {{ item.data.account.name }}
+</p>
+```
+
+Sin punto de color acá (a diferencia del badge outline de arriba) — ese
+layout ya usa el color en el círculo del ícono (el color de **categoría**,
+sin cambios), agregar un segundo punto de color por cuenta en una línea de
+texto plano sería inconsistente con que el resto de esa fila no lleva
+ningún otro acento de color aparte del círculo. El ingreso real no cambia
+(su subtítulo ya es `account.name` solo, sigue así).
+
+### 6.6 Confirmación del color de monto de gasto real: `text-destructive`
+
+Confirmado, sin objeciones — ver la corrección ya aplicada a
+`docs/design-system.md` (sección "Uso de `success`/`warning`/`destructive`
+(semántica de producto)", el párrafo tachado con su nota de corrección
+inmediatamente debajo). Resumen del razonamiento para no duplicarlo acá:
+la regla original ("no pintar de rojo cada gasto") partía de una premisa
+que ya no es cierta (v1 sin ingresos) — hoy gasto/ingreso conviven en la
+misma lista y el ingreso ya es verde, así que dejar el gasto en
+`foreground` neutro es una asimetría de lectura, no una medida de
+restricción de color. No rompe ningún otro criterio ya documentado:
+
+- **No es el único indicador de nada** — cada fila ya trae signo (`$`/
+  `+$`) y badges de texto (categoría, ahora también cuenta) independientes
+  del color; el color es refuerzo.
+- **No compite con la semántica de presupuesto** (`docs/design-system.md`
+  sección de arriba) — un badge/barra de presupuesto y el monto de una
+  fila de transacción nunca aparecen en el mismo componente/superficie, no
+  hay ambigüedad de "¿este rojo es de presupuesto o de gasto?".
+- **No compite con el delta "vs. mes anterior" del hero de Inicio**
+  (`dashboard-redesign-ux.md`), que ya usa `text-destructive`/`text-success`
+  según la dirección del cambio (gastar más = rojo) — incluso refuerza esa
+  misma semántica ya establecida en vez de contradecirla.
+- **Contraste**: `--destructive` (`#dc2626` aprox., mismo hex en light y
+  dark, `docs/design-system.md`) ya se usa como color de texto plano sobre
+  `background`/`card` en otros puntos ya shippeados de la app (ícono/texto
+  de error, saldo negativo de cuenta en `HomeView.vue` línea ~372) — no es
+  un uso nuevo de ese token sobre esa superficie, hereda la misma
+  verificación de contraste ya aceptada ahí, sin volver a validarlo.
+
+Alcance: aplica al monto de **todo** gasto real (no solo los vinculados a
+una transferencia) en `TransactionsView.vue` y "Transacciones recientes"
+de `HomeView.vue` — reemplaza `text-foreground`/`item.kind === 'income' ?
+'text-success' : 'text-foreground'` por `item.kind === 'income' ?
+'text-success' : 'text-destructive'` en ambos archivos (los ítems
+sintéticos de 6.4 ya especifican su propio color arriba, coherente con
+esta misma regla).
+
 ---
 
 ## 7. Ítem nuevo del drawer
