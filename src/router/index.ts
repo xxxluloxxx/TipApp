@@ -98,12 +98,19 @@ const router = createRouter({
       component: () => import('@/views/DebtDetailView.vue'),
       meta: { requiresAuth: true },
     },
-    // Sección 2 de fixed-expenses-ux.md: una sola ruta (dashboard), sin
-    // colisión de segmentos.
+    // Sección 2/13 de fixed-expenses-ux.md: dashboard + comparación mensual.
+    // Ambos segmentos literales, sin colisión con ningún `:id` dinámico, no
+    // requiere orden especial.
     {
       path: '/gastos-fijos',
       name: 'fixed-expenses',
       component: () => import('@/views/FixedExpensesView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/gastos-fijos/comparacion',
+      name: 'fixed-expenses-comparison',
+      component: () => import('@/views/FixedExpensesComparisonView.vue'),
       meta: { requiresAuth: true },
     },
     // Sección 2 de live-matches-ux.md: dashboard + detalle, sin colisión de

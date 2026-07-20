@@ -5,7 +5,7 @@ import { supabase } from '@/lib/supabase'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useCategoriesStore } from '@/stores/categories'
-import { formatDateOnly } from '@/lib/date'
+import { formatDateOnly, startOfMonth } from '@/lib/date'
 import type { Tables } from '@/types/database.types'
 
 export type FixedExpense = Tables<'fixed_expenses'>
@@ -45,6 +45,22 @@ export interface FixedExpenseRow {
   /** Estado crudo de la instancia (`null` si pausada / sin instancia). */
   status: 'pending' | 'paid' | null
   displayStatus: FixedExpenseDisplayStatus
+}
+
+/**
+ * Fila de una instancia de un período arbitrario (fixed-expenses-ux.md sección
+ * 13.4), para la pantalla de Comparación mensual. A diferencia de
+ * `FixedExpenseRow` (que parte de la plantilla y su instancia del mes actual),
+ * esta parte de la instancia de CUALQUIER mes — incluye plantillas hoy pausadas
+ * que tuvieron instancia ese mes, y excluye plantillas creadas después.
+ */
+export interface FixedExpenseHistoryRow {
+  instanceId: string
+  name: string
+  /** Monto real pagado si `paid`, la proyección de la plantilla si `pending`. */
+  amount: number
+  /** `true` si la instancia nunca se marcó como pagada (monto = proyección). */
+  isPending: boolean
 }
 
 export interface FixedExpensePayload {
@@ -283,6 +299,49 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
       0,
     )
     return true
+  }
+
+  /**
+   * Instancias de un período arbitrario (fixed-expenses-ux.md sección 13.4),
+   * para la pantalla de Comparación mensual. Lista las filas de
+   * `fixed_expense_instances` de ESE mes (NUNCA plantillas filtradas): incluye
+   * pausadas con instancia ese mes, excluye plantillas creadas después. Query
+   * acotada por `period` (segura por rango, sección 1.2/13.3), mismo join que
+   * `fetchPreviousMonthTotal` generalizado para traer también el nombre.
+   *
+   * Devuelve `null` SOLO ante error de red (la vista lo distingue de `[]` =
+   * éxito con cero filas, mismo patrón discriminante que `searchMatches`).
+   */
+  async function fetchInstancesForPeriod(period: Date): Promise<FixedExpenseHistoryRow[] | null> {
+    const periodValue = formatDateOnly(startOfMonth(period))
+
+    const { data, error: fetchError } = await supabase
+      .from('fixed_expense_instances')
+      .select('id, status, expense:expenses(amount), fixed_expense:fixed_expenses(name, amount)')
+      .eq('period', periodValue)
+      .limit(RANGE_SAFETY_LIMIT)
+
+    if (fetchError) {
+      console.error('[fixedExpenses] No se pudieron cargar las instancias del período', fetchError)
+      return null
+    }
+
+    const rowsData = (data ?? []) as unknown as Array<{
+      id: string
+      status: string
+      expense: { amount: number } | null
+      fixed_expense: { name: string, amount: number } | null
+    }>
+
+    return rowsData.map(row => ({
+      instanceId: row.id,
+      // `fixed_expense_id` es NOT NULL con `on delete cascade`: una instancia
+      // nunca sobrevive sin su plantilla, el embed siempre viene resuelto
+      // (sección 13.4). El `?? 0`/'Gasto fijo' son un backstop defensivo.
+      name: row.fixed_expense?.name ?? 'Gasto fijo',
+      amount: row.expense?.amount ?? row.fixed_expense?.amount ?? 0,
+      isPending: row.status !== 'paid',
+    }))
   }
 
   function replaceTemplateById(id: string, next: FixedExpense) {
@@ -538,6 +597,7 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
     fetchCurrentInstances,
     fetchSummary,
     fetchPreviousMonthTotal,
+    fetchInstancesForPeriod,
     addTemplate,
     updateTemplate,
     toggleActive,

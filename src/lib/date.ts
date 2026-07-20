@@ -82,3 +82,19 @@ export function formatExpenseDateHeading(value: string, reference: Date = new Da
 export function currentMonthLabel(reference: Date = new Date()): string {
   return `${MONTHS_ES[reference.getMonth()]} ${reference.getFullYear()}`
 }
+
+/** Primer día del mes calendario de `date` (a medianoche local). Usado por la
+ * pantalla de Comparación mensual (fixed-expenses-ux.md sección 13.1/13.10)
+ * para normalizar el pivote y los `period` que se pasan al `.eq()` de las
+ * queries (la columna `period` en BD es `date`, siempre el día 1 del mes). */
+export function startOfMonth(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), 1)
+}
+
+/** Desplaza `date` `delta` meses (negativo hacia atrás, positivo hacia
+ * adelante), preservando el día. Puro, sin dependencias — `new Date` ya
+ * normaliza el overflow de mes. En la Comparación mensual siempre se aplica
+ * sobre fechas ya normalizadas al día 1 (fixed-expenses-ux.md sección 13.10). */
+export function addMonths(date: Date, delta: number): Date {
+  return new Date(date.getFullYear(), date.getMonth() + delta, date.getDate())
+}

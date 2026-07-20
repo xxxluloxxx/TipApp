@@ -1,11 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
   CalendarSync,
   CircleCheck,
+  Columns3,
   EllipsisVertical,
   PauseCircle,
   Pencil,
@@ -53,6 +55,7 @@ import {
 // (`/gastos-fijos`, sección 2). Los 3 números de las cards salen directo de
 // `fixed_expenses_summary` (nunca re-sumados en cliente, ver store).
 
+const router = useRouter()
 const fixedExpensesStore = useFixedExpensesStore()
 const categoriesStore = useCategoriesStore()
 const accountsStore = useAccountsStore()
@@ -215,7 +218,20 @@ function deleteTemplate(templateId: string) {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <AppHeader title="Gastos fijos" />
+    <AppHeader title="Gastos fijos">
+      <template #actions>
+        <!-- Sección 13.5: acceso a Comparación mensual, sin ítem de drawer
+             propio (misma lógica que Settings de Deudas → /deudas/personas). -->
+        <Button
+          variant="ghost"
+          size="icon"
+          aria-label="Comparación mensual"
+          @click="router.push({ name: 'fixed-expenses-comparison' })"
+        >
+          <Columns3 class="size-5" />
+        </Button>
+      </template>
+    </AppHeader>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
       <!-- Estado de carga -->
