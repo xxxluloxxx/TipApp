@@ -61,6 +61,9 @@ export interface FixedExpenseHistoryRow {
   amount: number
   /** `true` si la instancia nunca se marcó como pagada (monto = proyección). */
   isPending: boolean
+  /** Categoría de la plantilla (campo aditivo, sección 13.11): resuelve el
+   * color del dot de la fila vía `categoriesStore.categoryById`. */
+  categoryId: string | null
 }
 
 export interface FixedExpensePayload {
@@ -317,7 +320,7 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
 
     const { data, error: fetchError } = await supabase
       .from('fixed_expense_instances')
-      .select('id, status, expense:expenses(amount), fixed_expense:fixed_expenses(name, amount)')
+      .select('id, status, expense:expenses(amount), fixed_expense:fixed_expenses(name, amount, category_id)')
       .eq('period', periodValue)
       .limit(RANGE_SAFETY_LIMIT)
 
@@ -330,7 +333,7 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
       id: string
       status: string
       expense: { amount: number } | null
-      fixed_expense: { name: string, amount: number } | null
+      fixed_expense: { name: string, amount: number, category_id: string | null } | null
     }>
 
     return rowsData.map(row => ({
@@ -341,6 +344,7 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
       name: row.fixed_expense?.name ?? 'Gasto fijo',
       amount: row.expense?.amount ?? row.fixed_expense?.amount ?? 0,
       isPending: row.status !== 'paid',
+      categoryId: row.fixed_expense?.category_id ?? null,
     }))
   }
 

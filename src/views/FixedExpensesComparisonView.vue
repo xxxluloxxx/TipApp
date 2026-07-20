@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   AlertCircle,
@@ -13,7 +13,9 @@ import {
 } from '@lucide/vue'
 import { addMonths, currentMonthLabel, formatDateOnly, startOfMonth } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
+import { withAlpha } from '@/lib/colors'
 import { useFixedExpensesStore, type FixedExpenseHistoryRow } from '@/stores/fixedExpenses'
+import { useCategoriesStore } from '@/stores/categories'
 import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -30,6 +32,15 @@ import { Skeleton } from '@/components/ui/skeleton'
 
 const router = useRouter()
 const fixedExpensesStore = useFixedExpensesStore()
+const categoriesStore = useCategoriesStore()
+
+// Color de categoría por fila (13.11): realce puramente decorativo. Se resuelve
+// contra el store de categorías ya cargado; si todavía no resolvió (o falla),
+// cae al fallback gris — sin estado de carga propio (13.11.1).
+function categoryColorFor(categoryId: string | null): string | null {
+  if (!categoryId) return null
+  return categoriesStore.categoryById(categoryId)?.color ?? null
+}
 
 type ColumnState = 'loading' | 'empty' | 'error' | 'data'
 
@@ -152,6 +163,14 @@ function shiftPivot(delta: number): void {
 // Recarga las 3 columnas cada vez que cambia el pivote (y al montar).
 watch(pivot, loadVisibleColumns, { immediate: true })
 
+// Carga no bloqueante de categorías para el color del dot por fila (13.11.1):
+// independiente del estado de las 3 columnas, sin Skeleton/error propio.
+onMounted(() => {
+  if (categoriesStore.categories.length === 0) {
+    void categoriesStore.fetchCategories()
+  }
+})
+
 // --- Indicadores de variación (13.6.1) ---
 interface Variation {
   direction: 'up' | 'down' | 'flat' | null
@@ -232,7 +251,7 @@ const variationIndicators = computed<VariationIndicator[]>(() => {
               <Badge
                 v-if="column.isRealCurrentMonth"
                 variant="outline"
-                class="shrink-0 border-primary/50 text-[10px] text-primary"
+                class="shrink-0 border-transparent bg-primary/10 text-[10px] font-semibold text-primary dark:bg-primary/20"
               >
                 Actual
               </Badge>
@@ -278,6 +297,17 @@ const variationIndicators = computed<VariationIndicator[]>(() => {
               <template v-for="(row, idx) in column.rows" :key="row.instanceId">
                 <Separator v-if="idx > 0" />
                 <div class="flex items-center gap-2 px-4 py-2">
+                  <!-- Color de categoría (13.11): decorativo, aria-hidden -->
+                  <span
+                    aria-hidden="true"
+                    class="flex size-5 shrink-0 items-center justify-center rounded-full"
+                    :style="{ background: withAlpha(categoryColorFor(row.categoryId), 0.15) ?? 'var(--color-muted)' }"
+                  >
+                    <span
+                      class="size-1.5 rounded-full"
+                      :style="{ background: categoryColorFor(row.categoryId) ?? 'var(--color-muted-foreground)' }"
+                    />
+                  </span>
                   <p class="min-w-0 flex-1 truncate text-xs">
                     {{ row.name }}
                   </p>
@@ -293,11 +323,12 @@ const variationIndicators = computed<VariationIndicator[]>(() => {
               </template>
             </div>
             <Separator />
-            <div class="flex items-center justify-between px-4 py-3">
-              <p class="text-xs font-medium text-muted-foreground">
+            <!-- Total con más peso (13.11): banda bg-muted/30 + cifra text-base font-bold -->
+            <div class="flex items-center justify-between bg-muted/30 px-4 py-3">
+              <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
                 Total
               </p>
-              <p class="text-sm font-semibold tabular-nums">
+              <p class="text-base font-bold tabular-nums">
                 ${{ formatAmount(column.total ?? 0) }}
               </p>
             </div>
@@ -305,31 +336,48 @@ const variationIndicators = computed<VariationIndicator[]>(() => {
         </Card>
       </div>
 
-      <!-- Indicadores de variación (13.6.1) -->
+      <!-- Indicadores de variación (13.6.1) — peso visual (13.11): ícono en
+           círculo de color + tipografía grande, mismo lenguaje que el hero
+           "Total del mes" del dashboard. -->
       <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Card v-for="indicator in variationIndicators" :key="indicator.id">
           <CardHeader class="pb-2">
             <CardDescription>{{ indicator.label }}</CardDescription>
           </CardHeader>
-          <div class="px-6 pb-4">
-            <div
-              v-if="indicator.direction !== null"
-              class="flex items-center gap-1.5"
+          <div class="flex items-center gap-3 px-6 pb-5">
+            <span
+              aria-hidden="true"
+              class="flex size-10 shrink-0 items-center justify-center rounded-full"
               :class="{
-                'text-destructive': indicator.direction === 'up',
-                'text-success': indicator.direction === 'down',
-                'text-muted-foreground': indicator.direction === 'flat',
+                'bg-destructive/10 dark:bg-destructive/20': indicator.direction === 'up',
+                'bg-success/10 dark:bg-success/20': indicator.direction === 'down',
+                'bg-muted': indicator.direction === 'flat' || indicator.direction === null,
               }"
             >
               <component
                 :is="indicator.direction === 'up' ? ArrowUp : indicator.direction === 'down' ? ArrowDown : Minus"
-                class="size-4 shrink-0"
+                class="size-5"
+                :class="{
+                  'text-destructive': indicator.direction === 'up',
+                  'text-success': indicator.direction === 'down',
+                  'text-muted-foreground': indicator.direction === 'flat' || indicator.direction === null,
+                }"
               />
-              <p class="text-sm font-medium tabular-nums">
-                <span v-if="indicator.percent !== null">{{ indicator.percent }}% · </span>
-                <span>
-                  {{ indicator.direction === 'up' ? '+' : indicator.direction === 'down' ? '-' : '' }}${{ formatAmount(Math.abs(indicator.amountDelta)) }}
-                </span>
+            </span>
+            <div v-if="indicator.direction !== null" class="flex min-w-0 flex-col">
+              <p
+                class="text-xl font-bold tabular-nums sm:text-2xl"
+                :class="{
+                  'text-destructive': indicator.direction === 'up',
+                  'text-success': indicator.direction === 'down',
+                  'text-foreground': indicator.direction === 'flat',
+                }"
+              >
+                <template v-if="indicator.percent !== null">{{ indicator.percent }}%</template>
+                <template v-else>{{ indicator.direction === 'up' ? '+' : '-' }}${{ formatAmount(Math.abs(indicator.amountDelta)) }}</template>
+              </p>
+              <p v-if="indicator.percent !== null" class="text-xs tabular-nums text-muted-foreground">
+                {{ indicator.direction === 'up' ? '+' : indicator.direction === 'down' ? '-' : '' }}${{ formatAmount(Math.abs(indicator.amountDelta)) }}
               </p>
             </div>
             <p v-else class="text-xs text-muted-foreground">

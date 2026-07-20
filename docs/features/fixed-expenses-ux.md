@@ -1217,6 +1217,22 @@ eso debe quedar claro sin que el usuario tenga que inferirlo.
 
 ```html
 <div class="flex items-center gap-2 px-4 py-2">
+  <!-- Color de categoría (13.11): decorativo, `aria-hidden` — la fila ya se
+       entiende de punta a punta sin él (nombre + monto en texto), el dot
+       solo acelera el escaneo visual entre filas de la misma categoría. No
+       es un indicador de estado/resultado, por eso no necesita texto
+       redundante como sí lo necesitan el badge "Actual" o las flechas de
+       variación. -->
+  <span
+    aria-hidden="true"
+    class="flex size-5 shrink-0 items-center justify-center rounded-full"
+    :style="{ background: withAlpha(categoryColorFor(row.categoryId), 0.15) ?? 'var(--color-muted)' }"
+  >
+    <span
+      class="size-1.5 rounded-full"
+      :style="{ background: categoryColorFor(row.categoryId) ?? 'var(--color-muted-foreground)' }"
+    />
+  </span>
   <p class="min-w-0 flex-1 truncate text-xs">{{ row.name }}</p>
   <div class="flex shrink-0 flex-col items-end">
     <p class="text-xs font-medium tabular-nums">${{ formatAmount(row.amount) }}</p>
@@ -1225,17 +1241,40 @@ eso debe quedar claro sin que el usuario tenga que inferirlo.
 </div>
 ```
 
+`categoryColorFor` (nuevo helper local de la vista, no del store):
+
+```ts
+const categoriesStore = useCategoriesStore()
+
+function categoryColorFor(categoryId: string | null): string | null {
+  if (!categoryId) return null
+  return categoriesStore.categoryById(categoryId)?.color ?? null
+}
+```
+
+Mismo patrón exacto (círculo con fondo al 15% + punto sólido) que ya usa
+`FixedExpensesView.vue` (líneas ~405-414) para las filas de "Gastos fijos del
+mes", pero **escalado hacia abajo** (`size-5`/`size-1.5` en vez de
+`size-9`/`size-2.5`): esta pantalla apila 3 columnas angostas (85% del
+viewport en mobile, un tercio de `max-w-2xl` desde `sm:`) con filas de una
+sola línea en `text-xs` — el círculo `size-9` del dashboard, pensado para una
+fila `text-sm` con dos líneas y más padding (`py-3`), se ve
+desproporcionadamente grande acá y comprime el espacio real de la 3ª
+columna. La proporción círculo:punto se mantiene casi igual (dashboard ≈
+3.6:1, acá ≈ 3.3:1) para que siga leyéndose como el mismo lenguaje visual, no
+un ícono distinto.
+
 **Query** (extiende el patrón ya usado por `fetchPreviousMonthTotal` en
 `fixedExpenses.ts`, que ya hace exactamente este join acotado por `period`
-para sumar un total — acá se generaliza para traer también el nombre, no
-solo la suma):
+para sumar un total — acá se generaliza para traer también el nombre y la
+categoría, no solo la suma):
 
 ```ts
 async function fetchInstancesForPeriod(period: Date): Promise<FixedExpenseHistoryRow[] | null> {
   const periodValue = formatDateOnly(startOfMonth(period))
   const { data, error } = await supabase
     .from('fixed_expense_instances')
-    .select('id, status, expense:expenses(amount), fixed_expense:fixed_expenses(name, amount)')
+    .select('id, status, expense:expenses(amount), fixed_expense:fixed_expenses(name, amount, category_id)')
     .eq('period', periodValue)
     .limit(RANGE_SAFETY_LIMIT)
 
@@ -1246,9 +1285,24 @@ async function fetchInstancesForPeriod(period: Date): Promise<FixedExpenseHistor
     name: row.fixed_expense.name,
     amount: row.expense?.amount ?? row.fixed_expense.amount,
     isPending: row.status !== 'paid',
+    categoryId: row.fixed_expense.category_id,
   }))
 }
 ```
+
+**Único cambio autorizado a esta función (13.11), nada más**: se agrega
+`category_id` al embed de `fixed_expense` y un campo pasante
+`categoryId: string | null` a `FixedExpenseHistoryRow` — mismo filtro
+(`period`), mismo `limit`, mismo criterio de `null` = error de red vs. `[]`
+= éxito vacío, mismo total calculado por la vista (`buildVariation` y la
+suma de `column.total` en `FixedExpensesComparisonView.vue` no cambian ni un
+carácter). Es un campo puramente aditivo para resolver el color en el
+componente vía `categoriesStore.categoryById(row.categoryId)?.color` (el
+store de categorías ya existe y ya lo usa así el resto de la app), sin
+ningún join nuevo de nombre/color de categoría en el propio query — el
+nombre de categoría no se agrega (no hay espacio para una 2ª línea de texto
+en esta fila de una sola línea, y el color ya cumple su propósito
+decorativo sin él, ver nota de a11y arriba).
 
 No hace falta un `?? 'fallback'` para `row.fixed_expense.name`: como
 `fixed_expense_instances.fixed_expense_id` es `on delete cascade` hacia
@@ -1336,7 +1390,15 @@ proyecto lo tiene.
       <CardHeader class="pb-2">
         <div class="flex items-center justify-between gap-2">
           <CardDescription class="truncate capitalize">{{ column.monthLabel }}</CardDescription>
-          <Badge v-if="column.isRealCurrentMonth" variant="outline" class="shrink-0 text-[10px] text-primary border-primary/50">
+          <!-- Badge "Actual" (13.11): fondo sutil + texto sólido, mismo
+               patrón que el variant `destructive` de Badge (bg-{color}/10,
+               dark:bg-{color}/20, sin borde) en vez de borde-a-medias +
+               texto — ver rationale completo en 13.11. -->
+          <Badge
+            v-if="column.isRealCurrentMonth"
+            variant="outline"
+            class="shrink-0 border-transparent bg-primary/10 text-[10px] font-semibold text-primary dark:bg-primary/20"
+          >
             Actual
           </Badge>
         </div>
@@ -1358,6 +1420,17 @@ proyecto lo tiene.
           <template v-for="(row, idx) in column.rows" :key="row.instanceId">
             <Separator v-if="idx > 0" />
             <div class="flex items-center gap-2 px-4 py-2">
+              <!-- Color de categoría (13.11), ver detalle/rationale en 13.4 -->
+              <span
+                aria-hidden="true"
+                class="flex size-5 shrink-0 items-center justify-center rounded-full"
+                :style="{ background: withAlpha(categoryColorFor(row.categoryId), 0.15) ?? 'var(--color-muted)' }"
+              >
+                <span
+                  class="size-1.5 rounded-full"
+                  :style="{ background: categoryColorFor(row.categoryId) ?? 'var(--color-muted-foreground)' }"
+                />
+              </span>
               <p class="min-w-0 flex-1 truncate text-xs">{{ row.name }}</p>
               <div class="flex shrink-0 flex-col items-end">
                 <p class="text-xs font-medium tabular-nums">${{ formatAmount(row.amount) }}</p>
@@ -1367,37 +1440,63 @@ proyecto lo tiene.
           </template>
         </div>
         <Separator />
-        <div class="flex items-center justify-between px-4 py-3">
-          <p class="text-xs font-medium text-muted-foreground">Total</p>
-          <p class="text-sm font-semibold tabular-nums">${{ formatAmount(column.total) }}</p>
+        <!-- Total con más peso (13.11): banda `bg-muted/30` (Card ya tiene
+             `overflow-hidden`, sección 4 de design-system.md, así que la
+             banda recorta bien contra el radio inferior) + cifra en
+             `text-base font-bold` (subía desde `text-sm font-semibold`) para
+             que el total se lea como el "cierre" de la columna, no una fila
+             más de la lista. -->
+        <div class="flex items-center justify-between bg-muted/30 px-4 py-3">
+          <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Total</p>
+          <p class="text-base font-bold tabular-nums">${{ formatAmount(column.total) }}</p>
         </div>
       </template>
     </Card>
   </div>
 
-  <!-- Indicadores de variación, sección 13.6.1 -->
+  <!-- Indicadores de variación, sección 13.6.1 — peso visual (13.11): mismo
+       tratamiento que el hero "Total del mes" del dashboard (ícono en
+       círculo de color + tipografía grande), en vez de ícono chico + texto
+       `text-sm` suelto. -->
   <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
     <Card v-for="v in variationIndicators" :key="v.id">
       <CardHeader class="pb-2">
         <CardDescription>{{ v.label }}</CardDescription>
       </CardHeader>
-      <div class="px-6 pb-4">
-        <div
-          v-if="v.direction !== null"
-          class="flex items-center gap-1.5"
+      <div class="flex items-center gap-3 px-6 pb-5">
+        <span
+          aria-hidden="true"
+          class="flex size-10 shrink-0 items-center justify-center rounded-full"
           :class="{
-            'text-destructive': v.direction === 'up',
-            'text-success': v.direction === 'down',
-            'text-muted-foreground': v.direction === 'flat',
+            'bg-destructive/10 dark:bg-destructive/20': v.direction === 'up',
+            'bg-success/10 dark:bg-success/20': v.direction === 'down',
+            'bg-muted': v.direction === 'flat' || v.direction === null,
           }"
         >
           <component
             :is="v.direction === 'up' ? ArrowUp : v.direction === 'down' ? ArrowDown : Minus"
-            class="size-4 shrink-0"
+            class="size-5"
+            :class="{
+              'text-destructive': v.direction === 'up',
+              'text-success': v.direction === 'down',
+              'text-muted-foreground': v.direction === 'flat' || v.direction === null,
+            }"
           />
-          <p class="text-sm font-medium tabular-nums">
-            <span v-if="v.percent !== null">{{ v.percent }}% · </span>
-            <span>{{ v.direction === 'up' ? '+' : v.direction === 'down' ? '-' : '' }}${{ formatAmount(Math.abs(v.amountDelta)) }}</span>
+        </span>
+        <div v-if="v.direction !== null" class="flex min-w-0 flex-col">
+          <p
+            class="text-xl font-bold tabular-nums sm:text-2xl"
+            :class="{
+              'text-destructive': v.direction === 'up',
+              'text-success': v.direction === 'down',
+              'text-foreground': v.direction === 'flat',
+            }"
+          >
+            <template v-if="v.percent !== null">{{ v.percent }}%</template>
+            <template v-else>{{ v.direction === 'up' ? '+' : '-' }}${{ formatAmount(Math.abs(v.amountDelta)) }}</template>
+          </p>
+          <p v-if="v.percent !== null" class="text-xs tabular-nums text-muted-foreground">
+            {{ v.direction === 'up' ? '+' : v.direction === 'down' ? '-' : '' }}${{ formatAmount(Math.abs(v.amountDelta)) }}
           </p>
         </div>
         <p v-else class="text-xs text-muted-foreground">No hay datos suficientes para comparar.</p>
@@ -1537,8 +1636,12 @@ un incremento infinito/indefinido, no un número honesto de mostrar.
 ### 13.9 Componentes shadcn-vue a reusar / instalar
 
 **Nada nuevo que instalar** (mismo inventario que el resto de la feature,
-sección 10): `Card`, `Badge`, `Button`, `Skeleton`, `Separator`. Componente
-de proyecto nuevo:
+sección 10): `Card`, `Badge`, `Button`, `Skeleton`, `Separator`. Desde 13.11,
+la vista también consume `useCategoriesStore` (ya existente,
+`src/stores/categories.ts`) y `withAlpha` de `src/lib/colors.ts` (ya
+existente, mismo import que ya usa `FixedExpensesView.vue`) — ninguno de los
+dos es un componente `ui/` nuevo, son imports de stores/helpers ya
+instalados en el proyecto. Componente de proyecto nuevo:
 
 - `src/views/FixedExpensesComparisonView.vue` (ruta
   `/gastos-fijos/comparacion`, sección 2/13.5).
@@ -1586,3 +1689,145 @@ potenciales).
 - Confirmar que `Inbox`/`Columns3`/`ChevronLeft`/`ChevronRight`/`Minus` están
   disponibles en `@lucide/vue` (ya verificado en esta sesión de diseño,
   confirmar igual al implementar por si la versión instalada cambió).
+
+### 13.11 Refinamiento visual (100% visual, sin cambios de lógica/datos)
+
+Encargo posterior: el Product Owner probó `/gastos-fijos/comparacion` en el
+navegador y la vio "muy simple, le falta color y diseño" comparada con el
+resto de la app (en particular contra el dashboard hermano
+`FixedExpensesView.vue`, que sí tiene identidad visual: círculo+punto de
+categoría en cada fila, hero de "Total del mes" con flecha+color a nivel de
+bloque completo). **Cero cambios de `buildVariation`, navegación de pivote,
+límites de navegación, ni ninguna regla de negocio** — la única excepción es
+el campo aditivo `categoryId` descrito abajo (13.4), autorizado explícitamente
+por el Product Owner como la única modificación aceptable a
+`fetchInstancesForPeriod`.
+
+#### 13.11.1 Color de categoría por fila (13.4)
+
+Ver snippet actualizado y rationale completo en 13.4 (círculo `size-5` +
+punto `size-1.5`, escalado desde el patrón `size-9`/`size-2.5` del dashboard
+para encajar en una fila de una sola línea `text-xs` dentro de una columna
+angosta). Resuelto vía `categoriesStore.categoryById(row.categoryId)?.color`
+— la vista necesita categorías cargadas en memoria: agregar en
+`onMounted` (o junto a `loadVisibleColumns`) una carga no bloqueante,
+independiente del estado de las 3 columnas:
+
+```ts
+onMounted(() => {
+  if (categoriesStore.categories.length === 0) {
+    void categoriesStore.fetchCategories()
+  }
+})
+```
+
+**Por qué no bloqueante y sin un 4º estado de carga**: a diferencia de las
+columnas (que sí necesitan Skeleton/error/vacío porque sin esos datos la
+columna no tiene ningún contenido que mostrar), el color de categoría es un
+realce secundario de una fila que ya es legible sin él (nombre + monto en
+texto plano). Si `fetchCategories()` todavía no resolvió o falla,
+`categoryColorFor` devuelve `null` y el dot cae al swatch `muted-foreground`
+(mismo fallback que ya usa `withAlpha(...) ?? 'var(--color-muted)'` en el
+dashboard) — degradación silenciosa, no amerita un `Skeleton` ni un estado de
+error propio por una mejora puramente decorativa.
+
+**Nota de a11y, explícita para no reabrir la regla "color nunca como único
+indicador" de `design-system.md` sección 5.6**: esa regla aplica a
+indicadores de **estado/resultado** (badges de presupuesto, la dirección de
+una variación) donde perder el color deja al usuario sin poder saber algo
+importante. El dot de categoría acá es **puramente decorativo** — no
+transmite ningún estado, ninguna decisión del usuario depende de percibir
+ese color (el nombre del gasto fijo ya identifica la fila por sí solo) — por
+eso lleva `aria-hidden="true"` en vez de un `aria-label`/`title` con el
+nombre de la categoría: agregar semántica a un adorno visual sería ruido
+para un lector de pantalla, no una mejora de a11y real. Se evaluó agregar el
+nombre de categoría como texto (como sí hace el dashboard con
+`categoryName` en una 2ª línea) y se descartó: `FixedExpenseHistoryRow` no
+trae `categoryName` (solo el `categoryId` aditivo autorizado, ver 13.4) y
+esta fila de una sola línea dentro de una columna de ~33% de ancho no tiene
+lugar para una 2ª línea sin romper la densidad de 3 columnas visibles a la
+vez — el color queda como refuerzo de escaneo visual (agrupar de un vistazo
+gastos de la misma categoría entre columnas), no como fuente única de
+información.
+
+#### 13.11.2 Indicadores de variación con más peso visual (13.6)
+
+Ver snippet actualizado en 13.6: ícono en círculo de color (`size-10`,
+`bg-{success|destructive}/10` + `dark:bg-{success|destructive}/20`, mismo
+formato que ya usa el `variant="destructive"` de `Badge`/`Button` — ver
+`src/components/ui/badge/index.ts`) reemplaza el ícono chico (`size-4`)
+suelto en color de texto; el número principal pasa a `text-xl sm:text-2xl
+font-bold` (el mismo salto de escala que ya usa el hero "Total del mes" del
+dashboard, sección 3.2 — `text-3xl sm:text-4xl font-bold`, acá un escalón
+más chico porque es un indicador secundario, no el hero de la pantalla) en
+vez de `text-sm font-medium` compartiendo línea con el ícono. Semántica de
+color **sin cambios** (`up` → `destructive`, `down` → `success`, `flat`/
+`null` → `muted-foreground`/círculo `bg-muted`): gastar más sigue siendo
+"malo", gastar menos sigue siendo "bueno", el caso sin datos suficientes
+sigue mostrando el mismo texto `"No hay datos suficientes para comparar."`,
+ahora al lado del mismo círculo neutro que el caso `flat` (mismo ícono
+`Minus`) en vez de sin ningún acompañamiento visual.
+
+Jerarquía número principal/secundaria: cuando hay `percent` (caso normal), el
+grande es el porcentaje y el monto en `$` pasa a una 2ª línea chica
+(`text-xs text-muted-foreground`) debajo — inverso a como se leía antes
+("57% · $2"), pero es la misma jerarquía que el dashboard ya estableció
+(número grande = la cifra más "resumen", detalle chico al lado/debajo).
+Cuando `percent === null` (división por cero, mes base en $0 — sección
+13.6.1, sin cambios en esa regla), el monto en `$` pasa a ocupar el lugar del
+número grande (no hay porcentaje que mostrar), sin una 2ª línea.
+
+#### 13.11.3 Badge "Actual"
+
+**Hallazgo evaluado, no un bug de implementación**: el badge actual
+(`border-primary/50 text-primary`, sin fondo) puede leerse "rosa pálido y
+sin contraste" si el usuario tiene un color de acento no-azul elegido en
+Ajustes (`docs/features/accent-color-ux.md`) — el problema real e
+independiente del hue es que **borde al 50% + texto sólido sobre fondo de
+`Card` liso** da un resultado débil en `text-[10px]`, sea cual sea el color
+de acento activo.
+
+**Dos patrones candidatos evaluados**:
+
+1. `FixedExpenseStatusBadge.vue` (ícono + texto coloreado, `variant="outline"`,
+   sin relleno) — descartado para este caso: fue diseñado para 4 estados
+   (`paid`/`overdue`/`pending`/`paused`) donde el ícono aporta una segunda
+   señal redundante al color. "Actual" no tiene un ícono natural equivalente
+   (no es un estado de progreso/resultado, es una etiqueta de posición
+   temporal) — forzar un ícono ahí sería decoración sin significado.
+2. **Elegido**: el mismo patrón que ya resuelve bien `variant="destructive"`
+   de `Badge` (`bg-destructive/10 text-destructive dark:bg-destructive/20`,
+   sin borde) — fondo sutil de color + texto sólido, mejor contraste real en
+   ambos temas que un borde a medias. Se replica con `primary` en vez de
+   `destructive`: `border-transparent bg-primary/10 text-primary
+   dark:bg-primary/20` (mismas proporciones de opacidad light/dark que el
+   variant existente, sin inventar una escala nueva) + `font-semibold`
+   (subido desde el peso normal implícito) para compensar que `text-[10px]`
+   sigue siendo chico. Se mantiene `variant="outline"` como base (no se pasa
+   a `variant="default"`, que forzaría `bg-primary` sólido — demasiado peso
+   para una etiqueta secundaria de una `CardDescription`) y se sobreescriben
+   sus clases de fondo/borde/texto vía `class` (mismo mecanismo de
+   `cn`/`tailwind-merge` que ya usa el resto de la app para especializar un
+   variant base, confirmado en `src/components/ui/badge/Badge.vue`).
+
+#### 13.11.4 Peso del total por columna (ajuste menor, opcional)
+
+Ver snippet 13.6: banda `bg-muted/30` en la fila de "Total" + cifra en
+`text-base font-bold` (subida desde `text-sm font-semibold`) + label en
+`text-xs font-semibold uppercase tracking-wide` (subido desde
+`text-xs font-medium`, sin mayúsculas). Ajuste de menor prioridad que 13.11.1-
+13.11.3 (no fue pedido explícitamente por el Product Owner, cae dentro de
+"cualquier otro ajuste de jerarquía/contraste" del encargo): el total al pie
+de cada columna es el "cierre" de la comparación, y competía visualmente casi
+en igualdad de peso con cada fila de gasto individual. `bg-muted/30` funciona
+sin clases nuevas porque `Card` ya tiene `overflow-hidden` (confirmado en
+`src/components/ui/card/Card.vue`), así que la banda recorta correctamente
+contra el radio inferior de la card sin agregar `rounded-b-xl` manual.
+
+#### 13.11.5 Sin cambios
+
+Estados de carga/error/vacío por columna (13.3.2/13.7), accesibilidad de
+botones de pivote y scroll con snap (13.8), layout responsive (scroll
+horizontal con snap en mobile, grid de 3 columnas desde `sm:`) — todo se
+mantiene exactamente igual, solo se le agregó color/peso tipográfico a los
+elementos ya existentes descritos arriba.
