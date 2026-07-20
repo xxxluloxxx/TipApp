@@ -1,9 +1,7 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import {
   AlertCircle,
-  ArrowLeft,
   EllipsisVertical,
   Pencil,
   Plus,
@@ -13,6 +11,7 @@ import {
 } from '@lucide/vue'
 import { withAlpha } from '@/lib/colors'
 import { useCategoriesStore, type Category } from '@/stores/categories'
+import AppHeader from '@/components/AppHeader.vue'
 import CategoryFormSheet from '@/components/CategoryFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -36,7 +35,6 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog'
 
-const router = useRouter()
 const categoriesStore = useCategoriesStore()
 
 const isInitialLoading = ref(true)
@@ -83,14 +81,7 @@ function openEditSheet(category: Category) {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Categorías
-      </h1>
-    </header>
+    <AppHeader title="Categorías" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Estado de carga (sección 7.1) -->

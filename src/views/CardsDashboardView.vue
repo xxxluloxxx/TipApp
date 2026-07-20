@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { AlertCircle, ArrowDown, ArrowLeft, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
+import { AlertCircle, ArrowDown, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, withAlpha } from '@/lib/colors'
@@ -11,6 +11,7 @@ import { useCardPeopleStore } from '@/stores/cardPeople'
 import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/cardExpenses'
 import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
 import CardExpenseFormSheet from '@/components/CardExpenseFormSheet.vue'
+import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardDescription, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -22,9 +23,9 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 
-// Resumen/Dashboard de tarjetas (credit-cards-ux.md sección 2). Vista de
-// segundo nivel (header ArrowLeft-less... en realidad sí tiene ArrowLeft,
-// vuelve a Home, mismo patrón que CategoriesView/TransactionsView).
+// Resumen/Dashboard de tarjetas (credit-cards-ux.md sección 2). Usa el
+// AppHeader compartido (botón de menú + slot de título custom con el Select
+// de mes + acción "Gestionar" a la derecha).
 
 const router = useRouter()
 const creditCardsStore = useCreditCardsStore()
@@ -218,11 +219,7 @@ const dashboardSyncTargets = [monthExpenses]
     "Tarjetas de crédito" baja a eyebrow chico y el mes elegido (mismo
     filters.month/monthOptions/Select de siempre, solo cambia la presentación)
     pasa a ser el texto grande, sin caja/borde de campo de formulario. -->
-    <header class="flex items-center gap-2 border-b border-border px-4 py-1.5 sm:gap-3 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-
+    <AppHeader>
       <div class="min-w-0 flex-1">
         <p id="cards-dashboard-eyebrow" class="truncate text-center text-xs font-medium text-muted-foreground">
           Tarjetas de crédito
@@ -243,10 +240,12 @@ const dashboardSyncTargets = [monthExpenses]
         </Select>
       </div>
 
-      <Button variant="ghost" size="icon" aria-label="Gestionar tarjetas y personas" @click="router.push({ name: 'manage-cards' })">
-        <Settings class="size-5" />
-      </Button>
-    </header>
+      <template #actions>
+        <Button variant="ghost" size="icon" aria-label="Gestionar tarjetas y personas" @click="router.push({ name: 'manage-cards' })">
+          <Settings class="size-5" />
+        </Button>
+      </template>
+    </AppHeader>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

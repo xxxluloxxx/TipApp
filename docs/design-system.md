@@ -440,6 +440,43 @@ custom con selección de rango.
 
 ---
 
+## 6. Header + navegación (patrón único, obligatorio)
+
+Toda **vista autenticada** (no `LoginView`/`RegisterView`) usa un único patrón
+de encabezado y navegación, implementado en dos componentes compartidos —
+**no** se vuelve a escribir un `<header>` a mano por pantalla:
+
+- **`src/components/AppHeader.vue`**: el header de la pantalla. Altura fija,
+  idéntica en las 17 vistas:
+  `flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8`.
+  El `py-1.5` es la altura canónica del dashboard (`HomeView`) y **no se
+  cambia** por pantalla (nada de `py-3`/`py-4`). Estructura: botón de menú
+  (primer elemento) → título → acciones. API:
+  - `title?: string` → renderiza `<h1 class="flex-1 truncate text-xl
+    font-semibold">`. Para un título custom (p. ej. el `Select` de mes de
+    Tarjetas, o un spacer) usar el **slot por defecto** en su lugar.
+  - slot `#actions`: contenido a la derecha (un `Button` de ícono, un
+    `DropdownMenu`, un link, o un `<div class="size-11">` de relleno para
+    mantener centrado un título custom).
+- **`src/components/NavigationDrawer.vue`**: el drawer lateral (`Sheet side
+  ="left"`) con perfil + `<nav>` de ítems (highlight de ruta activa vía
+  `aria-current`/`isActive`) + "Cerrar sesión". Es **autocontenido** (usa
+  `useRoute`/`useRouter`/`useAuthStore`, sin props ni estado cableado desde
+  afuera) y se abre con un botón `Menu` (lucide) que es lo primero que
+  renderiza `AppHeader`. Antes vivía embebido solo en `HomeView`; se extrajo
+  para que el drawer sea accesible **desde cualquier pantalla**.
+
+**Regla dura — no reintroducir el botón "Volver"**: ninguna vista autenticada
+lleva un botón `ArrowLeft`/"Volver" en su header. La navegación hacia atrás /
+entre secciones se hace **siempre** por el drawer (botón `Menu`), que llega a
+todos lados. Una pantalla nueva se monta con `<AppHeader title="..." />` (o el
+slot por defecto para un título custom) y hereda el menú gratis — no copiar un
+`<header>` con flecha de otra pantalla vieja. (Un botón de "Volver" contextual
+dentro del **contenido** de un estado de error/recuperación es otra cosa y sí
+está permitido; la prohibición es sobre el botón de navegación del header.)
+
+---
+
 ## Resumen para `vue-frontend-expert`
 
 1. Instalar Tailwind + shadcn-vue con los tokens de la sección 1 (bloques

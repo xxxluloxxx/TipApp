@@ -3,7 +3,6 @@ import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
-  ArrowLeft,
   CreditCard as CreditCardIcon,
   EllipsisVertical,
   Pencil,
@@ -17,6 +16,7 @@ import { readableTextColor, withAlpha } from '@/lib/colors'
 import { useCreditCardsStore, type CreditCard } from '@/stores/creditCards'
 import { useCardPeopleStore } from '@/stores/cardPeople'
 import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/cardExpenses'
+import AppHeader from '@/components/AppHeader.vue'
 import CardExpenseFormSheet from '@/components/CardExpenseFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
@@ -204,14 +204,7 @@ const transactionsSyncTargets = [transactions]
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'cards' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Transacciones de tarjetas
-      </h1>
-    </header>
+    <AppHeader title="Transacciones de tarjetas" />
 
     <!-- Sección 3.1: filtros -->
     <div v-if="!isInitialLoading && !loadError" class="flex gap-2 overflow-x-auto px-4 py-3 sm:px-6 lg:px-8">

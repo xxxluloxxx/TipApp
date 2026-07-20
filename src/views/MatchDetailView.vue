@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
-  ArrowLeft,
   ExternalLink,
   Flag,
   Pause,
@@ -28,6 +27,7 @@ import {
   stateDisplay,
   type MatchIncident,
 } from '@/lib/matchDisplay'
+import AppHeader from '@/components/AppHeader.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
@@ -180,22 +180,22 @@ function removeMatch() {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'matches' })">
-        <ArrowLeft class="size-5" />
-      </Button>
+    <AppHeader>
       <span class="flex-1" />
-      <a
-        v-if="match"
-        :href="match.flashscore_url"
-        target="_blank"
-        rel="noopener noreferrer"
-        class="flex min-h-11 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      >
-        Ver en Flashscore
-        <ExternalLink class="size-4" />
-      </a>
-    </header>
+
+      <template #actions>
+        <a
+          v-if="match"
+          :href="match.flashscore_url"
+          target="_blank"
+          rel="noopener noreferrer"
+          class="flex min-h-11 items-center gap-1.5 rounded-md px-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+        >
+          Ver en Flashscore
+          <ExternalLink class="size-4" />
+        </a>
+      </template>
+    </AppHeader>
 
     <main class="mx-auto flex max-w-md flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Carga (sección 4.5) -->

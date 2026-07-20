@@ -1,10 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   AlertCircle,
   ArrowDownCircle,
-  ArrowLeft,
   EllipsisVertical,
   Pencil,
   Plus,
@@ -19,6 +18,7 @@ import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
 import { formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, resolveAccountColor } from '@/lib/colors'
+import AppHeader from '@/components/AppHeader.vue'
 import TransactionFormSheet from '@/components/TransactionFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -45,7 +45,7 @@ import {
 
 // Sección 3 de dashboard-redesign-ux.md: historial completo de gastos,
 // mudado tal cual desde HomeView.vue (antes hacía de "todo" el dashboard).
-// Vista de "segundo nivel" (header con ArrowLeft, sin trigger de drawer),
+// Vista de "segundo nivel", usa el AppHeader compartido (botón de menú),
 // mismo patrón que CategoriesView.
 //
 // accounts-income-ux.md sección 7.5: a partir de esta iteración mezcla filas
@@ -56,7 +56,6 @@ import {
 // Inicio) — desviación menor documentada en el reporte final de esta
 // iteración.
 
-const router = useRouter()
 const route = useRoute()
 const expensesStore = useExpensesStore()
 const incomesStore = useIncomesStore()
@@ -189,14 +188,7 @@ function itemDeleteTitle(item: TransactionItem): string {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Transacciones
-      </h1>
-    </header>
+    <AppHeader title="Transacciones" />
 
     <main class="mx-auto flex max-w-md flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

@@ -1,10 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowDown,
-  ArrowLeft,
   ArrowUp,
   CalendarSync,
   CircleCheck,
@@ -27,6 +25,7 @@ import FixedExpenseFormSheet from '@/components/FixedExpenseFormSheet.vue'
 import FixedExpenseStatusBadge from '@/components/FixedExpenseStatusBadge.vue'
 import MarkFixedExpensePaidSheet, { type PayTarget } from '@/components/MarkFixedExpensePaidSheet.vue'
 import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
+import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
@@ -54,7 +53,6 @@ import {
 // (`/gastos-fijos`, sección 2). Los 3 números de las cards salen directo de
 // `fixed_expenses_summary` (nunca re-sumados en cliente, ver store).
 
-const router = useRouter()
 const fixedExpensesStore = useFixedExpensesStore()
 const categoriesStore = useCategoriesStore()
 const accountsStore = useAccountsStore()
@@ -217,14 +215,7 @@ function deleteTemplate(templateId: string) {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-4 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Gastos fijos
-      </h1>
-    </header>
+    <AppHeader title="Gastos fijos" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

@@ -3,7 +3,6 @@ import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import {
   AlertCircle,
-  ArrowLeft,
   BellRing,
   CircleCheck,
   EllipsisVertical,
@@ -28,6 +27,7 @@ import { stateDisplay } from '@/lib/matchDisplay'
 import MatchStatsRow from '@/components/MatchStatsRow.vue'
 import MatchFormSheet from '@/components/MatchFormSheet.vue'
 import CouponCard from '@/components/CouponCard.vue'
+import AppHeader from '@/components/AppHeader.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
@@ -240,14 +240,7 @@ function openAddSheet() {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-3 sm:px-6 sm:py-4 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Partidos en vivo
-      </h1>
-    </header>
+    <AppHeader title="Partidos en vivo" />
 
     <main class="mx-auto flex max-w-md flex-col gap-4 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Carga (§5.4) -->

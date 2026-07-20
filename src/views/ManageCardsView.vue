@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   AlertCircle,
-  ArrowLeft,
   CreditCard as CreditCardIcon,
   EllipsisVertical,
   Pencil,
@@ -16,6 +15,7 @@ import {
 import { formatAmount } from '@/lib/currency'
 import { useCreditCardsStore, type CreditCard } from '@/stores/creditCards'
 import { useCardPeopleStore, type CardPerson } from '@/stores/cardPeople'
+import AppHeader from '@/components/AppHeader.vue'
 import CardFormSheet from '@/components/CardFormSheet.vue'
 import CardPersonFormSheet from '@/components/CardPersonFormSheet.vue'
 import { Button } from '@/components/ui/button'
@@ -43,7 +43,6 @@ import {
 // Sección 6 de credit-cards-ux.md: una única ruta con dos secciones (tarjetas
 // + personas), mismo layout que CategoriesView.
 
-const router = useRouter()
 const route = useRoute()
 const creditCardsStore = useCreditCardsStore()
 const cardPeopleStore = useCardPeopleStore()
@@ -116,14 +115,7 @@ function openEditPerson(person: CardPerson) {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'cards' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Tarjetas y personas
-      </h1>
-    </header>
+    <AppHeader title="Tarjetas y personas" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

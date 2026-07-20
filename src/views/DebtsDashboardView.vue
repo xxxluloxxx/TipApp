@@ -4,7 +4,6 @@ import { useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowDownRight,
-  ArrowLeft,
   ArrowUpRight,
   HandCoins,
   Plus,
@@ -21,6 +20,7 @@ import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
 import DebtFormSheet from '@/components/DebtFormSheet.vue'
 import DualTrendChart from '@/components/charts/DualTrendChart.vue'
+import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -150,17 +150,13 @@ function openAddDebt() {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="flex-1 text-xl font-semibold">
-        Deudas
-      </h1>
-      <Button variant="ghost" size="icon" aria-label="Gestionar personas" @click="router.push({ name: 'debt-people' })">
-        <Settings class="size-5" />
-      </Button>
-    </header>
+    <AppHeader title="Deudas">
+      <template #actions>
+        <Button variant="ghost" size="icon" aria-label="Gestionar personas" @click="router.push({ name: 'debt-people' })">
+          <Settings class="size-5" />
+        </Button>
+      </template>
+    </AppHeader>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

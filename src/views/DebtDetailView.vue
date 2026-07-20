@@ -3,7 +3,6 @@ import { computed, onMounted, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
-  ArrowLeft,
   EllipsisVertical,
   Pencil,
   Plus,
@@ -16,6 +15,7 @@ import { formatAmount } from '@/lib/currency'
 import { useAccountsStore } from '@/stores/accounts'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
+import AppHeader from '@/components/AppHeader.vue'
 import DebtFormSheet from '@/components/DebtFormSheet.vue'
 import DebtMovementFormSheet from '@/components/DebtMovementFormSheet.vue'
 import { Button } from '@/components/ui/button'
@@ -140,50 +140,46 @@ function confirmDeleteDebt() {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'debts' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="flex-1 truncate text-xl font-semibold">
-        {{ summary?.personName ?? 'Deuda' }}
-      </h1>
-      <DropdownMenu v-if="debt">
-        <DropdownMenuTrigger as-child>
-          <Button variant="ghost" size="icon" aria-label="Opciones de la deuda">
-            <EllipsisVertical class="size-5" />
-          </Button>
-        </DropdownMenuTrigger>
-        <DropdownMenuContent align="end">
-          <DropdownMenuItem @select="openEditDebt">
-            <Pencil class="size-4" />
-            Editar deuda
-          </DropdownMenuItem>
-          <AlertDialog>
-            <AlertDialogTrigger as-child>
-              <DropdownMenuItem variant="destructive" @select="(e: Event) => e.preventDefault()">
-                <Trash2 class="size-4" />
-                Eliminar deuda
-              </DropdownMenuItem>
-            </AlertDialogTrigger>
-            <AlertDialogContent>
-              <AlertDialogHeader>
-                <AlertDialogTitle>¿Eliminar esta deuda?</AlertDialogTitle>
-                <AlertDialogDescription>
-                  Se van a eliminar también sus {{ movements.length }} movimiento{{ movements.length === 1 ? '' : 's' }}.
-                  Esta acción no se puede deshacer.
-                </AlertDialogDescription>
-              </AlertDialogHeader>
-              <AlertDialogFooter>
-                <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                <AlertDialogAction @click="confirmDeleteDebt">
-                  Eliminar
-                </AlertDialogAction>
-              </AlertDialogFooter>
-            </AlertDialogContent>
-          </AlertDialog>
-        </DropdownMenuContent>
-      </DropdownMenu>
-    </header>
+    <AppHeader :title="summary?.personName ?? 'Deuda'">
+      <template #actions>
+        <DropdownMenu v-if="debt">
+          <DropdownMenuTrigger as-child>
+            <Button variant="ghost" size="icon" aria-label="Opciones de la deuda">
+              <EllipsisVertical class="size-5" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end">
+            <DropdownMenuItem @select="openEditDebt">
+              <Pencil class="size-4" />
+              Editar deuda
+            </DropdownMenuItem>
+            <AlertDialog>
+              <AlertDialogTrigger as-child>
+                <DropdownMenuItem variant="destructive" @select="(e: Event) => e.preventDefault()">
+                  <Trash2 class="size-4" />
+                  Eliminar deuda
+                </DropdownMenuItem>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>¿Eliminar esta deuda?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    Se van a eliminar también sus {{ movements.length }} movimiento{{ movements.length === 1 ? '' : 's' }}.
+                    Esta acción no se puede deshacer.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                  <AlertDialogAction @click="confirmDeleteDebt">
+                    Eliminar
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </template>
+    </AppHeader>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

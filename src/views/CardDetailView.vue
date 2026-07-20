@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertCircle, ArrowLeft, CreditCard as CreditCardIcon, Plus, RotateCcw, User } from '@lucide/vue'
+import { AlertCircle, CreditCard as CreditCardIcon, Plus, RotateCcw, User } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, withAlpha } from '@/lib/colors'
@@ -12,6 +12,7 @@ import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/ca
 import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
 import CardFormSheet from '@/components/CardFormSheet.vue'
 import CardExpenseFormSheet from '@/components/CardExpenseFormSheet.vue'
+import AppHeader from '@/components/AppHeader.vue'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
@@ -205,12 +206,8 @@ function goToTransactions() {
     <!-- Header con selector de mes integrado (mismo patrón que
     CardsDashboardView.vue): el nombre de la tarjeta baja a eyebrow chico y el
     mes elegido pasa a ser el texto grande, sin caja/borde de campo. El bloque
-    central queda centrado entre el botón Volver y un spacer del mismo tamaño. -->
-    <header class="flex items-center gap-2 border-b border-border px-4 py-1.5 sm:gap-3 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'cards' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-
+    central queda centrado entre el botón de menú y un spacer del mismo tamaño. -->
+    <AppHeader>
       <div class="min-w-0 flex-1">
         <p id="card-detail-eyebrow" class="truncate text-center text-xs font-medium text-muted-foreground">
           {{ card?.name }}
@@ -231,8 +228,10 @@ function goToTransactions() {
         </Select>
       </div>
 
-      <div class="size-11" aria-hidden="true" />
-    </header>
+      <template #actions>
+        <div class="size-11" aria-hidden="true" />
+      </template>
+    </AppHeader>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

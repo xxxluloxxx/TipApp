@@ -1,11 +1,12 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { AlertCircle, ArrowLeft, EllipsisVertical, Pencil, Plus, RotateCcw, Trash2, Wallet } from '@lucide/vue'
+import { useRoute } from 'vue-router'
+import { AlertCircle, EllipsisVertical, Pencil, Plus, RotateCcw, Trash2, Wallet } from '@lucide/vue'
 import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { formatAmount } from '@/lib/currency'
 import { useAccountsStore, type Account } from '@/stores/accounts'
+import AppHeader from '@/components/AppHeader.vue'
 import AccountFormSheet from '@/components/AccountFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardHeader, CardTitle } from '@/components/ui/card'
@@ -34,7 +35,6 @@ import {
 // Sheet de alta/edición) — sin split "predeterminadas/mías": todas las
 // cuentas son del usuario, no hay concepto de cuenta "del sistema".
 
-const router = useRouter()
 const route = useRoute()
 const accountsStore = useAccountsStore()
 
@@ -94,14 +94,7 @@ function openEditSheet(account: Account) {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Cuentas
-      </h1>
-    </header>
+    <AppHeader title="Cuentas" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

@@ -1,12 +1,11 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { useRouter } from 'vue-router'
-import { ArrowLeft, Ban, BellOff, BellRing, Check, Monitor, Moon, Palette, Smartphone, Sun, SunMoon } from '@lucide/vue'
+import { Ban, BellOff, BellRing, Check, Monitor, Moon, Palette, Smartphone, Sun, SunMoon } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { COLOR_SWATCHES, readableTextColor } from '@/lib/colors'
 import { useAuthStore } from '@/stores/auth'
 import { usePushNotificationsStore } from '@/stores/pushNotifications'
-import { Button } from '@/components/ui/button'
+import AppHeader from '@/components/AppHeader.vue'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
@@ -17,7 +16,6 @@ import { Switch } from '@/components/ui/switch'
 // live-matches-ux.md sección 6.3: se agrega el toggle de notificaciones —
 // primer uso de `Switch` como preferencia de cuenta global.
 
-const router = useRouter()
 const authStore = useAuthStore()
 const pushStore = usePushNotificationsStore()
 
@@ -49,14 +47,7 @@ async function onToggleNotifications(value: boolean) {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Ajustes
-      </h1>
-    </header>
+    <AppHeader title="Ajustes" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <Card>

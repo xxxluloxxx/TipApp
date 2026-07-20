@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRouter } from 'vue-router'
-import { AlertCircle, ArrowLeft, RotateCcw } from '@lucide/vue'
+import { AlertCircle, RotateCcw } from '@lucide/vue'
 import { useCategoriesStore } from '@/stores/categories'
 import { useExpensesStore } from '@/stores/expenses'
 import { currentMonthLabel, parseDateOnly } from '@/lib/date'
@@ -9,6 +8,7 @@ import { formatAmount } from '@/lib/currency'
 import { buildDailySeries, buildDonutSlices, isMonthSafeToShow, type CategoryTotal } from '@/lib/charts'
 import TrendAreaChart from '@/components/charts/TrendAreaChart.vue'
 import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
+import AppHeader from '@/components/AppHeader.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -17,7 +17,6 @@ import { Skeleton } from '@/components/ui/skeleton'
 // vive en Inicio (dona completa + "Ver detalle" de Otros, tendencia diaria
 // no acumulada, "Por mes"). Vista de segundo nivel, fetch propio.
 
-const router = useRouter()
 const categoriesStore = useCategoriesStore()
 const expensesStore = useExpensesStore()
 
@@ -119,14 +118,7 @@ function percentOfMax(total: number): number {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'home' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Estadísticas
-      </h1>
-    </header>
+    <AppHeader title="Estadísticas" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Estado de carga -->

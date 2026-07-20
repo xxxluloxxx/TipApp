@@ -1,9 +1,8 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import {
   AlertCircle,
-  ArrowLeft,
   EllipsisVertical,
   Pencil,
   Plus,
@@ -13,6 +12,7 @@ import {
   Users,
 } from '@lucide/vue'
 import { useDebtPeopleStore, type DebtPerson } from '@/stores/debtPeople'
+import AppHeader from '@/components/AppHeader.vue'
 import DebtPersonFormSheet from '@/components/DebtPersonFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Card, CardAction, CardHeader, CardTitle } from '@/components/ui/card'
@@ -42,7 +42,6 @@ import {
 // Deudas y el atajo del Sheet de alta de deuda (sección 4.6, sin ítem en el
 // drawer).
 
-const router = useRouter()
 const route = useRoute()
 const debtPeopleStore = useDebtPeopleStore()
 
@@ -91,14 +90,7 @@ function openEditPerson(person: DebtPerson) {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <header class="flex items-center gap-3 border-b border-border px-4 py-1.5 sm:px-6 lg:px-8">
-      <Button variant="ghost" size="icon" aria-label="Volver" @click="router.push({ name: 'debts' })">
-        <ArrowLeft class="size-5" />
-      </Button>
-      <h1 class="text-xl font-semibold">
-        Personas
-      </h1>
-    </header>
+    <AppHeader title="Personas" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Estado de carga -->
