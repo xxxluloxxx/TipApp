@@ -63,6 +63,11 @@ export interface DebtMovementPayload {
 
 const LEDGER_SAFETY_LIMIT = 500
 const RECENT_MOVEMENTS_LIMIT = 30
+// Mismo valor `MAX_TRANSFERS`/`MAX_EXPENSES` (200) por consistencia (sección
+// 13.1): los movimientos de deuda con cuenta vinculada de TODOS los hilos
+// crecen sin techo con el tiempo (perfil `expenses`/`account_transfers`, no
+// `debt_balances`), por eso el mismo límite defensivo, nunca "traer todo".
+const ACCOUNT_LINKED_MOVEMENTS_LIMIT = 200
 // Red de seguridad defensiva (mismo criterio que SAFETY_LIMIT de
 // cardExpenses.ts), no el mecanismo real de corrección: las queries que la
 // usan ya van acotadas por rango de fecha (sección 1.3 de debts-ux.md).
@@ -269,6 +274,51 @@ export const useDebtsStore = defineStore('debts', () => {
 
     if (fetchError) {
       console.error('[debts] No se pudieron cargar los movimientos del rango', fetchError)
+      return null
+    }
+
+    return (data ?? []) as unknown as DebtMovementWithDebt[]
+  }
+
+  /** Movimientos con cuenta vinculada de TODOS los hilos del usuario, para
+   * mezclarlos como ítem sintético `debt-linked` en `/transacciones` e Inicio
+   * (sección 13.1). `account_id not null`, embebiendo `debt:debts(*)` (igual
+   * que `DebtMovementWithDebt`), ordenado por fecha desc y acotado con el
+   * mismo límite defensivo de `expenses`/`account_transfers` — nunca "traer
+   * todo". NO toca ningún `ref` del store: devuelve su propio resultado para
+   * un `ref` local de la vista, mismo estilo que `fetchRecentMovements`. */
+  async function fetchAccountLinkedMovements(limit = ACCOUNT_LINKED_MOVEMENTS_LIMIT): Promise<DebtMovementWithDebt[] | null> {
+    const { data, error: fetchError } = await supabase
+      .from('debt_movements')
+      .select(MOVEMENT_SELECT)
+      .not('account_id', 'is', null)
+      .order('movement_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (fetchError) {
+      console.error('[debts] No se pudieron cargar los movimientos con cuenta vinculada', fetchError)
+      return null
+    }
+
+    return (data ?? []) as unknown as DebtMovementWithDebt[]
+  }
+
+  /** Movimientos con cuenta vinculada de UNA cuenta puntual (sección 13.8),
+   * para `AccountDetailView.vue` — mismo patrón exacto que
+   * `accountTransfersStore.fetchRecentForAccount`: `.eq('account_id', ...)`,
+   * mismo embed/orden/limit. NO toca ningún `ref` del store. */
+  async function fetchRecentForAccount(accountId: string, limit = 10): Promise<DebtMovementWithDebt[] | null> {
+    const { data, error: fetchError } = await supabase
+      .from('debt_movements')
+      .select(MOVEMENT_SELECT)
+      .eq('account_id', accountId)
+      .order('movement_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (fetchError) {
+      console.error('[debts] No se pudieron cargar los movimientos con cuenta de la cuenta', fetchError)
       return null
     }
 
@@ -649,6 +699,8 @@ export const useDebtsStore = defineStore('debts', () => {
     fetchMovementsForDebt,
     fetchRecentMovements,
     fetchMovementsInRange,
+    fetchAccountLinkedMovements,
+    fetchRecentForAccount,
     createDebt,
     updateDebt,
     deleteDebt,

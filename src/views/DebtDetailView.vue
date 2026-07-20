@@ -12,6 +12,7 @@ import {
 } from '@lucide/vue'
 import { formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
+import { movementVerb } from '@/lib/debtDisplay'
 import { useAccountsStore } from '@/stores/accounts'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
@@ -94,13 +95,11 @@ function accountNameFor(movement: DebtMovementWithDebt): string | null {
   return accountsStore.accountById(movement.account_id)?.name ?? null
 }
 
-// Sección 6.2: verbo explícito según dirección + signo (todos los
-// movimientos de este listado comparten la misma dirección — la del hilo).
-function movementVerb(movement: DebtMovementWithDebt): string {
-  const isLent = debt.value?.direction === 'lent'
-  if (isLent) return movement.amount > 0 ? 'Prestaste más' : 'Te devolvieron'
-  return movement.amount > 0 ? 'Te prestaron más' : 'Pagaste'
-}
+// Sección 6.2/13.3: verbo explícito según dirección + signo. Reusa el helper
+// compartido `movementVerb` (src/lib/debtDisplay.ts) para no divergir del
+// título de la misma fila mostrada como ítem `debt-linked` en /transacciones,
+// Inicio y el detalle de cuenta. Lee la dirección del `debt` embebido de cada
+// movimiento (acá todos comparten la del hilo).
 
 // Definido acá, no inline en el template: un `ref` referenciado por su
 // nombre dentro de una expresión de template se auto-desenvuelve, mismo

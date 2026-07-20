@@ -6,6 +6,7 @@ import {
   ArrowDownCircle,
   ArrowRightLeft,
   EllipsisVertical,
+  HandCoins,
   Pencil,
   Plus,
   Receipt,
@@ -15,9 +16,12 @@ import {
 import { useAccountsStore } from '@/stores/accounts'
 import { useAccountTransfersStore } from '@/stores/accountTransfers'
 import { useCategoriesStore } from '@/stores/categories'
+import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
+import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
 import { buildTransactionItems, type TransactionItem } from '@/lib/transactionItems'
+import { movementVerb } from '@/lib/debtDisplay'
 import { formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, resolveAccountColor } from '@/lib/colors'
@@ -66,11 +70,18 @@ const incomesStore = useIncomesStore()
 const categoriesStore = useCategoriesStore()
 const accountsStore = useAccountsStore()
 const accountTransfersStore = useAccountTransfersStore()
+const debtsStore = useDebtsStore()
+const debtPeopleStore = useDebtPeopleStore()
 
 const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
+
+// debts-ux.md sección 13.1: movimientos de deuda con cuenta vinculada (de todos
+// los hilos), para mezclarlos como ítem sintético `debt-linked`. Ref local (no
+// una lista maestra del store), mismo criterio que `AccountDetailView`.
+const debtLinkedMovements = ref<DebtMovementWithDebt[]>([])
 
 // Fetch propio de esta vista (sección 3.1): no hay "prefetch" compartido con
 // Inicio, cada vista carga sus propios datos igual que ya hace CategoriesView.
@@ -88,6 +99,13 @@ async function loadAll() {
       // una comisión de transferencia y restringir su edición directa acá. Su
       // fallo no bloquea la vista (degradación: sin marca, filas editables).
       accountTransfersStore.fetchAll(),
+      // debts-ux.md sección 13.1: personas (para el título de la fila de deuda)
+      // + movimientos con cuenta vinculada. Su fallo tampoco bloquea la vista
+      // (degradación: sin esas filas / con "Persona" genérica).
+      debtPeopleStore.fetchPeople(),
+      (async () => {
+        debtLinkedMovements.value = (await debtsStore.fetchAccountLinkedMovements()) ?? []
+      })(),
     ])
     if (expensesStore.error || incomesStore.error) loadError.value = true
   } finally {
@@ -114,7 +132,12 @@ const showMainActions = computed(() => !isInitialLoading.value && !loadError.val
 // desincronice entre las dos vistas). Los ítems de transferencia NO tocan
 // `expensesStore`/`incomesStore` ni ningún total agregado.
 const mergedItems = computed<TransactionItem[]>(() =>
-  buildTransactionItems(expensesStore.expenses, incomesStore.incomes, accountTransfersStore.transfers),
+  buildTransactionItems(
+    expensesStore.expenses,
+    incomesStore.incomes,
+    accountTransfersStore.transfers,
+    debtLinkedMovements.value,
+  ),
 )
 
 const isEmpty = computed(() => mergedItems.value.length === 0)
@@ -172,11 +195,15 @@ function deleteItem(item: TransactionItem) {
 function isTransfer(item: TransactionItem): boolean {
   return item.kind === 'transfer-out' || item.kind === 'transfer-in'
 }
-// Filas con monto en verde y signo `+`: ingreso real y la cara de entrada de
-// una transferencia (sección 6.4.2). El resto (gasto real —sección 6.6— y la
-// cara de salida) va en `text-destructive`.
+// Filas con monto en verde y signo `+`: ingreso real, la cara de entrada de
+// una transferencia (sección 6.4.2) y un movimiento de deuda que SUMÓ saldo al
+// hilo (debts-ux.md sección 13.4, `amount > 0`). El resto (gasto real —sección
+// 6.6—, la cara de salida y un movimiento de deuda negativo) va en
+// `text-destructive`.
 function isPositive(item: TransactionItem): boolean {
-  return item.kind === 'income' || item.kind === 'transfer-in'
+  return item.kind === 'income'
+    || item.kind === 'transfer-in'
+    || (item.kind === 'debt-linked' && item.data.amount > 0)
 }
 // El fondo `opacity-70` de "guardando…" solo aplica a gasto/ingreso optimistas
 // (`_pending`); una transferencia no es optimista y su `data` no lo modela.
@@ -190,27 +217,39 @@ function accountName(id: string): string {
 function accountColor(id: string): string {
   return accountsStore.accountById(id)?.color ?? '#6b7280'
 }
+// debts-ux.md sección 13.3: nombre de la contraparte, resuelto contra
+// `debtPeopleStore` por `movement.debt.person_id` (mismo store/mecanismo que
+// `DebtSummary.personName`, no se duplica el lookup).
+function personName(movement: DebtMovementWithDebt): string {
+  return debtPeopleStore.personById(movement.debt.person_id)?.name ?? 'Persona'
+}
 
-// Sección 7.5 + 6.4.1: título por tipo de fila. El título de una transferencia
-// nombra "la otra punta" (destino para la salida, origen para la entrada), no
-// la cuenta de su propio badge.
+// Sección 7.5 + 6.4.1 + 13.3: título por tipo de fila. El título de una
+// transferencia nombra "la otra punta" (destino para la salida, origen para la
+// entrada), no la cuenta de su propio badge. El de una deuda reusa el verbo
+// del movimiento + la persona, separados por guión largo.
 function itemTitle(item: TransactionItem): string {
   switch (item.kind) {
     case 'expense': return item.data.description || item.data.category.name
     case 'income': return item.data.description || 'Ingreso'
     case 'transfer-out': return `Transferencia a ${accountName(item.data.to_account_id)}`
     case 'transfer-in': return `Transferencia desde ${accountName(item.data.from_account_id)}`
+    case 'debt-linked': return `${movementVerb(item.data)} — ${personName(item.data)}`
   }
 }
 // Badge sólido (clasificador primario de la fila, sección 6.4.3/6.5): categoría
 // en un gasto, cuenta en un ingreso, y la cuenta de la propia cara de la
 // transferencia (origen en la salida, destino en la entrada).
+// El `!` en `debt-linked` es seguro: un ítem `debt-linked` solo se genera para
+// movimientos con `account_id` no nulo (sección 13.2), aunque el tipo de la
+// columna lo declare nullable.
 function primaryBadgeText(item: TransactionItem): string {
   switch (item.kind) {
     case 'expense': return item.data.category.name
     case 'income': return item.data.account.name
     case 'transfer-out': return accountName(item.data.from_account_id)
     case 'transfer-in': return accountName(item.data.to_account_id)
+    case 'debt-linked': return accountName(item.data.account_id!)
   }
 }
 function primaryBadgeColor(item: TransactionItem): string | undefined {
@@ -219,6 +258,7 @@ function primaryBadgeColor(item: TransactionItem): string | undefined {
     case 'income': return resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow.value)
     case 'transfer-out': return resolveAccountColor(accountColor(item.data.from_account_id), isDarkNow.value)
     case 'transfer-in': return resolveAccountColor(accountColor(item.data.to_account_id), isDarkNow.value)
+    case 'debt-linked': return resolveAccountColor(accountColor(item.data.account_id!), isDarkNow.value)
   }
 }
 function itemDeleteTitle(item: TransactionItem): string {
@@ -237,6 +277,13 @@ function isTransferCommission(item: TransactionItem): boolean {
 
 function goToTransfers() {
   router.push({ name: 'account-transfers' })
+}
+
+// debts-ux.md sección 13.6: la única acción de una fila `debt-linked` — navega
+// al hilo dueño (ruta de detalle puntual, no un listado genérico). Nunca
+// Editar/Eliminar desde acá (eso vive en /deudas/:id).
+function goToDebt(debtId: string) {
+  router.push({ name: 'debt-detail', params: { id: debtId } })
 }
 </script>
 
@@ -347,6 +394,13 @@ function goToTransfers() {
                       <ArrowRightLeft class="size-3" />
                       Vinculado a una transferencia
                     </Badge>
+                    <!-- debts-ux.md sección 13.5: marcador secundario de un
+                         movimiento de deuda con cuenta vinculada (el badge
+                         sólido de arriba ya clasifica la cuenta). -->
+                    <Badge v-if="item.kind === 'debt-linked'" variant="outline" class="w-fit gap-1">
+                      <HandCoins class="size-3" />
+                      Vinculado a una deuda
+                    </Badge>
                   </div>
                 </div>
 
@@ -355,7 +409,7 @@ function goToTransfers() {
                     class="text-right text-base font-semibold tabular-nums"
                     :class="isPositive(item) ? 'text-success' : 'text-destructive'"
                   >
-                    <span class="text-sm font-normal text-muted-foreground">{{ isPositive(item) ? '+$' : '$' }}</span>{{ formatAmount(item.data.amount) }}
+                    <span class="text-sm font-normal text-muted-foreground">{{ isPositive(item) ? '+$' : '$' }}</span>{{ formatAmount(Math.abs(item.data.amount)) }}
                   </p>
 
                   <DropdownMenu>
@@ -372,6 +426,15 @@ function goToTransfers() {
                         <DropdownMenuItem @select="goToTransfers">
                           <ArrowRightLeft class="size-4" />
                           Ver transferencia
+                        </DropdownMenuItem>
+                      </template>
+                      <!-- debts-ux.md sección 13.6: fila de deuda con cuenta
+                           vinculada — única acción "Ver deuda" hacia su hilo,
+                           nunca Editar/Eliminar (eso vive en /deudas/:id). -->
+                      <template v-else-if="item.kind === 'debt-linked'">
+                        <DropdownMenuItem @select="goToDebt(item.data.debt_id)">
+                          <HandCoins class="size-4" />
+                          Ver deuda
                         </DropdownMenuItem>
                       </template>
                       <template v-else>

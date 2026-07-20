@@ -1,12 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowDown,
   ArrowRightLeft,
   ArrowUp,
   EllipsisVertical,
+  HandCoins,
   Loader2,
   Pencil,
   Plus,
@@ -19,9 +20,12 @@ import { readableTextColor, resolveAccountColor } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { buildAccountBalanceEvolution, type AccountMovementInput, type TrendPoint } from '@/lib/charts'
 import { buildAccountTransactionItems, type TransactionItem } from '@/lib/transactionItems'
+import { movementVerb } from '@/lib/debtDisplay'
 import { supabase } from '@/lib/supabase'
 import { useAccountsStore } from '@/stores/accounts'
 import { useCategoriesStore } from '@/stores/categories'
+import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
+import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
 import { useAccountTransfersStore, type AccountTransfer } from '@/stores/accountTransfers'
@@ -59,11 +63,14 @@ import {
 // del AppHeader es el único acceso de navegación (regla dura del proyecto).
 
 const route = useRoute()
+const router = useRouter()
 const accountsStore = useAccountsStore()
 const categoriesStore = useCategoriesStore()
 const expensesStore = useExpensesStore()
 const incomesStore = useIncomesStore()
 const accountTransfersStore = useAccountTransfersStore()
+const debtsStore = useDebtsStore()
+const debtPeopleStore = useDebtPeopleStore()
 
 const accountId = computed(() => String(route.params.id))
 const account = computed(() => accountsStore.accountById(accountId.value))
@@ -84,6 +91,9 @@ const balanceEvolutionPoints = ref<TrendPoint[]>([])
 const recentExpenses = ref<ExpenseWithCategory[]>([])
 const recentIncomes = ref<IncomeWithAccount[]>([])
 const recentTransfers = ref<AccountTransfer[]>([])
+// debts-ux.md sección 13.8: movimientos de deuda con cuenta vinculada a ESTA
+// cuenta puntual (fetch acotado por cuenta, no un filtro sobre la lista global).
+const recentDebtLinked = ref<DebtMovementWithDebt[]>([])
 
 const PAGE_SIZE = 10
 const currentLimit = ref(PAGE_SIZE)
@@ -148,23 +158,28 @@ async function loadBalanceEvolution(): Promise<boolean> {
 
 async function loadMovements(): Promise<boolean> {
   const id = accountId.value
-  const [expensesRes, incomesRes, transfersRes] = await Promise.all([
+  const [expensesRes, incomesRes, transfersRes, debtLinkedRes] = await Promise.all([
     expensesStore.fetchRecentForAccount(id, currentLimit.value),
     incomesStore.fetchRecentForAccount(id, currentLimit.value),
     accountTransfersStore.fetchRecentForAccount(id, currentLimit.value),
+    // debts-ux.md sección 13.8: mismo patrón que las otras 3 listas, acotado
+    // por cuenta y por el mismo `currentLimit` de paginación.
+    debtsStore.fetchRecentForAccount(id, currentLimit.value),
   ])
-  if (expensesRes === null || incomesRes === null || transfersRes === null) {
+  if (expensesRes === null || incomesRes === null || transfersRes === null || debtLinkedRes === null) {
     return false
   }
   recentExpenses.value = expensesRes
   recentIncomes.value = incomesRes
   recentTransfers.value = transfersRes
+  recentDebtLinked.value = debtLinkedRes
 
-  // Heurística simple (sección 7.3): si ninguna de las 3 queries llegó a su
+  // Heurística simple (sección 7.3): si ninguna de las 4 queries llegó a su
   // propio tope, no puede haber más para traer.
   hasMore.value = expensesRes.length === currentLimit.value
     || incomesRes.length === currentLimit.value
     || transfersRes.length === currentLimit.value
+    || debtLinkedRes.length === currentLimit.value
   return true
 }
 
@@ -188,6 +203,9 @@ async function loadAll() {
       accountsStore.fetchAccounts(),
       accountsStore.fetchBalances(),
       categoriesStore.fetchCategories(),
+      // debts-ux.md sección 13.3: personas, para el título de las filas de
+      // deuda. Su fallo no bloquea la vista (degradación: "Persona" genérica).
+      debtPeopleStore.fetchPeople(),
     ])
     if (!accountsOk || !balancesOk || !categoriesOk || !account.value) {
       loadError.value = true
@@ -205,7 +223,13 @@ onMounted(loadAll)
 // -- Movimientos: merge acotado por cuenta (sección 7.2) --------------------
 
 const mergedItems = computed<TransactionItem[]>(() =>
-  buildAccountTransactionItems(recentExpenses.value, recentIncomes.value, recentTransfers.value, accountId.value),
+  buildAccountTransactionItems(
+    recentExpenses.value,
+    recentIncomes.value,
+    recentTransfers.value,
+    accountId.value,
+    recentDebtLinked.value,
+  ),
 )
 
 // account-transfers-ux.md sección 6.3: gasto de comisión de una transferencia
@@ -219,13 +243,25 @@ const linkedExpenseIds = computed(
 function accountName(id: string): string {
   return accountsStore.accountById(id)?.name ?? 'Cuenta'
 }
+function accountColor(id: string): string {
+  return accountsStore.accountById(id)?.color ?? '#6b7280'
+}
+// debts-ux.md sección 13.3: nombre de la contraparte del hilo de este
+// movimiento, resuelto contra `debtPeopleStore`.
+function personName(movement: DebtMovementWithDebt): string {
+  return debtPeopleStore.personById(movement.debt.person_id)?.name ?? 'Persona'
+}
 
+// Sección 13.3: título de la fila de deuda = verbo del movimiento + persona
+// (guión largo). El `!` es seguro: `debt-linked` solo existe con cuenta
+// vinculada (sección 13.2).
 function itemTitle(item: TransactionItem): string {
   switch (item.kind) {
     case 'expense': return item.data.description || item.data.category.name
     case 'income': return item.data.description || 'Ingreso'
     case 'transfer-out': return `Transferencia a ${accountName(item.data.to_account_id)}`
     case 'transfer-in': return `Transferencia desde ${accountName(item.data.from_account_id)}`
+    case 'debt-linked': return `${movementVerb(item.data)} — ${personName(item.data)}`
   }
 }
 
@@ -233,7 +269,13 @@ function isTransfer(item: TransactionItem): boolean {
   return item.kind === 'transfer-out' || item.kind === 'transfer-in'
 }
 function isPositive(item: TransactionItem): boolean {
-  return item.kind === 'income' || item.kind === 'transfer-in'
+  return item.kind === 'income'
+    || item.kind === 'transfer-in'
+    || (item.kind === 'debt-linked' && item.data.amount > 0)
+}
+// debts-ux.md sección 13.6: navegación al hilo dueño de este movimiento.
+function goToDebt(debtId: string) {
+  router.push({ name: 'debt-detail', params: { id: debtId } })
 }
 function itemPending(item: TransactionItem): boolean {
   return (item.kind === 'expense' || item.kind === 'income') && !!item.data._pending
@@ -445,20 +487,54 @@ const showChart = computed(() => balanceEvolutionPoints.value.length > 1)
                       {{ isTransfer(item) ? 'Transferencia entre cuentas' : 'Vinculado a una transferencia' }}
                     </Badge>
                   </div>
+                  <!-- debts-ux.md sección 13.5/13.8: mismos badges que en
+                       TransactionsView — sólido = cuenta vinculada, outline =
+                       "Vinculado a una deuda". -->
+                  <div v-else-if="item.kind === 'debt-linked'" class="mt-0.5 flex flex-wrap items-center gap-1.5">
+                    <Badge
+                      class="w-fit border-transparent"
+                      :style="{
+                        backgroundColor: resolveAccountColor(accountColor(item.data.account_id!), isDarkNow),
+                        color: readableTextColor(resolveAccountColor(accountColor(item.data.account_id!), isDarkNow)),
+                      }"
+                    >
+                      {{ accountName(item.data.account_id!) }}
+                    </Badge>
+                    <Badge variant="outline" class="w-fit gap-1">
+                      <HandCoins class="size-3" />
+                      Vinculado a una deuda
+                    </Badge>
+                  </div>
                 </div>
 
                 <p
                   class="shrink-0 text-sm font-semibold tabular-nums"
                   :class="isPositive(item) ? 'text-success' : 'text-destructive'"
                 >
-                  {{ isPositive(item) ? '+' : '-' }}${{ formatAmount(item.data.amount) }}
+                  {{ isPositive(item) ? '+' : '-' }}${{ formatAmount(Math.abs(item.data.amount)) }}
                 </p>
 
+                <!-- debts-ux.md sección 13.6/13.8: fila de deuda con cuenta
+                     vinculada — menú de única acción "Ver deuda" hacia su
+                     hilo, nunca Editar/Eliminar (eso vive en /deudas/:id). -->
+                <DropdownMenu v-if="item.kind === 'debt-linked'">
+                  <DropdownMenuTrigger as-child>
+                    <Button variant="ghost" size="icon" aria-label="Más acciones para este movimiento">
+                      <EllipsisVertical class="size-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem @select="goToDebt(item.data.debt_id)">
+                      <HandCoins class="size-4" />
+                      Ver deuda
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
                 <!-- Sección 7.4: solo gasto/ingreso propios tienen menú. Las 2
                      caras de transferencia y el gasto de comisión se
                      editan/borran solo desde /transferencias (account-transfers
                      -ux.md sección 6.3/6.4), así que acá van sin menú. -->
-                <DropdownMenu v-if="!isTransfer(item) && !isTransferCommission(item)">
+                <DropdownMenu v-else-if="!isTransfer(item) && !isTransferCommission(item)">
                   <DropdownMenuTrigger as-child>
                     <Button variant="ghost" size="icon" aria-label="Más acciones para este movimiento">
                       <EllipsisVertical class="size-5" />

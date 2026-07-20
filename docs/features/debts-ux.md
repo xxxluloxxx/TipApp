@@ -135,6 +135,13 @@ fecha en el servidor, nunca "traer todo":
   perceptible. Como red de seguridad defensiva (no como mecanismo de
   corrección), la query lleva `.limit(500)` — mismo criterio que el
   `.limit(1000)` defensivo de `credit-cards-ux.md` sección 1.4.
+- **Movimientos con cuenta vinculada, mezclados en `/transacciones` e
+  Inicio** (sección 13, nueva): a diferencia del ledger de un hilo
+  puntual (chico por diseño), acá se agregan TODOS los hilos del
+  usuario — mismo perfil de crecimiento sin techo que `expenses`/
+  `account_transfers`, no el de `debt_balances`. Se le aplica el mismo
+  límite defensivo `MAX_TRANSFERS`/`MAX_EXPENSES` (200, sección 13.1),
+  nunca "traer todo".
 
 ### 1.4 La parte más delicada: derivar "Evolución de saldos" (12 meses) sin sumar el historial completo
 
@@ -1626,6 +1633,309 @@ Explícitamente descartado, no se construye nada de esto:
 
 ---
 
+## 13. Deudas visibles en Transacciones e Inicio — ítem sintético de cuenta vinculada
+
+Mismo problema, mismo precedente exacto a replicar/adaptar: `account-transfers-ux.md`
+sección 6.4 ya resolvió "esto ajusta un saldo pero no aparece como fila en
+ningún listado" para transferencias, con 2 ítems visuales sintéticos
+(`transfer-out`/`transfer-in`) derivados en el propio componente, sin tabla
+ni columna nueva. Esta sección aplica el mismo criterio a un
+`debt_movement` con `account_id` no nulo — confirmado por el Product Owner
+tras usar la feature: hoy ese movimiento ajusta `account_balances` en
+silencio y **nunca** aparece en `/transacciones` ni en "Transacciones
+recientes" de Inicio, ni siquiera como el badge de cuenta que sí ve dentro
+de `/deudas/:id` (sección 6.2) — el pedido es que se vea también ahí, de
+solo lectura.
+
+### 13.0 Diferencia de dominio con Transferencias: **1 ítem, no 2**
+
+Una transferencia tiene, por definición, dos cuentas del propio usuario en
+juego (origen y destino) — por eso genera 2 ítems, las dos caras
+inseparables de un mismo evento (sección 6.4 de `account-transfers-ux.md`).
+
+Un `debt_movement` vinculado a cuenta involucra **una sola cuenta real del
+usuario** — el "otro lado" del movimiento es la contraparte de la deuda
+(una persona en `debt_people`), no una segunda cuenta propia. No hay una
+segunda cara que mostrar como fila de "transacción", porque no hay una
+segunda cuenta cuyo saldo se vea afectado. Por lo tanto: **cada
+`debt_movement` con cuenta genera exactamente 1 ítem sintético**, nunca 2 —
+no se inventa un "ítem hermano" a la fuerza solo para calcar la forma de
+Transferencias; sería representar un segundo lado que el dominio no tiene.
+
+Esto es consistente con lo que ya hace la propia `/deudas/:id` (sección
+6.2): cada movimiento del ledger es **una** fila (con su badge de cuenta si
+aplica), nunca dos — este cambio simplemente hace que esa misma fila,
+además, aparezca en Transacciones/Inicio con el mismo criterio de "1
+movimiento = 1 fila".
+
+### 13.1 Estrategia de datos: fetch global nuevo, acotado (nunca "traer todo")
+
+`DebtDetailView.vue` hoy solo trae los movimientos de **un** hilo puntual
+(sección 6.2, seguro sin límite de fecha por ser un solo hilo). Para
+mezclar en Transacciones/Inicio hace falta agregar los movimientos con
+cuenta vinculada **de todos los hilos** del usuario — un perfil de
+cardinalidad distinto (crece con el tiempo, no con la cantidad de hilos),
+igual que ya señala la sección 1.3 actualizada arriba.
+
+**Recomendación para `vue-frontend-expert`**: un método nuevo en
+`debtsStore` (p. ej. `fetchAccountLinkedMovements()`) que traiga
+`debt_movements` con `account_id not null`, embebiendo `debt:debts(*)`
+(igual que `DebtMovementWithDebt` ya hace, sección 6.2), ordenado por
+`movement_date desc` y acotado con el mismo límite defensivo ya usado por
+`expensesStore`/`accountTransfersStore` (`.limit(200)`, mismo valor
+`MAX_TRANSFERS`/`MAX_EXPENSES` por consistencia, sin cálculo nuevo). Se
+llama junto al resto de `loadAll()` de `TransactionsView.vue`/`HomeView.vue`
+(mismo patrón ya establecido para `accountTransfersStore.fetchAll()`,
+sección 6.4 de `account-transfers-ux.md`) — no bloquea el resto de esta
+sección, es un detalle de implementación de store, no de UX.
+
+### 13.2 Extensión del tipo discriminante `TransactionItem`
+
+Se agrega **1 variante nueva** (no 2) al union ya existente en
+`src/lib/transactionItems.ts`:
+
+```ts
+// Ilustrativo — extiende el union ya existente con 1 variante nueva.
+type TransactionItem =
+  | { kind: 'expense', id: string, date: string, data: ExpenseWithCategory }
+  | { kind: 'income', id: string, date: string, data: IncomeWithAccount }
+  | { kind: 'transfer-out', id: string, date: string, data: AccountTransfer }
+  | { kind: 'transfer-in', id: string, date: string, data: AccountTransfer }
+  | { kind: 'debt-linked', id: string, date: string, data: DebtMovementWithDebt } // NUEVO
+```
+
+- **Confirmado el nombre `'debt-linked'`, no `'debt-out'`/`'debt-in'`**
+  (el Product Owner había sugerido ese par, calcando literalmente el de
+  Transferencias): como cada movimiento genera un único ítem (sección
+  13.0), no hace falta un par de nombres que se distingan entre sí —
+  hace falta un solo nombre que diga "esto es un movimiento de deuda con
+  cuenta vinculada", y el signo/color se resuelve con una función aparte
+  (`isPositive`, sección 13.4), igual que hoy ya distingue `income` de
+  `expense` sin necesitar dos `kind` de ingreso. Usar un par de nombres
+  solo para imitar la forma visual de Transferencias sería introducir una
+  distinción en el tipo que el propio dominio no tiene (no hay una
+  variante "de entrada" y otra "de salida" del mismo evento — hay un único
+  evento cuyo signo puede ser positivo o negativo, exactamente como ya
+  pasa con `expense`/`income`, que tampoco se subdividen por signo).
+- `id` = `movement.id` (el propio `debt_movement`, no el `debt_id` del
+  hilo) — a diferencia de `transfer-out`/`transfer-in` (que comparten el
+  mismo `id` porque son dos caras del mismo `account_transfer`), acá no
+  hay ambigüedad que resolver: es 1 ítem, 1 id, ya único de por sí.
+- `date` = `movement.movement_date`.
+- Se genera **solo** para movimientos con `account_id` no nulo — los que
+  no tienen cuenta vinculada siguen 100% invisibles fuera de Deudas, sin
+  cambios (confirmado en el punto 6 del encargo).
+
+### 13.3 Copy del título — se reusa `movementVerb` literal (no los labels del toggle), con el nombre de la persona separado por un guión largo
+
+**Confirmado: se reusa `movementVerb`** (`DebtDetailView.vue` líneas
+~99-103: *"Prestaste más"/"Te devolvieron"/"Te prestaron más"/"Pagaste"*),
+no los labels de `DebtMovementFormSheet.vue` (*"Cobro / me devuelven"*,
+*"Pago / devuelvo"*, etc.). Motivo: son dos coppys con roles distintos —
+`kindLabels` de `DebtMovementFormSheet` son etiquetas de un control
+segmentado dentro de un formulario (responden "¿qué tipo de movimiento
+estoy cargando?"), mientras que `movementVerb` **ya cumple, literalmente,
+el mismo rol que necesita esta fila**: es el título de un movimiento
+puntual dentro de un ledger (`/deudas/:id`, sección 6.2) — el mismo
+movimiento, mostrado en un lugar distinto. Reusar la copy que ya describe
+"esta fila" en su lugar de origen mantiene el significado idéntico entre
+las dos pantallas donde el usuario puede ver el mismo movimiento, en vez de
+inventar una tercera redacción.
+
+**Formato del título**: `{movementVerb} — {persona}` (guión largo como
+separador, sin preposición):
+
+| Dirección del hilo | Signo del movimiento | Título |
+|---|---|---|
+| `lent` | `amount > 0` | `Prestaste más — {persona}` |
+| `lent` | `amount < 0` | `Te devolvieron — {persona}` |
+| `borrowed` | `amount > 0` | `Te prestaron más — {persona}` |
+| `borrowed` | `amount < 0` | `Pagaste — {persona}` |
+
+**Por qué un guión largo y no una preposición** (p. ej. "Pagaste a
+{persona}", calcando el "Transferencia a {cuenta}" de Transferencias): acá
+hay 4 combinaciones (dirección × signo), y cada una pediría una
+preposición/conjugación distinta para leerse natural en español ("Pagaste
+**a** Naidy" funciona, pero "Te devolvieron **a** Naidy" no — el sujeto
+implícito de "te devolvieron" ya no admite esa misma preposición sin
+reformular el verbo a 3ª persona singular, *"Naidy te devolvió"*, lo que
+además invertiría el orden verbo/persona respecto de los otros tres casos).
+El guión largo es gramaticalmente neutro: funciona igual detrás de las 4
+formas verbales ya existentes sin tocar ni reconjugar ninguna, y es un
+separador ya usado en el proyecto con el mismo rol de "adjuntar un dato
+más al título sin fusionarlo gramaticalmente" (`itemSubtitle` de
+`HomeView.vue` ya usa `·` con ese mismo propósito para "Categoría ·
+Cuenta", sección 6.5 de `account-transfers-ux.md`; se prefiere `—` en el
+título en vez de `·` para no confundir visualmente "separador de título"
+con "separador de subtítulo", ambos roles distintos en la misma fila).
+`persona` se resuelve contra `debtPeopleStore` por `movement.debt.person_id`
+(mismo store/mecanismo ya usado por `DebtSummary.personName`, sección
+1.1/4.5 — no se duplica ese lookup).
+
+### 13.4 Apariencia — se reusan los mismos patrones ya establecidos de gasto/ingreso, extendiendo (no reinventando) las funciones compartidas ya existentes
+
+**`isPositive(item)`** (`src/lib/transactionItems.ts` o donde viva hoy en
+cada vista, sección 6.4.2 de `account-transfers-ux.md`) se extiende con una
+tercera condición:
+
+```ts
+// Antes: item.kind === 'income' || item.kind === 'transfer-in'
+function isPositive(item: TransactionItem): boolean {
+  return item.kind === 'income'
+    || item.kind === 'transfer-in'
+    || (item.kind === 'debt-linked' && item.data.amount > 0)
+}
+```
+
+**`TransactionsView.vue`** (layout Card + Badge):
+
+- Monto: mismo mecanismo que el resto (`text-success`/`+$` si
+  `isPositive`, `text-destructive`/`$` si no) — el signo real ya viene del
+  propio `movement.amount` (con signo, sección 1 del doc), no hace falta
+  `accountDeltaFor` acá: el signo de `amount` ya refleja directamente si
+  ESA fila puntual sumó o restó saldo al hilo, y por transitividad (sección
+  1 del encargo original, `accountDeltaFor`) el signo del **impacto en la
+  cuenta** coincide siempre con el signo mostrado en `/deudas/:id` para ese
+  mismo movimiento — no se reimplementa la fórmula, se muestra el mismo
+  signo que el usuario ya ve en el ledger de la deuda.
+- **Ícono inline `ArrowDownCircle` cuando `isPositive(item)`**: como la
+  condición ya extendida de arriba incluye `debt-linked` positivo, este
+  ítem **hereda automáticamente** el mismo ícono que ya usan ingreso real y
+  `transfer-in` (sección 6.4.2 de `account-transfers-ux.md`, la misma
+  condición ya se reusa sin cambios en el `v-if` de la plantilla) — sin
+  ícono inline cuando es negativo, igual que gasto real y `transfer-out`.
+  No se introduce ningún ícono nuevo tipo "mano con monedas pequeña" para
+  este caso puntual: la fila ya se distingue por su badge (13.6) y su
+  título (13.3).
+- Título: `itemTitle(item)` agrega el caso `'debt-linked'` devolviendo el
+  string ya armado en 13.3.
+
+**`HomeView.vue`** ("Transacciones recientes", layout ícono-círculo +
+subtítulo plano, sin `Badge`):
+
+- **Ícono del círculo: `HandCoins`** — no `ArrowDownCircle` (reservado para
+  "ingreso real"/`transfer-in`) ni `ArrowRightLeft` (reservado para
+  Transferencias, sección 7.1 de `account-transfers-ux.md`). `HandCoins` ya
+  es el ícono reservado en toda la app para "esto es de Deudas" (ítem del
+  drawer, sección 9) — mismo criterio de vocabulario único de ícono por
+  feature ya aplicado a `ArrowRightLeft` para Transferencias: **un solo
+  ícono para las dos direcciones** de un movimiento de deuda (no un ícono
+  para "entra plata" y otro para "sale plata"), porque a diferencia de
+  Transferencias (donde el ícono decora un intercambio simétrico entre dos
+  cuentas), acá lo que hay que comunicar de un vistazo es "esto pertenece
+  al dominio Deudas", no la dirección del flujo (esa ya la da el color del
+  monto y el título).
+- **Color del círculo: el de la cuenta vinculada** (`resolveAccountColor`,
+  fondo `withAlpha(..., 0.12)` + borde, mismo mecanismo ya usado por
+  ingreso/`transfer-*`) — a diferencia de una transferencia (que necesita
+  elegir entre origen/destino según la cara), acá solo hay **una** cuenta
+  posible, así que no hace falta una función tipo `transferCircleColor`
+  para decidir cuál: es siempre `movement.account_id`.
+- Subtítulo: mismo criterio de "texto plano sin color" ya establecido —
+  `{persona} · {cuenta}` (mismo separador `·` ya usado por "Categoría ·
+  Cuenta" de un gasto real, sección 6.5 de `account-transfers-ux.md`; acá
+  la persona reemplaza a la categoría porque cumple el mismo rol de
+  "clasificador de con quién/qué es este movimiento").
+- Sin `Badge` (esta sección de Inicio nunca usó badges, mismo criterio ya
+  fijado en sección 6.4.4 de `account-transfers-ux.md` para no introducir
+  el primer chip acá).
+
+### 13.5 Badges en `TransactionsView.vue` — reusando la regla general ya fijada por Transferencias
+
+Regla general ya documentada y vigente (`account-transfers-ux.md` sección
+6.4.4): **sólido con color de dato = clasificador primario**; **outline
+neutro = marcador/metadato secundario**. Se aplica sin excepciones nuevas:
+
+- **Badge sólido (clasificador primario) = la cuenta vinculada** —
+  `resolveAccountColor`/`readableTextColor`, mismo componente/clases
+  exactas que ya usa el badge de cuenta de un ingreso real o de una cara de
+  transferencia (sección 6.4.3 de `account-transfers-ux.md`). Motivo: igual
+  que un ingreso o una transferencia, este ítem no tiene "categoría" —
+  la cuenta es lo único que clasifica de qué se trata la fila en términos
+  de impacto de caja.
+- **Badge outline (marcador secundario) = "Vinculado a una deuda"**, ícono
+  `HandCoins` `size-3`, mismas clases (`variant="outline" class="w-fit
+  gap-1"`) que ya usa "Vinculado a una transferencia" (sección 6.3 de
+  `account-transfers-ux.md`) — **se reusa el patrón "Vinculado a…", no el
+  patrón "Transferencia entre cuentas"** (sección 6.4.4 de ese doc, que
+  explícitamente evita la palabra "vinculado" para sus 2 ítems sintéticos).
+  La diferencia de fondo que justifica reusar acá "vinculado a" pese a que
+  Transferencias la evitó para sus propios ítems: los ítems
+  `transfer-out`/`transfer-in` **no son un recurso propio en ningún lado**
+  (son las dos caras de la transferencia misma, "vinculado a" sugeriría
+  incorrectamente que hay algo más detrás). Este ítem, en cambio, **sí** es
+  el reflejo directo de un recurso real y editable que vive en otro lugar
+  (`/deudas/:id`, sección 13.7) — exactamente la misma situación que ya
+  describe correctamente "vinculado a una transferencia" para el gasto real
+  de comisión (sección 6.3): un dato real, cuya edición vive en otro lado.
+  "Vinculado a una deuda" es, literalmente, preciso acá.
+- **Sin badge de persona separado**: el nombre de la contraparte ya está en
+  el título (13.3) — un segundo badge repitiendo el mismo nombre sería
+  redundante, sin agregar ninguna clasificación nueva que el título no dé
+  ya. Distinto del caso de cuenta (que sí amerita badge porque es, además,
+  el clasificador de color) — la persona no tiene un color propio que
+  aportar visualmente (`debt_people.color` es solo un acento de swatch en
+  su propia gestión, sección 4.2, no un dato pensado para pintar chips en
+  otras pantallas).
+- Orden de badges: sólido primero (cuenta), outline después ("Vinculado a
+  una deuda") — mismo orden ya establecido.
+
+### 13.6 Menú "⋮" — solo "Ver deuda", nunca Editar/Eliminar desde acá
+
+Mismo patrón exacto que Transferencias (sección 6.4.5 de
+`account-transfers-ux.md`) y que el gasto de comisión (sección 6.3 de ese
+mismo doc): en `TransactionsView.vue`, cuando `item.kind === 'debt-linked'`,
+el `DropdownMenuContent` muestra **únicamente**:
+
+```html
+<DropdownMenuItem @select="goToDebt(item.data.debt_id)">
+  <HandCoins class="size-4" />
+  Ver deuda
+</DropdownMenuItem>
+```
+
+`goToDebt(debtId)` navega a `router.push({ name: 'debt-detail', params: {
+id: debtId } })` (ruta ya existente, sección 10) — a diferencia de "Ver
+transferencia" (que no tiene ruta de detalle y siempre aterriza en el mismo
+listado, sección 2.1 de `account-transfers-ux.md`), acá **sí** hay una ruta
+de detalle puntual por hilo, así que el link lleva directo al hilo
+correcto, no a un listado genérico de "Deudas".
+
+Nunca "Editar"/"Eliminar" desde Transacciones — la edición/borrado de este
+movimiento sigue viviendo exclusivamente en `/deudas/:id` (sección 6.4, que
+ya tiene su propio guard del "último movimiento"); ofrecerlo acá también
+duplicaría esa lógica en dos lugares sin necesidad.
+
+`HomeView.vue` sigue sin menú `⋮` en ninguna fila (sección 6.4.5 de
+`account-transfers-ux.md`, sin cambios) — no se agrega acá tampoco.
+
+### 13.7 Alcance: aplica a cualquier `debt_movement` con cuenta vinculada, sin distinción de tipo de movimiento
+
+Confirmado (punto 6 del encargo): esto aplica por igual al primer
+movimiento de una deuda nueva (alta, sección 5.3), a "Prestar más"/"Me
+prestan más" (ampliación, sección 7.3) y a "Cobrar/me devuelven"/"Pagar/
+devolver" (abono, sección 7.3) — **cualquier** movimiento con `account_id`
+no nulo genera su ítem sintético, sin importar si sumó o restó saldo al
+hilo. No hay ninguna razón de dominio para mostrar solo los abonos y
+ocultar las ampliaciones (o viceversa): el criterio del Product Owner es
+"todo impacto real de caja debe verse", no "solo cierto tipo de movimiento
+de deuda".
+
+### 13.8 `AccountDetailView.vue` — mismo tratamiento, sin nada especial
+
+Dentro del detalle de una cuenta puntual, `buildAccountTransactionItems`
+(`src/lib/transactionItems.ts`) ya filtra `transfer-out`/`transfer-in` por
+cuál lado corresponde a esa cuenta (sección 7.2 de
+`account-detail-ux.md`/comentario del helper). Para `debt-linked` no hace
+falta ninguna lógica de "cuál lado": al ser un único ítem con una única
+cuenta (`movement.account_id`, sección 13.0), el filtro es directo —
+`item.kind === 'debt-linked' && item.data.account_id === accountId` — sin
+necesitar distinguir origen/destino como si tiene que hacer con las
+transferencias. La fila se ve exactamente igual que en
+`TransactionsView.vue` (secciones 13.4-13.6), sin ningún ajuste adicional.
+
+---
+
 ## Resumen accionable para `vue-frontend-expert`
 
 1. **Componente shadcn-vue nuevo a instalar**: `Tabs`
@@ -1725,3 +2035,42 @@ Explícitamente descartado, no se construye nada de esto:
       borrado a contar solo `card_expenses(count)` (sección 1.5/4.5).
     - Sin ítem nuevo en el drawer, sin cambios en `HomeView.vue` más allá
       de los ya implementados (sección 4.6).
+13. **Checklist de esta revisión (deudas visibles en Transacciones/Inicio,
+    sección 13)** — mismo precedente de `account-transfers-ux.md` sección
+    6.4, adaptado a "1 ítem, no 2" (sección 13.0):
+    - `debtsStore`: método nuevo `fetchAccountLinkedMovements()` —
+      `debt_movements` con `account_id not null`, embebiendo
+      `debt:debts(*)`, `order('movement_date', { ascending: false
+      }).limit(200)` (sección 13.1). Se llama junto al resto de
+      `loadAll()` de `TransactionsView.vue`/`HomeView.vue`.
+    - `src/lib/transactionItems.ts`: 1 variante nueva `'debt-linked'` en
+      `TransactionItem` (sección 13.2, NO un par `'debt-out'`/`'debt-in'`),
+      con `id = movement.id`, `date = movement.movement_date`.
+      `buildTransactionItems`/`buildAccountTransactionItems` reciben la
+      lista de `fetchAccountLinkedMovements()` como parámetro nuevo (mismo
+      patrón que ya reciben `transfers`); `buildAccountTransactionItems`
+      filtra por `item.data.account_id === accountId` (sección 13.8, sin
+      distinción de lado).
+    - `isPositive()` (donde viva hoy): agregar
+      `|| (item.kind === 'debt-linked' && item.data.amount > 0)`
+      (sección 13.4) — el ícono `ArrowDownCircle` de `TransactionsView.vue`
+      se hereda automáticamente al reusar esta misma condición, sin tocar
+      su `v-if`.
+    - `itemTitle()`: caso `'debt-linked'` → `` `${movementVerb(...)} — ${personName}` ``
+      (sección 13.3, tabla de las 4 combinaciones dirección×signo).
+      `movementVerb` se extrae de `DebtDetailView.vue` a un helper
+      compartido (o se duplica con comentario cruzado, a criterio de
+      `vue-frontend-expert`) para no depender de un import cruzado entre
+      vista y vista.
+    - `TransactionsView.vue`: badge sólido = cuenta vinculada, badge
+      outline nuevo "Vinculado a una deuda" con ícono `HandCoins`
+      (sección 13.5, sin badge de persona); menú `⋮` restringido a "Ver
+      deuda" → `router.push({ name: 'debt-detail', params: { id:
+      item.data.debt_id } })` (sección 13.6).
+    - `HomeView.vue`: círculo con ícono `HandCoins` (nunca
+      `ArrowDownCircle`/`ArrowRightLeft`) coloreado con
+      `resolveAccountColor(movement.account.color)`, subtítulo `{persona}
+      · {cuenta}` (sección 13.4), sin `Badge` ni menú (sin cambios de
+      layout estructural).
+    - `AccountDetailView.vue`: sin trabajo adicional más allá de pasar la
+      lista ya filtrada a `buildAccountTransactionItems` (sección 13.8).
