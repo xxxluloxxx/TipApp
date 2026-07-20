@@ -471,7 +471,10 @@ function goAddFirstExpense() {
           <div class="flex flex-col">
             <template v-for="(item, idx) in recentItems" :key="`${item.kind}-${item.id}`">
               <Separator v-if="idx > 0" />
-              <div class="flex items-center gap-3 px-6 py-3">
+              <div
+                class="flex items-center gap-3 px-6 py-3"
+                :class="isPositive(item) ? 'bg-success/5 dark:bg-success/10' : 'bg-destructive/5 dark:bg-destructive/10'"
+              >
                 <!-- Gasto real: círculo con color de categoría + emoji. -->
                 <span
                   v-if="item.kind === 'expense'"

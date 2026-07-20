@@ -304,7 +304,10 @@ function goToTransfers() {
               v-for="item in group.items"
               :key="`${item.kind}-${item.id}`"
               class="p-4 sm:p-6"
-              :class="{ 'opacity-70': itemPending(item) }"
+              :class="[
+                itemPending(item) ? 'opacity-70' : '',
+                isPositive(item) ? 'bg-success/5 dark:bg-success/10' : 'bg-destructive/5 dark:bg-destructive/10',
+              ]"
             >
               <div class="flex items-start justify-between gap-3">
                 <div class="flex min-w-0 flex-col gap-1.5">
