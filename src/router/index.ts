@@ -98,6 +98,14 @@ const router = createRouter({
       component: () => import('@/views/DebtDetailView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 2 de fixed-expenses-ux.md: una sola ruta (dashboard), sin
+    // colisión de segmentos.
+    {
+      path: '/gastos-fijos',
+      name: 'fixed-expenses',
+      component: () => import('@/views/FixedExpensesView.vue'),
+      meta: { requiresAuth: true },
+    },
     // Sección 2 de live-matches-ux.md: dashboard + detalle, sin colisión de
     // segmento literal-vs-dinámico (como Deudas), no hace falta orden especial.
     {

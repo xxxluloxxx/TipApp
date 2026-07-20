@@ -7,6 +7,7 @@ import {
   ArrowLeftRight,
   ArrowUp,
   ArrowDown,
+  CalendarSync,
   ChartPie,
   CircleDollarSign,
   CreditCard,
@@ -224,7 +225,7 @@ async function onLogout() {
 // selector de tema, movido a Ajustes).
 const isDrawerOpen = ref(false)
 
-type NavRouteName = 'home' | 'transactions' | 'cards' | 'accounts' | 'debts' | 'matches' | 'categories' | 'statistics' | 'reports' | 'settings'
+type NavRouteName = 'home' | 'transactions' | 'cards' | 'accounts' | 'debts' | 'fixed-expenses' | 'matches' | 'categories' | 'statistics' | 'reports' | 'settings'
 
 function isActive(name: NavRouteName): boolean {
   return route.name === name
@@ -327,6 +328,16 @@ function goAddFirstExpense() {
             >
               <HandCoins class="size-5 shrink-0" />
               Deudas
+            </button>
+            <button
+              type="button"
+              class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="isActive('fixed-expenses') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+              :aria-current="isActive('fixed-expenses') ? 'page' : undefined"
+              @click="navigateFromDrawer('fixed-expenses')"
+            >
+              <CalendarSync class="size-5 shrink-0" />
+              Gastos fijos
             </button>
             <button
               type="button"

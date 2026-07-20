@@ -59,6 +59,175 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se agregó **Gastos fijos / recurrentes**: una sección nueva para que el
+usuario registre gastos que se repiten todos los meses (alquiler, servicios,
+suscripciones, cuotas) como una plantilla, y cada mes vaya marcándolos como
+Pagados a medida que los abona. Pedido explícito del Product Owner tras
+compartir una captura de referencia visual (mockup de otra app, "Finanzia",
+4 pantallas) — se replicó su **contenido**, no su navegación (tenía sidebar
+fija; TipApp sigue exclusivamente con el drawer lateral) ni su marca.
+Decisión de producto central, tomada por el Product Owner antes de delegar:
+a diferencia de Deudas (que ajusta el saldo de una cuenta sin dejar ningún
+rastro en Transacciones), acá **marcar un gasto fijo como pagado genera un
+`expenses` real** — visible en Transacciones/Estadísticas/dona de
+categorías sin trabajo extra, porque simplemente es un gasto más. Trabajo de
+las tres capas, backend y diseño corrieron en paralelo sobre un contrato de
+datos fijado de antemano por el Product Owner (mismo criterio que Deudas
+Fase 2), con una ronda de ida y vuelta breve entre Product Owner y backend
+para corregir un detalle puntual antes de pasar a frontend (ver abajo).
+
+- **Backend** (`supabase-backend-expert`, con un fast-follow): 8 migraciones
+  nuevas (`20260720090000` a `20260720090700`), aplicadas al proyecto remoto
+  real vía `supabase db push` y verificadas de forma independiente por el
+  Product Owner (`supabase migration list --linked` muestra las 8 en local
+  Y remote).
+  - `fixed_expenses` (la plantilla, 100% del usuario, sin fila "default"):
+    `name`, `amount`, `category_id` (FK a `categories`, misma tabla que
+    `expenses`), `payment_day` (1-31), `frequency` (`'monthly'` fijo en v1,
+    campo preparado a futuro), `notes` opcional, `is_active` (pausar sin
+    borrar). **Sin `account_id`**: la cuenta se elige recién al pagar cada
+    instancia, no en la plantilla.
+  - `fixed_expense_instances` (una fila por plantilla+mes calendario):
+    `status: 'pending' | 'paid'`, `expense_id` nullable (FK a `expenses`, la
+    fila real generada al pagar), `paid_at`. `unique(fixed_expense_id,
+    period)`.
+  - **Invariante fuerte, verificado con datos reales, no solo revisión de
+    código**: `status='paid'` nunca sobrevive sin un `expense_id` válido.
+    Dos mecanismos independientes: un `check constraint`
+    (`(status='paid') = (expense_id is not null)`) y un trigger BEFORE
+    INSERT/UPDATE que, si `expense_id` pasa a `null` en un UPDATE (lo que
+    dispara el `on delete set null` de `expenses` al borrar el gasto
+    vinculado desde Transacciones), fuerza `status:='pending',
+    paid_at:=null` en la misma fila antes de que el constraint la evalúe —
+    el Product Owner verificó personalmente borrando un `expenses` vinculado
+    y confirmando que la instancia volvió sola a `pending` con
+    `account_balances` restaurado a su valor original.
+  - **Generación de instancias: lazy, sin cron nuevo** — RPC
+    `ensure_current_fixed_expense_instances()` (idempotente, `on conflict
+    do nothing`), llamada al entrar a la sección. Se evaluó `pg_cron` (hay
+    precedente con `poll-matches` cada 20s) y se descartó a propósito: no
+    hay urgencia de datos frescos sin la app abierta.
+  - **RPC `pay_fixed_expense_instance(p_instance_id, p_account_id,
+    p_amount default null, p_expense_date default hoy, p_description
+    default null) returns uuid`** (`security invoker`, mismo patrón que
+    `create_debt`): inserta el `expenses` real (categoría de la plantilla,
+    monto = override si vino o el de la plantilla — pensado para servicios
+    variables como luz/gas) + marca la instancia `paid` con su
+    `expense_id`/`paid_at`, atómico. No idempotente a propósito (pagar una
+    instancia ya `paid` lanza excepción, evita duplicar el gasto por
+    doble-click/reintento).
+  - **Vistas derivadas** (`security_invoker`, mismo principio "estado
+    siempre derivado" que `account_balances`/`debt_balances`/
+    `bet_slip_summary`): `fixed_expense_instances_current` (una fila por
+    plantilla activa con instancia del período actual, categoría ya
+    resuelta) y `fixed_expenses_summary` (1 fila por usuario: `total_amount`
+    proyectado del mes, `paid_count`/`planned_count`,
+    `trailing_avg_monthly`). **Fast-follow del mismo día**: la ventana de
+    `trailing_avg_monthly` incluía el mes en curso si ya tenía algún pago;
+    el Product Owner detectó la discrepancia contra el doc de UX (que pide
+    excluirlo explícitamente, "todavía está a mitad de camino") leyendo el
+    SQL antes de delegar a frontend, y pidió el ajuste puntual — migración
+    `20260720090700` (`create or replace view`, no se edita la migración ya
+    aplicada), verificada de nuevo en local y remoto por el Product Owner
+    de forma independiente antes de continuar.
+  - Verificado con datos reales (no solo compilación): script contra el
+    proyecto remoto con dos usuarios reales — RLS cruzado, la RPC de pago
+    generando un `expenses` real con `account_balances` bajando el monto
+    correcto, reintento de pago rechazado, el invariante paid/expense_id
+    probado en ambas direcciones, `on delete cascade` de `fixed_expenses`
+    sobre sus instancias.
+  - `src/types/database.types.ts` regenerado.
+- **Diseño** (`ui-ux-designer`): doc nuevo
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/fixed-expenses-ux.md`
+  — consultar antes de tocar `/gastos-fijos` o los componentes
+  `FixedExpense*`. Decisiones clave: **1 sola ruta** (`/gastos-fijos`, mismo
+  nivel que Cuentas) — cada pago genera un `expenses` real que ya tiene su
+  historial natural en Transacciones/Estadísticas, así que una ruta de
+  detalle por plantilla sería redundante (mismo argumento que ya descartó
+  `AccountDetailView`). Las pantallas "Comparación mensual" y "Análisis y
+  tendencias" del mockup quedan **diferidas por completo a una fase futura**
+  (no una versión recortada) — no hay suficiente historial real todavía
+  para diseñarlas bien. Tercer estado visual "Vencido" (`overdue`),
+  derivado 100% en cliente comparando `payment_day` contra hoy, sumado a
+  los 2 que define el backend (`pending`/`paid`) — documentado
+  explícitamente como derivación de cliente, no un valor nuevo de backend,
+  mismo criterio CVD (ícono+texto, nunca solo color) que el resto del
+  proyecto. Reusa `CategoryDonutChart`/`buildDonutSlices` y la barra de
+  progreso ya existente tal cual, sin inventar el grid ni el anillo SVG del
+  mockup. "Marcar como pagado" es un Sheet separado del alta de plantilla
+  (`MarkFixedExpensePaidSheet.vue`), con Cuenta obligatoria + Monto/Fecha/
+  Notas editables (prefilled desde la plantilla), **no optimista** (mismo
+  motivo de atomicidad que `create_debt`). Borrado de plantilla sin guard de
+  conteo (no destruye gastos ya generados, el `AlertDialog` lo aclara
+  explícitamente). "Persona responsable" y "Recordatorio" del mockup,
+  fuera de v1 (sin equivalente de dominio claro / decisión de alcance no
+  tomada). Ítem de drawer nuevo, posición 6 de 11, ícono `CalendarSync`,
+  inmediatamente después de "Deudas" (agrupa los 5 "dominios de movimientos
+  de dinero" antes de "Partidos en vivo").
+- **Frontend** (`vue-frontend-expert`): store nuevo
+  `src/stores/fixedExpenses.ts` — mismo principio "tonto" que el resto del
+  proyecto: los 3 números del dashboard (total del mes, X de Y pagados,
+  promedio mensual) salen **directo** de `fixed_expenses_summary`, nunca
+  resumidos en cliente (corrección puntual del Product Owner sobre la
+  sección 1.2/12 del doc de UX, que había sido escrita antes de que
+  existieran las vistas agregadas de backend). Lo único derivado en cliente
+  es el estado visual `overdue` y el merge de plantillas pausadas (que no
+  aparecen en `fixed_expense_instances_current`, solo trae las activas) con
+  las instancias activas. El delta "vs. mes anterior" del hero sí usa una
+  query acotada por fecha directa a `fixed_expense_instances` (no cubierta
+  por la vista de resumen, que solo tiene el período actual) — mismo patrón
+  ya usado en el resto del proyecto para comparaciones mes a mes. `payInstance`
+  no optimista vía el RPC, ajusta el saldo cacheado de la cuenta recién
+  después de la confirmación del servidor. Componentes nuevos:
+  `FixedExpensesView.vue` (`/gastos-fijos`), `FixedExpenseFormSheet.vue`
+  (alta/edición, optimista), `MarkFixedExpensePaidSheet.vue` (marcar
+  pagado, no optimista), `FixedExpenseStatusBadge.vue` (4 estados).
+  `HomeView.vue`: ítem de drawer nuevo. `npm run build` (`vue-tsc --build`
+  + `vite build`) verificado sin errores, tanto por el agente como de forma
+  independiente por el Product Owner.
+- **Deploy**: **no realizado en esta iteración** — a diferencia de otras
+  iteraciones donde el Product Owner autorizó explícitamente commit/push,
+  acá la instrucción fue la contraria (restricción dura, explícitamente
+  motivada por un incidente de una iteración pasada donde un agente de
+  frontend commiteó/pusheó sin que se le pidiera). El diff completo (8
+  migraciones + 5 archivos de frontend nuevos + 3 modificados + doc de UX)
+  queda sin commitear, pendiente de revisión del Product Owner (el usuario)
+  antes de decidir si se commitea/pushea.
+
+**Deuda técnica nueva de esta iteración**:
+- **No se probó de punta a punta en el navegador** contra el Supabase real
+  (mismo caveat recurrente de todas las iteraciones del proyecto): crear una
+  plantilla → confirmar que la instancia del mes se genera sola al entrar a
+  la sección → ver "Pendiente"/"Vencido" según el día → marcar como pagada
+  eligiendo cuenta/monto/fecha → confirmar que aparece un `expenses` real en
+  Transacciones/Estadísticas y que el saldo de la cuenta bajó → pausar/
+  reanudar → borrar una plantilla y confirmar que los gastos ya generados
+  quedan intactos en el historial. Verificación de esta sesión fue build +
+  revisión de código línea por línea (backend y frontend) + verificación
+  funcional de backend contra el proyecto remoto real con datos de prueba
+  (no una sesión de usuario real en el navegador).
+- El delta "vs. mes anterior" y el "Promedio mensual" solo se probaron con
+  datos sintéticos de backend (sin ≥2 meses de historial real de un usuario
+  real) — la fórmula coincide entre ambas capas por revisión de código, no
+  verificada con uso real prolongado.
+- El default de cuenta del Sheet de "Marcar como pagado" (misma heurística
+  que `TransactionFormSheet`: "la cuenta del movimiento más reciente") cae
+  al fallback (cuenta "General"/primera cuenta) si el usuario no visitó
+  Inicio/Transacciones en la sesión actual, porque `FixedExpensesView` no
+  hace fetch de `expensesStore`/`incomesStore` solo para este default — caso
+  borde de bajo impacto (el usuario igual puede cambiar la cuenta a mano),
+  no verificado con datos reales.
+- Sin archivado ni límite de historial para `fixed_expense_instances` más
+  allá de las ventanas ya acotadas que usa cada query — con años de uso
+  reales, es la tabla que más crece de esta feature (una fila por
+  plantilla×mes transcurrido), pero ninguna pantalla actual la trae sin
+  acotar por fecha, así que no es un problema todavía.
+- Pantallas "Comparación mensual" y "Análisis y tendencias" del mockup
+  quedaron completamente fuera de esta iteración (decisión consciente de
+  `ui-ux-designer`, no un olvido) — candidatas de una fase 2 una vez que
+  exista más historial real de uso para diseñarlas con datos genuinos en
+  vez de adivinar.
+
 Se **rediseñó por completo el modelo de "cupón" de apuestas** de "Partidos
 en vivo": antes un cupón era, como mucho, un accesorio de UN solo partido
 (la lista plana de `bet_slip_legs` colgaba directo de `live_matches`); ahora
@@ -1616,8 +1785,17 @@ en todos los anchos).
    push desde Ajustes (instalando la PWA primero si es iOS — la clave
    pública VAPID ya está configurada en Vercel) y confirmar que llega una
    notificación real cuando cambia una stat del partido, pausar/reanudar/
-   quitar un partido, y revisar el detalle en `/partidos/:id`** → drawer de
-   10 ítems (resaltado de ruta activa) → logout → refresh de página
+   quitar un partido, y revisar el detalle en `/partidos/:id`** →
+   **`/gastos-fijos`: crear una plantilla nueva, confirmar que al entrar se
+   genera sola la instancia "Pendiente" del mes (generación perezosa), ver
+   el estado "Vencido" si el día de pago ya pasó, marcar como pagada
+   eligiendo cuenta/ajustando monto/fecha, confirmar que aparece un
+   `expenses` real en Transacciones/Estadísticas y que el saldo de la
+   cuenta bajó, pausar/reanudar una plantilla, borrar una plantilla y
+   confirmar que sus gastos ya generados siguen intactos en el historial, y
+   revisar que borrar el `expenses` vinculado desde Transacciones hace
+   volver la instancia a "Pendiente" sola** → drawer de
+   11 ítems (resaltado de ruta activa) → logout → refresh de página
    (verificar que no hay flash de contenido ni de tema incorrecto) →
    **probar la instalación real como PWA en un celular** (Chrome Android:
    banner/menú "Instalar app"; Safari iOS: "Compartir" → "Agregar a

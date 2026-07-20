@@ -584,6 +584,114 @@ export type Database = {
           },
         ]
       }
+      fixed_expense_instances: {
+        Row: {
+          created_at: string
+          expense_id: string | null
+          fixed_expense_id: string
+          id: string
+          paid_at: string | null
+          period: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          expense_id?: string | null
+          fixed_expense_id: string
+          id?: string
+          paid_at?: string | null
+          period: string
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          expense_id?: string | null
+          fixed_expense_id?: string
+          id?: string
+          paid_at?: string | null
+          period?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fixed_expense_instances_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fixed_expense_instances_fixed_expense_id_fkey"
+            columns: ["fixed_expense_id"]
+            isOneToOne: false
+            referencedRelation: "fixed_expense_instances_current"
+            referencedColumns: ["fixed_expense_id"]
+          },
+          {
+            foreignKeyName: "fixed_expense_instances_fixed_expense_id_fkey"
+            columns: ["fixed_expense_id"]
+            isOneToOne: false
+            referencedRelation: "fixed_expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fixed_expenses: {
+        Row: {
+          amount: number
+          category_id: string
+          created_at: string
+          frequency: string
+          id: string
+          is_active: boolean
+          name: string
+          notes: string | null
+          payment_day: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          category_id: string
+          created_at?: string
+          frequency?: string
+          id?: string
+          is_active?: boolean
+          name: string
+          notes?: string | null
+          payment_day: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          category_id?: string
+          created_at?: string
+          frequency?: string
+          id?: string
+          is_active?: boolean
+          name?: string
+          notes?: string | null
+          payment_day?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "fixed_expenses_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       incomes: {
         Row: {
           account_id: string
@@ -888,6 +996,70 @@ export type Database = {
         }
         Relationships: []
       }
+      fixed_expense_instances_current: {
+        Row: {
+          category_color: string | null
+          category_icon: string | null
+          category_id: string | null
+          category_name: string | null
+          expense_id: string | null
+          fixed_expense_id: string | null
+          fixed_expense_name: string | null
+          fixed_expense_notes: string | null
+          instance_id: string | null
+          paid_account_id: string | null
+          paid_amount: number | null
+          paid_at: string | null
+          paid_expense_date: string | null
+          payment_day: number | null
+          period: string | null
+          status: string | null
+          template_amount: number | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "expenses_account_id_fkey"
+            columns: ["paid_account_id"]
+            isOneToOne: false
+            referencedRelation: "account_balances"
+            referencedColumns: ["account_id"]
+          },
+          {
+            foreignKeyName: "expenses_account_id_fkey"
+            columns: ["paid_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fixed_expense_instances_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "fixed_expenses_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      fixed_expenses_summary: {
+        Row: {
+          current_period: string | null
+          paid_amount: number | null
+          paid_count: number | null
+          planned_count: number | null
+          total_amount: number | null
+          trailing_avg_monthly: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       category_is_accessible: {
@@ -936,6 +1108,20 @@ export type Database = {
           p_stage_code?: number
           p_yellow_cards_away?: number
           p_yellow_cards_home?: number
+        }
+        Returns: string
+      }
+      ensure_current_fixed_expense_instances: {
+        Args: never
+        Returns: undefined
+      }
+      pay_fixed_expense_instance: {
+        Args: {
+          p_account_id: string
+          p_amount?: number
+          p_description?: string
+          p_expense_date?: string
+          p_instance_id: string
         }
         Returns: string
       }
