@@ -59,6 +59,147 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se agregó **Transferencias entre cuentas**, con comisión bancaria
+configurable por cuenta: el usuario puede mover plata de una cuenta propia a
+otra (ej. "Jep" → "Procredit") registrando en un solo paso los 2 impactos
+reales de una transferencia bancaria — el monto en sí (sale de una cuenta,
+entra a la otra) y, aparte, la comisión que cobra el banco por hacerla (sale
+de la cuenta origen sin ir a ningún lado). Pedido explícito del Product
+Owner, con un ejemplo concreto ("transfiero 100 de Jep a Procredit, me
+cuesta 0.25 de comisión: a Procredit le llegan 100, pero a Jep le salen
+100.25"). Decisiones de producto ya cerradas por el Product Owner antes de
+delegar (confirmadas con `AskUserQuestion`, no asumidas): la comisión **sí**
+es un gasto real y visible en Transacciones/Estadísticas/dona de categorías
+(a diferencia de Deudas); cada cuenta tiene su propio valor de comisión
+sugerido, editable por transferencia puntual; la feature vive en una
+**sección propia con historial** (no un botón suelto dentro de Cuentas),
+con su propio ítem de drawer. Trabajo de las tres capas, dos rondas de
+backend (una fast-follow de editar/borrar), coordinado por
+`product-owner-tipapp`.
+
+- **Backend** (`supabase-backend-expert`, dos rondas): 8 migraciones nuevas
+  (`20260720090800` a `20260720091500`), aplicadas al proyecto remoto real y
+  verificadas de forma independiente por el Product Owner
+  (`supabase migration list --linked` muestra las 8 en local Y remote).
+  - `accounts.transfer_commission numeric(12,2) not null default 0 check
+    (>= 0)` — comisión sugerida de la cuenta, puramente informativa (prefill
+    del Sheet de transferencia), sin ninguna lógica de saldo propia.
+  - Categoría default nueva `"Comisiones bancarias"` (`user_id null`, mismo
+    patrón que las 10 ya sembradas) para imputar la comisión como gasto
+    real. Color inicial `#475569` reemplazado por `#6366f1` (indigo-500)
+    tras que `validate_palette.js` detectara un conflicto (ΔE 10.6 contra el
+    gris ya sembrado de "Otros") — corregido con una migración de `update`
+    antes de dar la paleta por buena.
+  - `account_transfers(id, user_id, from_account_id, to_account_id, amount,
+    commission_amount, expense_id nullable, transfer_date, description)` —
+    modelo de **2 impactos distintos**, mismo criterio ya usado en
+    `debt_movements`: `amount` (el monto transferido) **nunca** genera fila
+    en `expenses`/`incomes` — es la misma plata del mismo usuario, solo
+    cambia de cuenta, ajuste puro de saldo. `commission_amount`, cuando es
+    `> 0`, **sí** genera una fila real en `expenses` (categoría "Comisiones
+    bancarias"), porque esa plata se pierde de verdad hacia el banco. La
+    comisión siempre la paga la cuenta origen; la cuenta destino recibe el
+    monto completo, nunca `amount - commission_amount`. Constraint
+    `from_account_id <> to_account_id`, trigger de ownership (mismo patrón
+    que `debts_validate_owner`), RLS explícito por operación.
+  - **`account_balances`** (la vista de saldo agregado) extendida con dos
+    subqueries nuevos (`transfer_out`/`transfer_in`, por rol distinto sobre
+    la misma tabla) — **desviación deliberada y corregida respecto del
+    boceto original**: restar `amount + commission_amount` en la cuenta
+    origen habría contado la comisión DOS VECES (ya la resta el `expense`
+    real que genera); el subquery de transferencias resta únicamente
+    `amount`, la comisión impacta el saldo exclusivamente a través de su
+    `expense`.
+  - **`create_account_transfer(p_from_account_id, p_to_account_id, p_amount,
+    p_commission_amount, p_transfer_date, p_description)`** (RPC, `security
+    invoker`, mismo patrón que `create_debt`/`pay_fixed_expense_instance`):
+    alta atómica de 1 `expenses` (la comisión, si `> 0`, resolviendo la
+    categoría "Comisiones bancarias" por nombre, no por id hardcodeado) + 1
+    `account_transfers` con su `expense_id` ya resuelto — el cliente no
+    puede armar esto de forma optimista porque depende de un `expense_id`
+    real generado server-side.
+  - **Fast-follow**: `update_account_transfer`/`delete_account_transfer`,
+    con la lógica compartida extraída en 2 helpers internos
+    (`_account_transfer_insert`/`_account_transfer_delete`) para no
+    triplicarla entre las 3 funciones. `update_account_transfer` está
+    implementado como **borrar + recrear** (no `UPDATE` in-place) — **es la
+    única función de edición del proyecto que NO preserva el `id`** de la
+    fila editada, devuelve un id nuevo; documentado explícitamente en el SQL
+    para que el frontend nunca asuma que el id de una transferencia
+    sobrevive a una edición.
+  - Verificado con datos reales contra el proyecto remoto: creación con/sin
+    comisión, edición (confirmando el id nuevo + balances correctos en las
+    3 cuentas involucradas), borrado (balances vuelven exacto al estado
+    original, sin `expenses` huérfano), guard de RLS entre dos usuarios, y
+    que borrar un id inexistente no lanza excepción (no-op silencioso).
+  - `src/types/database.types.ts` regenerado.
+- **Diseño** (`ui-ux-designer`): doc nuevo
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/account-transfers-ux.md`
+  — consultar antes de tocar `AccountTransfersView.vue`,
+  `AccountTransferFormSheet.vue` o el campo de comisión de
+  `AccountFormSheet.vue`. Decisiones clave: **1 sola ruta** `/transferencias`
+  (dashboard + listado agrupado por fecha + alta en la misma pantalla, sin
+  detalle — una transferencia es un evento atómico, no un "hilo" como una
+  deuda), con su propio ítem de drawer (`ArrowRightLeft`, para no confundir
+  con `ArrowLeftRight` ya usado por Transacciones) en 5ª posición de 12 —a
+  diferencia de pantallas de gestión secundaria como `/tarjetas/gestionar`,
+  esta sí amerita ítem propio por tener historial completo tipo Cuentas/
+  Deudas. Confirmó (no solo asumió) que el monto transferido no debe
+  aparecer en Transacciones, con un argumento más fuerte que el ya usado
+  para Deudas: acá no hace falta ninguna ficción contable, la plata nunca
+  sale del patrimonio del usuario — mostrarla contaría la misma plata dos
+  veces. Sheet de alta/edición: cuenta destino excluye la origen ya elegida
+  (con auto-limpieza si el usuario cambia el origen), comisión prefilled
+  desde `accounts.transfer_commission` de la cuenta origen pero editable
+  (respeta ediciones manuales del usuario, no las pisa después). Guard de
+  "al menos 2 cuentas" para poder transferir. Card opcional de "Comisiones
+  pagadas este mes" (se oculta si el total es 0), resuelta con una query
+  acotada por mes, nunca sumando la lista de transferencias cacheada.
+- **Frontend** (`vue-frontend-expert`): store nuevo
+  `src/stores/accountTransfers.ts` — mismo principio "tonto" que
+  `debtsStore`/`liveMatches.ts`: las 3 mutaciones (alta/edición/borrado) son
+  **100% no optimistas** (dependen del resultado atómico del RPC
+  server-side), con un refetch completo de transferencias + saldos + gastos
+  tras cada una en vez de un ajuste de delta manual (justificado: son
+  operaciones infrecuentes, sin sensación de "vivo" que preservar durante
+  el roundtrip). `linkedExpenseIds` (computed, mismo patrón que
+  `linkedLiveMatchIds`) deriva en cliente qué `expenses.id` provienen de una
+  comisión de transferencia, sin necesitar una columna nueva en `expenses`.
+  Vista nueva `AccountTransfersView.vue` (`/transferencias`) y Sheet
+  `AccountTransferFormSheet.vue`. Campo nuevo de comisión sugerida en
+  `AccountFormSheet.vue`/`src/stores/accounts.ts`. **`TransactionsView.vue`
+  actualizado**: un gasto de comisión de transferencia se muestra (es un
+  gasto real) con un badge "Vinculado a una transferencia", pero su menú
+  queda restringido a "Ver transferencia" — editarlo/borrarlo directo desde
+  ahí lo desincronizaría de su transferencia dueña, que maneja el efecto
+  combinado (comisión + ambos saldos) de forma atómica. Ítem nuevo de
+  drawer y ruta `/transferencias` en `src/router/index.ts`.
+  - `npm run build` (`vue-tsc --build` + `vite build`) verificado sin
+    errores, tanto por los agentes como de forma independiente por el
+    Product Owner (`rm -rf dist && npm run build`).
+
+**Deuda técnica nueva de esta iteración**:
+- **No se probó de punta a punta en el navegador** contra el Supabase real
+  (mismo caveat recurrente de todas las iteraciones del proyecto): crear 2+
+  cuentas, configurar una comisión sugerida, hacer una transferencia con
+  comisión (confirmar el badge en Transacciones + ambos saldos ajustados),
+  una sin comisión, editar una (confirmar que el id cambia sin romper nada
+  visualmente) y borrarla (confirmar reversión exacta). Verificación de
+  esta sesión fue build + revisión de código línea por línea (backend y
+  frontend) + pruebas SQL/RPC directas contra el remoto real, no un flujo
+  manual completo en el navegador.
+- **`transfersWithCommissionCount`/"Comisiones pagadas este mes" es un proxy
+  por categoría, no por transferencia real** — un gasto manual cargado a
+  mano en "Comisiones bancarias" (permitido por diseño, no bloqueado)
+  infla el conteo. Imprecisión menor aceptada, documentada por el equipo.
+- El guard de borrado de cuenta (`accounts.ts`, "cuenta con movimientos"/
+  "nunca la última") **no suma `account_transfers`** a su conteo — los
+  índices ya están listos en backend (`from_account_id`/`to_account_id`),
+  pendiente si a futuro se decide reforzar el guard.
+- Sin paginación en `accountTransfers.ts` (`MAX_TRANSFERS = 200`, mismo
+  límite defensivo que `expenses.ts`) — mismo pendiente ya conocido de
+  `expenses.ts`, no una regresión nueva de esta feature.
+
 Se agregó **Gastos fijos / recurrentes**: una sección nueva para que el
 usuario registre gastos que se repiten todos los meses (alquiler, servicios,
 suscripciones, cuotas) como una plantilla, y cada mes vaya marcándolos como
@@ -1763,6 +1904,14 @@ en todos los anchos).
    Gasto/Ingreso), confirmar que "Mis cuentas" y el saldo total de Inicio
    reflejan el movimiento sin refrescar, confirmar los dos guards de
    borrado (cuenta con movimientos, y "nunca la última cuenta")** →
+   **`/transferencias`: configurar una comisión sugerida en una cuenta desde
+   `AccountFormSheet`, crear una transferencia con comisión (confirmar que
+   la cuenta destino recibe el monto completo, la origen pierde monto +
+   comisión, y que la comisión aparece en Transacciones con el badge
+   "Vinculado a una transferencia" y el menú restringido a "Ver
+   transferencia"), otra sin comisión, editar una (confirmar que no rompe
+   nada visualmente aunque internamente cambie de id) y borrarla
+   (confirmar que ambos saldos vuelven exacto al estado previo)** →
    **`/deudas`: crear/editar/borrar una persona de deuda desde
    `/deudas/personas` (guard de borrado deshabilitado con una deuda asociada),
    crear una deuda "Yo le presto" y otra "Me presta" (con y sin contraparte

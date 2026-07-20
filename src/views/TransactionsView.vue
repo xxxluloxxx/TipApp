@@ -1,9 +1,10 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import {
   AlertCircle,
   ArrowDownCircle,
+  ArrowRightLeft,
   EllipsisVertical,
   Pencil,
   Plus,
@@ -12,6 +13,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { useAccountsStore } from '@/stores/accounts'
+import { useAccountTransfersStore } from '@/stores/accountTransfers'
 import { useCategoriesStore } from '@/stores/categories'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
@@ -57,10 +59,12 @@ import {
 // iteración.
 
 const route = useRoute()
+const router = useRouter()
 const expensesStore = useExpensesStore()
 const incomesStore = useIncomesStore()
 const categoriesStore = useCategoriesStore()
 const accountsStore = useAccountsStore()
+const accountTransfersStore = useAccountTransfersStore()
 
 const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
@@ -79,6 +83,10 @@ async function loadAll() {
       accountsStore.fetchBalances(),
       expensesStore.fetchAll(),
       incomesStore.fetchAll(),
+      // account-transfers-ux.md sección 6.3: para saber qué gastos provienen de
+      // una comisión de transferencia y restringir su edición directa acá. Su
+      // fallo no bloquea la vista (degradación: sin marca, filas editables).
+      accountTransfersStore.fetchAll(),
     ])
     if (expensesStore.error || incomesStore.error) loadError.value = true
   } finally {
@@ -184,6 +192,20 @@ function itemBadgeColor(item: TransactionItem): string | undefined {
 function itemDeleteTitle(item: TransactionItem): string {
   return item.kind === 'expense' ? '¿Eliminar este gasto?' : '¿Eliminar este ingreso?'
 }
+
+// account-transfers-ux.md sección 6.3: un gasto generado por la comisión de
+// una transferencia se muestra acá (es un gasto real), pero NO se puede editar/
+// borrar directo desde Transacciones (quedaría desincronizado de su
+// transferencia dueña, que maneja el efecto combinado de forma atómica). Se
+// deriva del `Set` del store (mismo patrón que `linkedLiveMatchIds`), no de una
+// columna `expenses.account_transfer_id` (que no existe).
+function isTransferCommission(item: TransactionItem): boolean {
+  return item.kind === 'expense' && accountTransfersStore.linkedExpenseIds.has(item.id)
+}
+
+function goToTransfers() {
+  router.push({ name: 'account-transfers' })
+}
 </script>
 
 <template>
@@ -260,15 +282,21 @@ function itemDeleteTitle(item: TransactionItem): string {
                       {{ itemTitle(item) }}
                     </p>
                   </div>
-                  <Badge
-                    class="w-fit border-transparent"
-                    :style="{
-                      backgroundColor: itemBadgeColor(item),
-                      color: readableTextColor(itemBadgeColor(item)),
-                    }"
-                  >
-                    {{ itemSubtitle(item) }}
-                  </Badge>
+                  <div class="flex flex-wrap items-center gap-1.5">
+                    <Badge
+                      class="w-fit border-transparent"
+                      :style="{
+                        backgroundColor: itemBadgeColor(item),
+                        color: readableTextColor(itemBadgeColor(item)),
+                      }"
+                    >
+                      {{ itemSubtitle(item) }}
+                    </Badge>
+                    <Badge v-if="isTransferCommission(item)" variant="outline" class="w-fit gap-1">
+                      <ArrowRightLeft class="size-3" />
+                      Vinculado a una transferencia
+                    </Badge>
+                  </div>
                 </div>
 
                 <div class="flex items-center gap-2">
@@ -286,32 +314,43 @@ function itemDeleteTitle(item: TransactionItem): string {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem @select="openEditSheet(item)">
-                        <Pencil class="size-4" />
-                        Editar
-                      </DropdownMenuItem>
-                      <AlertDialog>
-                        <AlertDialogTrigger as-child>
-                          <DropdownMenuItem variant="destructive" @select="(e: Event) => e.preventDefault()">
-                            <Trash2 class="size-4" />
-                            Eliminar
-                          </DropdownMenuItem>
-                        </AlertDialogTrigger>
-                        <AlertDialogContent>
-                          <AlertDialogHeader>
-                            <AlertDialogTitle>{{ itemDeleteTitle(item) }}</AlertDialogTitle>
-                            <AlertDialogDescription>
-                              Esta acción no se puede deshacer. Se eliminará "{{ itemTitle(item) }}" permanentemente.
-                            </AlertDialogDescription>
-                          </AlertDialogHeader>
-                          <AlertDialogFooter>
-                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                            <AlertDialogAction @click="deleteItem(item)">
+                      <!-- Comisión de transferencia: no se edita/borra desde
+                           acá (sección 6.3), sólo se navega a la transferencia
+                           dueña que maneja el efecto combinado. -->
+                      <template v-if="isTransferCommission(item)">
+                        <DropdownMenuItem @select="goToTransfers">
+                          <ArrowRightLeft class="size-4" />
+                          Ver transferencia
+                        </DropdownMenuItem>
+                      </template>
+                      <template v-else>
+                        <DropdownMenuItem @select="openEditSheet(item)">
+                          <Pencil class="size-4" />
+                          Editar
+                        </DropdownMenuItem>
+                        <AlertDialog>
+                          <AlertDialogTrigger as-child>
+                            <DropdownMenuItem variant="destructive" @select="(e: Event) => e.preventDefault()">
+                              <Trash2 class="size-4" />
                               Eliminar
-                            </AlertDialogAction>
-                          </AlertDialogFooter>
-                        </AlertDialogContent>
-                      </AlertDialog>
+                            </DropdownMenuItem>
+                          </AlertDialogTrigger>
+                          <AlertDialogContent>
+                            <AlertDialogHeader>
+                              <AlertDialogTitle>{{ itemDeleteTitle(item) }}</AlertDialogTitle>
+                              <AlertDialogDescription>
+                                Esta acción no se puede deshacer. Se eliminará "{{ itemTitle(item) }}" permanentemente.
+                              </AlertDialogDescription>
+                            </AlertDialogHeader>
+                            <AlertDialogFooter>
+                              <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                              <AlertDialogAction @click="deleteItem(item)">
+                                Eliminar
+                              </AlertDialogAction>
+                            </AlertDialogFooter>
+                          </AlertDialogContent>
+                        </AlertDialog>
+                      </template>
                     </DropdownMenuContent>
                   </DropdownMenu>
                 </div>

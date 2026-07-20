@@ -3,6 +3,7 @@ import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
   ArrowLeftRight,
+  ArrowRightLeft,
   CalendarSync,
   ChartPie,
   CreditCard,
@@ -43,6 +44,7 @@ type NavRouteName =
   | 'transactions'
   | 'cards'
   | 'accounts'
+  | 'account-transfers'
   | 'debts'
   | 'fixed-expenses'
   | 'matches'
@@ -139,6 +141,16 @@ function logoutFromDrawer() {
         >
           <Wallet class="size-5 shrink-0" />
           Cuentas
+        </button>
+        <button
+          type="button"
+          class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          :class="isActive('account-transfers') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+          :aria-current="isActive('account-transfers') ? 'page' : undefined"
+          @click="navigateFromDrawer('account-transfers')"
+        >
+          <ArrowRightLeft class="size-5 shrink-0" />
+          Transferencias
         </button>
         <button
           type="button"

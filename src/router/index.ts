@@ -41,6 +41,14 @@ const router = createRouter({
       component: () => import('@/views/AccountsView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 2 de account-transfers-ux.md: 1 sola ruta, sin detalle. Sin
+    // colisión de segmento literal-vs-dinámico, no requiere orden especial.
+    {
+      path: '/transferencias',
+      name: 'account-transfers',
+      component: () => import('@/views/AccountTransfersView.vue'),
+      meta: { requiresAuth: true },
+    },
     // Sección 8 de credit-cards-ux.md: las rutas literales
     // (/tarjetas/transacciones, /tarjetas/gestionar) van antes que la
     // dinámica (/tarjetas/:id), práctica defensiva estándar.

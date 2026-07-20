@@ -40,9 +40,10 @@ const form = reactive({
   color: null as string | null,
   icon: DEFAULT_ACCOUNT_ICON as AccountIconKey,
   initialBalance: '',
+  transferCommission: '',
 })
 
-const errors = reactive<{ name?: string, color?: string, initialBalance?: string }>({})
+const errors = reactive<{ name?: string, color?: string, initialBalance?: string, transferCommission?: string }>({})
 const isSaving = ref(false)
 
 const nameInputRef = ref<{ $el?: HTMLElement } | null>(null)
@@ -51,6 +52,7 @@ function resetForm() {
   errors.name = undefined
   errors.color = undefined
   errors.initialBalance = undefined
+  errors.transferCommission = undefined
 
   if (props.account) {
     form.name = props.account.name
@@ -64,6 +66,7 @@ function resetForm() {
       ? (props.account.icon as AccountIconKey)
       : DEFAULT_ACCOUNT_ICON
     form.initialBalance = String(props.account.initial_balance)
+    form.transferCommission = String(props.account.transfer_commission)
   } else {
     form.name = ''
     // Sección 6.3, punto 2: el color SÍ fuerza elección consciente en modo
@@ -73,6 +76,7 @@ function resetForm() {
     // Sección 5.2: el ícono sí tiene un default razonable preseleccionado.
     form.icon = DEFAULT_ACCOUNT_ICON
     form.initialBalance = ''
+    form.transferCommission = ''
   }
 }
 
@@ -95,10 +99,22 @@ function parseInitialBalance(raw: string): number | null | undefined {
   return Number.isFinite(value) ? value : undefined
 }
 
+/** account-transfers-ux.md sección 5.1: comisión sugerida, `>= 0` (nunca
+ * negativa, a diferencia del saldo inicial). Vacío se interpreta como 0. */
+function parseCommission(raw: string): number | undefined {
+  const trimmed = raw.trim()
+  if (!trimmed) return 0
+  const normalized = trimmed.replace(',', '.')
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) return undefined
+  const value = Number(normalized)
+  return Number.isFinite(value) ? value : undefined
+}
+
 function validate(): boolean {
   errors.name = undefined
   errors.color = undefined
   errors.initialBalance = undefined
+  errors.transferCommission = undefined
   let ok = true
 
   if (!form.name.trim()) {
@@ -114,6 +130,12 @@ function validate(): boolean {
   const balance = parseInitialBalance(form.initialBalance)
   if (balance === undefined) {
     errors.initialBalance = 'Ingresá un monto válido, o dejalo vacío.'
+    ok = false
+  }
+
+  const commission = parseCommission(form.transferCommission)
+  if (commission === undefined) {
+    errors.transferCommission = 'Ingresá un monto válido (0 o mayor), o dejalo vacío.'
     ok = false
   }
 
@@ -137,6 +159,7 @@ function onSubmit() {
       color: form.color!,
       icon: form.icon,
       initialBalance: parseInitialBalance(form.initialBalance) ?? 0,
+      transferCommission: parseCommission(form.transferCommission) ?? 0,
     }
 
     // El store ya se encarga del toast de éxito/error (optimista, sección
@@ -253,6 +276,31 @@ function onSubmit() {
           </p>
           <p v-if="errors.initialBalance" class="text-xs text-destructive">
             {{ errors.initialBalance }}
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <Label for="comision-sugerida">
+            Comisión de transferencia sugerida <span class="font-normal text-muted-foreground">(opcional)</span>
+          </Label>
+          <div class="flex items-center gap-1.5">
+            <span class="text-sm text-muted-foreground">$</span>
+            <Input
+              id="comision-sugerida"
+              v-model="form.transferCommission"
+              inputmode="decimal"
+              type="text"
+              placeholder="0"
+              :disabled="isSaving"
+              :aria-invalid="!!errors.transferCommission"
+            />
+          </div>
+          <p class="text-xs text-muted-foreground">
+            Se usa como monto sugerido cada vez que transferís plata DESDE esta cuenta hacia otra —
+            vas a poder cambiarlo en cada transferencia puntual.
+          </p>
+          <p v-if="errors.transferCommission" class="text-xs text-destructive">
+            {{ errors.transferCommission }}
           </p>
         </div>
       </form>

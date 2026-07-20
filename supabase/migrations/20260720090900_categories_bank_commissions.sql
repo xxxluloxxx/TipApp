@@ -1,0 +1,32 @@
+-- =============================================================================
+-- categories_bank_commissions
+-- -----------------------------------------------------------------------------
+-- Categoría default nueva "Comisiones bancarias" (user_id NULL, mismo
+-- patrón exacto que las 10 default sembradas en
+-- 20260716142006_categories_init.sql), para que la comisión de una
+-- transferencia entre cuentas (ver
+-- 20260720091300_create_account_transfer_function.sql) tenga dónde
+-- imputarse como gasto real.
+--
+-- icon: NO se usa un nombre de ícono lucide (a diferencia de
+-- accounts.icon/credit_cards.icon) — categories.icon ya se sembró y se
+-- consume en todo el frontend existente como un emoji de texto plano
+-- (ver categories_init.sql: '🍽️','🚗', etc., y CategoriesView.vue:
+-- `<span>{{ category.icon }}</span>`, sin ningún mapeo a componente). Se
+-- sigue ese mismo contrato en vez de introducir un formato nuevo solo para
+-- esta fila. Emoji elegido: 🏦 (banco), coherente con el nombre.
+--
+-- color: reutiliza '#6b7280', ya sembrado para "Otros" en
+-- 20260716142006_categories_init.sql — la paleta de 10 colores default está
+-- fija (no se inventa un hex nuevo fuera de ella, ver comment on esa
+-- migración). Se elige el gris de "Otros" en vez de duplicar alguno de los
+-- 9 colores "temáticos" restantes (evita agravar el hallazgo CVD ya
+-- documentado del par Vivienda/Transporte): una comisión bancaria es, como
+-- "Otros", un costo administrativo/estructural más que una categoría de
+-- consumo con identidad propia. La dona de categorías nunca depende solo
+-- del color (el nombre siempre se muestra en texto al lado), así que
+-- reusar un color ya sembrado es seguro.
+-- =============================================================================
+
+insert into public.categories (name, icon, color)
+values ('Comisiones bancarias', '🏦', '#6b7280');

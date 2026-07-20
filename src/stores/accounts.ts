@@ -12,6 +12,10 @@ export interface AccountPayload {
   color: string
   icon: string
   initialBalance: number
+  /** account-transfers-ux.md sección 5.1: comisión sugerida al transferir
+   * DESDE esta cuenta. `>= 0`, default 0. Puramente informativa (prefill del
+   * Sheet de transferencia), no aplica ninguna lógica de saldo por sí sola. */
+  transferCommission: number
 }
 
 /**
@@ -199,6 +203,7 @@ export const useAccountsStore = defineStore('accounts', () => {
       color: payload.color,
       icon: payload.icon,
       initial_balance: payload.initialBalance,
+      transfer_commission: payload.transferCommission,
       created_at: nowIso,
       updated_at: nowIso,
     }
@@ -214,6 +219,7 @@ export const useAccountsStore = defineStore('accounts', () => {
           color: payload.color,
           icon: payload.icon,
           initial_balance: payload.initialBalance,
+          transfer_commission: payload.transferCommission,
           user_id: userId,
         })
         .select('*')
@@ -262,6 +268,7 @@ export const useAccountsStore = defineStore('accounts', () => {
       color: payload.color,
       icon: payload.icon,
       initial_balance: payload.initialBalance,
+      transfer_commission: payload.transferCommission,
     }
 
     const balanceDelta = payload.initialBalance - previous.initial_balance
@@ -280,6 +287,7 @@ export const useAccountsStore = defineStore('accounts', () => {
           color: payload.color,
           icon: payload.icon,
           initial_balance: payload.initialBalance,
+          transfer_commission: payload.transferCommission,
         })
         .eq('id', id)
         .select('*')

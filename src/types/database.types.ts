@@ -39,6 +39,84 @@ export type Database = {
   }
   public: {
     Tables: {
+      account_transfers: {
+        Row: {
+          amount: number
+          commission_amount: number
+          created_at: string
+          description: string | null
+          expense_id: string | null
+          from_account_id: string
+          id: string
+          to_account_id: string
+          transfer_date: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          commission_amount?: number
+          created_at?: string
+          description?: string | null
+          expense_id?: string | null
+          from_account_id: string
+          id?: string
+          to_account_id: string
+          transfer_date?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          commission_amount?: number
+          created_at?: string
+          description?: string | null
+          expense_id?: string | null
+          from_account_id?: string
+          id?: string
+          to_account_id?: string
+          transfer_date?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "account_transfers_expense_id_fkey"
+            columns: ["expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_transfers_from_account_id_fkey"
+            columns: ["from_account_id"]
+            isOneToOne: false
+            referencedRelation: "account_balances"
+            referencedColumns: ["account_id"]
+          },
+          {
+            foreignKeyName: "account_transfers_from_account_id_fkey"
+            columns: ["from_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "account_transfers_to_account_id_fkey"
+            columns: ["to_account_id"]
+            isOneToOne: false
+            referencedRelation: "account_balances"
+            referencedColumns: ["account_id"]
+          },
+          {
+            foreignKeyName: "account_transfers_to_account_id_fkey"
+            columns: ["to_account_id"]
+            isOneToOne: false
+            referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       accounts: {
         Row: {
           color: string | null
@@ -47,6 +125,7 @@ export type Database = {
           id: string
           initial_balance: number
           name: string
+          transfer_commission: number
           updated_at: string
           user_id: string
         }
@@ -57,6 +136,7 @@ export type Database = {
           id?: string
           initial_balance?: number
           name: string
+          transfer_commission?: number
           updated_at?: string
           user_id: string
         }
@@ -67,6 +147,7 @@ export type Database = {
           id?: string
           initial_balance?: number
           name?: string
+          transfer_commission?: number
           updated_at?: string
           user_id?: string
         }
@@ -1062,9 +1143,35 @@ export type Database = {
       }
     }
     Functions: {
+      _account_transfer_delete: {
+        Args: { p_transfer_id: string }
+        Returns: undefined
+      }
+      _account_transfer_insert: {
+        Args: {
+          p_amount: number
+          p_commission_amount: number
+          p_description: string
+          p_from_account_id: string
+          p_to_account_id: string
+          p_transfer_date: string
+        }
+        Returns: string
+      }
       category_is_accessible: {
         Args: { p_category_id: string; p_user_id: string }
         Returns: boolean
+      }
+      create_account_transfer: {
+        Args: {
+          p_amount: number
+          p_commission_amount: number
+          p_description?: string
+          p_from_account_id: string
+          p_to_account_id: string
+          p_transfer_date?: string
+        }
+        Returns: string
       }
       create_bet_slip: {
         Args: { p_groups?: Json; p_reference?: string; p_stake_amount?: number }
@@ -1111,6 +1218,10 @@ export type Database = {
         }
         Returns: string
       }
+      delete_account_transfer: {
+        Args: { p_transfer_id: string }
+        Returns: undefined
+      }
       ensure_current_fixed_expense_instances: {
         Args: never
         Returns: undefined
@@ -1122,6 +1233,18 @@ export type Database = {
           p_description?: string
           p_expense_date?: string
           p_instance_id: string
+        }
+        Returns: string
+      }
+      update_account_transfer: {
+        Args: {
+          p_amount: number
+          p_commission_amount: number
+          p_description: string
+          p_from_account_id: string
+          p_to_account_id: string
+          p_transfer_date: string
+          p_transfer_id: string
         }
         Returns: string
       }
