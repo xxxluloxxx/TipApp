@@ -72,6 +72,27 @@ export const useIncomesStore = defineStore('incomes', () => {
     isLoading.value = false
   }
 
+  /** Movimientos recientes de UNA cuenta (account-detail-ux.md sección 7.1),
+   * mismo patrón que `expensesStore.fetchRecentForAccount`: fetch propio
+   * acotado por cuenta, sin tocar la lista maestra `incomes` (capada a
+   * `MAX_INCOMES` del usuario completo). Devuelve `null` si falló. */
+  async function fetchRecentForAccount(accountId: string, limit = 10): Promise<IncomeWithAccount[] | null> {
+    const { data, error: fetchError } = await supabase
+      .from('incomes')
+      .select('*, account:accounts(*)')
+      .eq('account_id', accountId)
+      .order('income_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (fetchError) {
+      console.error('[incomes] No se pudieron cargar los movimientos recientes de la cuenta', fetchError)
+      return null
+    }
+
+    return (data ?? []) as unknown as IncomeWithAccount[]
+  }
+
   function replaceById(id: string, next: IncomeWithAccount) {
     const idx = incomes.value.findIndex(income => income.id === id)
     if (idx === -1) return
@@ -259,6 +280,7 @@ export const useIncomesStore = defineStore('incomes', () => {
     isLoading,
     error,
     fetchAll,
+    fetchRecentForAccount,
     addIncome,
     updateIncome,
     deleteIncome,

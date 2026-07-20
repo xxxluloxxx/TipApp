@@ -59,6 +59,130 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se agregó **`AccountDetailView`** (`/cuentas/:id`), detalle de una cuenta
+individual — hasta ahora ni las tiles de "Mis cuentas" de Inicio ni las filas
+de `/cuentas` llevaban a ningún lado (ver deuda técnica/punto 10 de "Próximos
+pasos" de iteraciones anteriores, ambos quedan resueltos por esta). Pedido
+explícito del Product Owner, con 2 capturas de referencia de otra app
+("Wallet") descriptas por texto (sin adjuntar imágenes reales) — se replicó
+el **contenido**, no la navegación: la referencia tenía flecha "Volver" en el
+header, TipApp la eliminó deliberadamente hace poco (commit `60ec21d`) y esta
+vista nueva respeta esa regla, sin excepción. Trabajo de las tres capas
+(`ui-ux-designer` → `supabase-backend-expert` + `vue-frontend-expert` en
+paralelo, coordinado por `product-owner-tipapp`).
+
+- **Diseño** (`ui-ux-designer`): especificación completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/account-detail-ux.md` —
+  consultar antes de tocar `AccountDetailView.vue`,
+  `AccountBalanceAdjustmentSheet.vue`, o el comportamiento de navegación de
+  `AccountsView.vue`/`HomeView.vue` hacia una cuenta puntual. Decisiones
+  clave: el subtítulo de "tipo de cuenta" de la referencia visual **se omite
+  por completo** (el modelo de `accounts` no tiene esa columna, y no se
+  inventó ninguna — inferirlo del ícono elegido por el usuario habría sido
+  atribuir significado a una elección puramente estética); header vía el slot
+  por defecto de `AppHeader` (ícono+nombre custom) con el botón de editar en
+  el slot `actions`, reusando `AccountFormSheet.vue` sin cambios; el ajuste de
+  saldo se resuelve con un `Sheet` + `radiogroup` de 2 opciones (no un
+  `Dialog` nuevo — el proyecto no tenía ese componente instalado y las 2
+  opciones son, en rigor, un mismo campo con 2 destinos posibles al guardar,
+  el caso de uso que `radiogroup` ya resuelve en el proyecto), con las 2
+  fórmulas exactas ya derivadas (ver backend/frontend abajo) para que ningún
+  agente tuviera que inventar su propio cálculo; el gráfico de 30 días reusa
+  el mismo algoritmo de "saldo de arranque sin sumar historial completo" ya
+  validado en Deudas (`buildDebtBalanceEvolution`), adaptado a 1 cuenta y
+  granularidad diaria — **sin ninguna RPC ni vista nueva**, un cálculo
+  client-side ya seguro (mismo argumento aceptado para Deudas); "Movimientos
+  recientes" con fetch propio acotado por cuenta y fecha (nunca filtrando las
+  listas globales de `expenses`/`incomes`/`account_transfers`, capadas a 200
+  del usuario completo — podrían no incluir la actividad reciente de una
+  cuenta de bajo uso).
+- **Backend** (`supabase-backend-expert`): 1 migración nueva
+  (`20260720100000_categories_balance_adjustment.sql`), aplicada al proyecto
+  remoto real y verificada (`supabase migration list --linked` + query
+  directa contra la tabla). Categoría default nueva **"Ajuste de saldo"**
+  (`user_id null`, ícono emoji `⚖️`), mismo patrón exacto que "Comisiones
+  bancarias" — necesaria porque `expenses.category_id` es `NOT NULL` y una de
+  las 2 opciones de ajuste de saldo puede generar un gasto real. **Color no
+  aceptado tal cual del doc de UX**: el candidato `#92400e` fallaba la
+  validación de paleta (`validate_palette.js`, skill de dataviz) en modo
+  oscuro (banda de luminosidad + contraste por debajo del piso) — se probaron
+  4 alternativas de marrón cálido, todas con el mismo perfil de
+  fails/warnings que la paleta base (sin introducir ningún conflicto nuevo);
+  se descartaron además las que ya coincidían con hexes de
+  `ACCOUNT_COLOR_SWATCHES` (dominio distinto, para evitar una asociación
+  visual falsa). **Color final: `#a3520a`**. Ningún cambio de esquema más
+  allá de este seed — no hizo falta ninguna columna/vista/función nueva, las
+  2 opciones de ajuste de saldo reusan mutaciones ya existentes
+  (`expensesStore.addExpense`/`incomesStore.addIncome`/
+  `accountsStore.updateAccount`). `src/types/database.types.ts` no se
+  regeneró (mismo criterio que "Comisiones bancarias": un insert de seed no
+  cambia el esquema de tipos).
+- **Frontend** (`vue-frontend-expert`): vista nueva
+  `src/views/AccountDetailView.vue` (ruta `/cuentas/:id`) y componente nuevo
+  `src/components/AccountBalanceAdjustmentSheet.vue`. Fórmulas exactas
+  implementadas: opción "Ajustar mediante registro" crea un
+  `expenses`/`incomes` por `diff = saldo_deseado − saldo_actual` (gasto si
+  `diff < 0`, ingreso si `diff > 0`, categoría "Ajuste de saldo" resuelta por
+  nombre desde `categoriesStore.defaultCategories`, nunca por un id
+  hardcodeado); opción "Cambiar saldo inicial" ajusta
+  `accounts.initial_balance` sumándole el mismo `diff` (exacta, sin casos
+  especiales, porque `account_balances.balance` es lineal en
+  `initial_balance` con coeficiente 1) vía `accountsStore.updateAccount` —
+  ambas 100% optimistas, sin ninguna RPC nueva. Guard `diff === 0`: botón
+  deshabilitado + texto inline, sin toast (mismo criterio que el resto de
+  guards "no hay nada que hacer" del proyecto). Métodos nuevos
+  `fetchRecentForAccount(accountId, limit)` en `src/stores/expenses.ts`,
+  `incomes.ts` y `accountTransfers.ts` (mismo patrón que
+  `cardExpensesStore.fetchRecentForCard`), y función nueva
+  `buildAccountTransactionItems` en `src/lib/transactionItems.ts` (filtra las
+  2 caras sintéticas de transferencia a la que corresponde según de qué lado
+  participa la cuenta — `buildTransactionItems` no se modificó). Función
+  nueva `buildAccountBalanceEvolution` + tipo `AccountMovementInput` en
+  `src/lib/charts.ts` (`buildDebtBalanceEvolution` intacta). `TrendAreaChart`
+  se reusó tal cual, sin ningún componente de gráfico nuevo (a diferencia de
+  Deudas, acá es una sola serie). `TransactionFormSheet.vue`: prop nueva
+  opcional `presetAccountId` (usada solo en el modo alta de `resetForm()`),
+  retrocompatible — los 2 call-sites existentes (`HomeView.vue`,
+  `TransactionsView.vue`) no la pasan y siguen igual. `HomeView.vue`: tiles
+  de "Mis cuentas" dejan de tener `disabled`/`aria-disabled`, navegan a
+  `account-detail`. `AccountsView.vue`: cada fila pasa a ser clickeable
+  (`role="button"`/`tabindex`/`@keydown.enter`), con `@click.stop` en el
+  `DropdownMenuTrigger` de "Editar"/"Eliminar" para que abrir ese menú no
+  dispare también la navegación.
+  - **Dos desviaciones puntuales respecto al doc de UX, documentadas
+    inline en el código**: (1) `account.created_at` es un timestamp
+    completo, no una fecha `YYYY-MM-DD` pura — se normaliza con
+    `new Date(...)` a medianoche local en vez del `parseDateOnly` que
+    sugería el snippet del doc (que hubiera dado `NaN`); (2) los helpers
+    `dayKeyFrom`/`subDays`/`parseSignedAmount`/`roundCurrency` que el doc
+    daba por hechos no existían en el repo — se reusó `formatDateOnly` ya
+    existente y se definieron los otros 2 localmente en el Sheet nuevo
+    (mismo regex que "Saldo inicial" de `AccountFormSheet.vue`).
+  - `npm run build` (`vue-tsc --build` + `vite build`) verificado sin
+    errores, tanto por el agente como de forma independiente por el Product
+    Owner (`rm -rf dist && npm run build`), incluida una revisión manual del
+    diff completo (9 archivos modificados + 3 nuevos) antes de darlo por
+    cerrado.
+
+**Deuda técnica nueva de esta iteración**:
+- No se probó manualmente contra el Supabase real en el navegador (mismo
+  caveat recurrente de todas las iteraciones del proyecto) — en particular:
+  deep-link a una cuenta ajena/borrada (debe caer en el estado de error);
+  las 2 opciones de ajuste de saldo con datos reales (confirmar que "Ajustar
+  mediante registro" deja un gasto/ingreso visible en `/transacciones` con la
+  categoría "Ajuste de saldo", y que "Cambiar saldo inicial" NO deja ningún
+  movimiento nuevo); el guard `diff === 0`; el gráfico de 30 días y sus 2
+  casos borde (arranque en \$0 → se omite el `%`; cuenta más joven que 30
+  días → ventana recortada a `created_at`; cuenta creada hoy mismo → la Card
+  del gráfico se oculta); "Mostrar más" trayendo una segunda tanda; y que
+  abrir el menú `⋮` de una fila de `/cuentas` no dispare también la
+  navegación al detalle. Recomendado antes de dar la feature por cerrada en
+  producción.
+- El color final de "Ajuste de saldo" (`#a3520a`) quedó validado contra los
+  11 colores de categoría ya sembrados, pero no contra ningún color agregado
+  después de esta iteración si lo hubiera — revalidar con
+  `validate_palette.js` si se siembra una categoría default más a futuro.
+
 Se agregó **Transferencias entre cuentas**, con comisión bancaria
 configurable por cuenta: el usuario puede mover plata de una cuenta propia a
 otra (ej. "Jep" → "Procredit") registrando en un solo paso los 2 impactos
@@ -1281,9 +1405,8 @@ adicional antes de pasar a frontend, ver detalle abajo.
   verificó a ojo el flujo completo crear cuenta → cargar ingreso → ver
   reflejado el saldo en "Mis cuentas" → editar/eliminar cuenta con los dos
   guards. Recomendado antes de dar la feature por cerrada en producción.
-- No existe `AccountDetailView` (historial de movimientos por cuenta,
-  análogo a `CardDetailView.vue`) — decisión explícita de alcance del doc de
-  UX, no un olvido; candidata natural para una futura sesión si se pide.
+- ~~No existe `AccountDetailView`~~ **[RESUELTO en una iteración posterior,
+  ver principio de "Estado actual"]**: implementado en `/cuentas/:id`.
 - Sin categorías de ingreso (evaluado y descartado explícitamente, doc de
   UX sección 7.2) — anotado como posible mejora de una fase futura.
 - El acceso rápido "Pagos" queda deshabilitado sin ningún plan confirmado
@@ -1986,12 +2109,11 @@ en todos los anchos).
    en desktop (descartado en esta iteración por ser retrabajo grande sin un
    layout compartido hoy), es el momento de extraerlo — candidato natural
    una vez que el número de secciones (hoy 10) se estabilice.
-10. **`AccountDetailView`** (opcional, no pedido todavía): historial de
-    movimientos por cuenta, análogo a `CardDetailView.vue` — candidata
-    natural si el Product Owner pide poder ver el detalle de una cuenta
-    puntual (hoy las tiles de "Mis cuentas" y las filas de `/cuentas` son de
-    solo lectura/gestión, sin detalle; `/deudas/:id` sí tiene detalle propio,
-    ver arriba).
+10. ~~**`AccountDetailView`**~~ — **resuelto**: implementado en
+    `/cuentas/:id`, ver "Estado actual" arriba (principio de la sección).
+    Único pendiente real: probarlo manualmente contra el Supabase real en el
+    navegador (deep-link, las 2 opciones de ajuste de saldo, el gráfico de
+    30 días y sus casos borde, "Mostrar más").
 11. **Iteración futura (fuera de alcance de v1)**: gastos compartidos/
     grupales tipo Splitwise — grupos, miembros, splits, deuda/settlement
     automático entre usuarios reales. Requiere rediseño de esquema (tablas de

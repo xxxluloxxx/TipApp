@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { onMounted, ref } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { AlertCircle, EllipsisVertical, Pencil, Plus, RotateCcw, Trash2, Wallet } from '@lucide/vue'
 import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
@@ -36,6 +36,7 @@ import {
 // cuentas son del usuario, no hay concepto de cuenta "del sistema".
 
 const route = useRoute()
+const router = useRouter()
 const accountsStore = useAccountsStore()
 
 const isDarkNow = ref(document.documentElement.classList.contains('dark'))
@@ -168,8 +169,13 @@ function openEditSheet(account: Account) {
             <template v-for="(account, idx) in accountsStore.accounts" :key="account.id">
               <Separator v-if="idx > 0" />
               <div
-                class="flex items-center gap-3 px-4 py-3"
+                class="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
                 :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
+                role="button"
+                tabindex="0"
+                :aria-label="`Ver detalle de ${account.name}`"
+                @click="router.push({ name: 'account-detail', params: { id: account.id } })"
+                @keydown.enter="router.push({ name: 'account-detail', params: { id: account.id } })"
               >
                 <span
                   class="flex size-10 shrink-0 items-center justify-center rounded-lg"
@@ -199,7 +205,7 @@ function openEditSheet(account: Account) {
                 </div>
                 <DropdownMenu>
                   <DropdownMenuTrigger as-child>
-                    <Button variant="ghost" size="icon" :aria-label="`Opciones de ${account.name}`">
+                    <Button variant="ghost" size="icon" :aria-label="`Opciones de ${account.name}`" @click.stop>
                       <EllipsisVertical class="size-5" />
                     </Button>
                   </DropdownMenuTrigger>

@@ -1,0 +1,66 @@
+-- =============================================================================
+-- categories_balance_adjustment
+-- -----------------------------------------------------------------------------
+-- Categoría default nueva "Ajuste de saldo" (user_id NULL, mismo patrón
+-- exacto que las 10 default sembradas en 20260716142006_categories_init.sql
+-- y que "Comisiones bancarias" en 20260720090900_categories_bank_commissions.sql),
+-- para que la rama "saldo deseado < saldo actual" del flujo "Ajustar
+-- mediante registro" de AccountDetailView (ver
+-- docs/features/account-detail-ux.md sección 5.6) tenga dónde imputar el
+-- expenses real que crea (expenses.category_id es NOT NULL).
+--
+-- icon: NO se usa un nombre de ícono lucide (mismo criterio ya documentado
+-- en 20260720090900_categories_bank_commissions.sql) -- categories.icon se
+-- consume en todo el frontend como emoji de texto plano
+-- (CategoriesView.vue: `<span>{{ category.icon }}</span>`, sin mapeo a
+-- componente). Emoji elegido: ⚖️ (balanza) -- comunica "corrección/balance"
+-- sin ambigüedad y no colisiona con ninguno de los 11 emojis ya sembrados
+-- (🍽️🚗🏠💡💊📚🎬👕💰📦🏦), distinto en particular de 🏦 (que ya significa
+-- específicamente "comisión bancaria", no "ajuste").
+--
+-- name: 'Ajuste de saldo' -- el string exacto que
+-- AccountBalanceAdjustmentSheet.vue busca por
+-- `categoriesStore.defaultCategories.find(c => c.name === 'Ajuste de saldo')`
+-- (doc sección 5.5). Si se cambia el texto acá, hay que avisar al frontend.
+--
+-- color: el doc de UX propuso '#92400e' (amber-800) como candidato SIN
+-- validar contra el validador de paleta (lo dejó explícito, mismo caveat
+-- que "Comisiones bancarias" tuvo con '#475569' antes de su fix en
+-- 20260720091500_categories_bank_commissions_color_fix.sql). Se corrió
+-- `node validate_palette.js` (skill de dataviz) con los 11 hex ya
+-- sembrados (10 default + '#6366f1' de "Comisiones bancarias" tras su fix)
+-- + este candidato, en light (surface '#fcfcfb') y dark (surface
+-- '#1a1a19'):
+--   - Light: '#92400e' no aparece en ningún FAIL/WARN nuevo -- pasa igual
+--     que el resto.
+--   - Dark: '#92400e' SÍ introduce un FAIL nuevo -- [FAIL] Lightness band,
+--     L=0.473, apenas por debajo del piso del modo oscuro (0.48), más un
+--     WARN de contraste (2.46, por debajo de 3:1) que tampoco aparecía en
+--     el baseline. A diferencia de los FAIL/WARN preexistentes (Vivienda/
+--     Transporte CVD, chroma floor de "Otros", Servicios fuera de banda de
+--     luminosidad, etc., ya documentados en dashboard-redesign-ux.md y en
+--     el fix de "Comisiones bancarias"), este SÍ es un conflicto nuevo
+--     causado por el candidato del doc -- no se acepta ciegamente, mismo
+--     criterio que la migración de fix de "Comisiones bancarias".
+--   - Se probaron variantes más claras del mismo marrón cálido
+--     ('#a3520a', '#b45309', '#c2660b', '#a16207') contra los 11 hex
+--     existentes, en ambos modos: las 4 quedan con el mismo set exacto de
+--     FAIL/WARN que el baseline de 11 colores (ninguna introduce un
+--     conflicto nuevo, en ningún check, en ningún modo). De esas 4, se
+--     descartaron '#b45309' y '#a16207' porque ya están en uso como
+--     swatches de ACCOUNT_COLOR_SWATCHES (`src/lib/colors.ts` -- "Dorado"/
+--     "Amarillo" de cuentas) -- dominio distinto (categories.color vs.
+--     accounts.color, paletas ya separadas a propósito, ver
+--     accounts-income-ux.md sección 4.4), pero se evita duplicar el hex
+--     exacto para no generar una asociación visual falsa entre una cuenta
+--     y esta categoría. Color final elegido: '#a3520a' (terracota/marrón
+--     cálido oscuro, sin uso previo en el repo) -- mismo espíritu que el
+--     candidato original del doc de UX, ahora sí validado sin conflictos
+--     nuevos en ninguno de los dos temas.
+--
+-- No se hace `update` de main.css/tokens ni de ninguna otra fila existente:
+-- esta migración solo inserta la fila nueva de "Ajuste de saldo".
+-- =============================================================================
+
+insert into public.categories (name, icon, color)
+values ('Ajuste de saldo', '⚖️', '#a3520a');

@@ -83,6 +83,30 @@ export const useExpensesStore = defineStore('expenses', () => {
     isLoading.value = false
   }
 
+  /** Movimientos recientes de UNA cuenta (account-detail-ux.md sección 7.1):
+   * fetch propio acotado por cuenta y ordenado por fecha desc, mismo patrón
+   * que `cardExpensesStore.fetchRecentForCard`. NO toca la lista maestra
+   * `expenses` — devuelve su propio resultado para que la vista lo guarde en
+   * un `ref` local (la lista global está capada a `MAX_EXPENSES` del usuario
+   * completo, filtrarla en cliente por cuenta podría subcontar). Devuelve
+   * `null` si falló (el caller decide cómo mostrarlo), nunca lanza. */
+  async function fetchRecentForAccount(accountId: string, limit = 10): Promise<ExpenseWithCategory[] | null> {
+    const { data, error: fetchError } = await supabase
+      .from('expenses')
+      .select('*, category:categories(*)')
+      .eq('account_id', accountId)
+      .order('expense_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (fetchError) {
+      console.error('[expenses] No se pudieron cargar los movimientos recientes de la cuenta', fetchError)
+      return null
+    }
+
+    return (data ?? []) as unknown as ExpenseWithCategory[]
+  }
+
   function replaceById(id: string, next: ExpenseWithCategory) {
     const idx = expenses.value.findIndex(expense => expense.id === id)
     if (idx === -1) return
@@ -279,6 +303,7 @@ export const useExpensesStore = defineStore('expenses', () => {
     isLoading,
     error,
     fetchAll,
+    fetchRecentForAccount,
     addExpense,
     updateExpense,
     deleteExpense,

@@ -45,6 +45,12 @@ const props = defineProps<{
     | { kind: 'expense', expense: ExpenseWithCategory }
     | { kind: 'income', income: IncomeWithAccount }
     | null
+  /** account-detail-ux.md sección 7.5: cuenta a preseleccionar en modo alta
+   * (AccountDetailView). Ignorado en modo edición (`transaction` ya trae su
+   * propia `account_id`). Es solo un DEFAULT, no bloquea el `Select` de
+   * Cuenta — el usuario puede seguir cambiándola. Retrocompatible: los
+   * call-sites que no la pasan siguen cayendo a `defaultAccountId()`. */
+  presetAccountId?: string | null
 }>()
 
 const emit = defineEmits<{
@@ -122,7 +128,7 @@ function resetForm() {
     // importar qué tipo se haya cargado la última vez.
     form.type = 'expense'
     form.amount = ''
-    form.accountId = defaultAccountId()
+    form.accountId = props.presetAccountId ?? defaultAccountId()
     form.categoryId = ''
     form.date = todayDateInputValue()
     form.description = ''

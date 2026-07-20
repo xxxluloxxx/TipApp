@@ -99,6 +99,29 @@ export const useAccountTransfersStore = defineStore('accountTransfers', () => {
     return true
   }
 
+  /** Transferencias recientes donde participa UNA cuenta (account-detail-ux.md
+   * sección 7.1), de cualquiera de los dos lados (`.or(from/to)`). Mismo
+   * patrón que `fetchRecentForAccount` de `expenses`/`incomes`, pero sin
+   * `.eq('account_id', ...)` (una transferencia no tiene una única cuenta).
+   * NO toca la lista maestra `transfers` (capada a `MAX_TRANSFERS` del usuario
+   * completo) — devuelve su propio resultado para un `ref` local. */
+  async function fetchRecentForAccount(accountId: string, limit = 10): Promise<AccountTransfer[] | null> {
+    const { data, error } = await supabase
+      .from('account_transfers')
+      .select('*')
+      .or(`from_account_id.eq.${accountId},to_account_id.eq.${accountId}`)
+      .order('transfer_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (error) {
+      console.error('[accountTransfers] No se pudieron cargar las transferencias recientes de la cuenta', error)
+      return null
+    }
+
+    return sortTransfersDesc((data ?? []) as AccountTransfer[])
+  }
+
   /**
    * Refresca los caches derivados tras una mutación confirmada: la propia
    * lista de transferencias, los saldos de cuenta (`account_balances`, ya
@@ -196,6 +219,7 @@ export const useAccountTransfersStore = defineStore('accountTransfers', () => {
     linkedExpenseIds,
     transferById,
     fetchAll,
+    fetchRecentForAccount,
     createTransfer,
     updateTransfer,
     deleteTransfer,

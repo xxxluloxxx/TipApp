@@ -4,7 +4,7 @@
  * de store/Supabase: reciben datos ya cargados y devuelven estructuras listas
  * para los componentes presentacionales de `src/components/charts/`.
  */
-import { parseDateOnly } from '@/lib/date'
+import { formatDateOnly, parseDateOnly } from '@/lib/date'
 import type { ExpenseWithCategory } from '@/stores/expenses'
 
 export interface TrendPoint {
@@ -234,4 +234,52 @@ export function buildDebtBalanceEvolution(
     runningBorrowed += monthBorrowed
     return { label: MONTHS_ES_SHORT[month]!, lent: runningLent, borrowed: runningBorrowed }
   })
+}
+
+/**
+ * Movimiento de UNA cuenta puntual ya acotado por rango de fecha (account-
+ * detail-ux.md sección 6.1). `signedAmount` viene resuelto con signo DESDE EL
+ * PUNTO DE VISTA de esa cuenta: gasto → negativo, ingreso → positivo,
+ * transferencia saliente → negativo, transferencia entrante → positivo. La
+ * vista arma este signo al mapear sus 3 queries (sección 6.1.2); este helper
+ * no conoce la forma real de expense/income/transfer, mismo criterio que el
+ * resto de `charts.ts` (sin dependencias de store).
+ */
+export interface AccountMovementInput {
+  /** `expense_date` / `income_date` / `transfer_date`, `'YYYY-MM-DD'`. */
+  date: string
+  signedAmount: number
+}
+
+/**
+ * Deriva la serie diaria de saldo de una cuenta en la ventana de "Últimos 30
+ * días" (account-detail-ux.md sección 6.1), mismo precedente que
+ * `buildDebtBalanceEvolution` pero a 1 cuenta y granularidad diaria: el saldo
+ * "de arranque" de la ventana es el saldo actual (agregado server-side,
+ * siempre seguro — `account_balances`) menos el neto de movimientos que YA
+ * cayeron dentro de esa ventana (acotados por fecha), nunca sumando historial
+ * completo. A partir de ahí camina día a día acumulando, desde `windowStart`
+ * hasta `reference` inclusive.
+ */
+export function buildAccountBalanceEvolution(
+  currentBalance: number,
+  windowMovements: AccountMovementInput[],
+  windowStart: Date,
+  reference: Date = new Date(),
+): TrendPoint[] {
+  const netInWindow = windowMovements.reduce((sum, m) => sum + m.signedAmount, 0)
+  let running = currentBalance - netInWindow // saldo al inicio de la ventana
+
+  const days: TrendPoint[] = []
+  const cursor = new Date(windowStart)
+  while (cursor.getTime() <= reference.getTime()) {
+    const key = formatDateOnly(cursor) // 'YYYY-MM-DD', horario local
+    const dayTotal = windowMovements
+      .filter(m => m.date === key)
+      .reduce((sum, m) => sum + m.signedAmount, 0)
+    running += dayTotal
+    days.push({ date: key, amount: running })
+    cursor.setDate(cursor.getDate() + 1)
+  }
+  return days
 }

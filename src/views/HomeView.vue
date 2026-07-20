@@ -374,8 +374,7 @@ function goAddFirstExpense() {
               type="button"
               class="flex flex-col gap-2 rounded-lg border border-border p-3 text-left transition hover:brightness-95 active:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
-              disabled
-              aria-disabled="true"
+              @click="router.push({ name: 'account-detail', params: { id: account.id } })"
             >
               <span
                 class="flex size-10 shrink-0 items-center justify-center rounded-lg"

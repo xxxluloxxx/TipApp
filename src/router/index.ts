@@ -41,6 +41,15 @@ const router = createRouter({
       component: () => import('@/views/AccountsView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 1.1/9 de account-detail-ux.md: detalle de una cuenta. Sin
+    // colisión de segmento literal-vs-dinámico (`/cuentas` es la única ruta
+    // literal bajo ese prefijo), no requiere orden especial.
+    {
+      path: '/cuentas/:id',
+      name: 'account-detail',
+      component: () => import('@/views/AccountDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
     // Sección 2 de account-transfers-ux.md: 1 sola ruta, sin detalle. Sin
     // colisión de segmento literal-vs-dinámico, no requiere orden especial.
     {

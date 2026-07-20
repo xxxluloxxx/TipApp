@@ -54,3 +54,26 @@ export function buildTransactionItems(
     return b.data.created_at.localeCompare(a.data.created_at)
   })
 }
+
+/**
+ * Igual que `buildTransactionItems`, pero acotado a los ítems donde
+ * `accountId` participa de verdad — filtra las 2 variantes sintéticas de
+ * transferencia a la que corresponde según de qué lado está esta cuenta
+ * (nunca las 2 juntas: si esta cuenta es el origen, solo `transfer-out`; si
+ * es el destino, solo `transfer-in`). Usado por `AccountDetailView.vue`
+ * (docs/features/account-detail-ux.md sección 7.2) sobre listas YA acotadas
+ * por cuenta (`fetchRecentForAccount` de cada store, sección 7.1), no sobre
+ * las listas globales. `buildTransactionItems` no se modifica.
+ */
+export function buildAccountTransactionItems(
+  expenses: ExpenseWithCategory[],
+  incomes: IncomeWithAccount[],
+  transfers: AccountTransfer[],
+  accountId: string,
+): TransactionItem[] {
+  return buildTransactionItems(expenses, incomes, transfers).filter((item) => {
+    if (item.kind === 'transfer-out') return item.data.from_account_id === accountId
+    if (item.kind === 'transfer-in') return item.data.to_account_id === accountId
+    return true
+  })
+}
