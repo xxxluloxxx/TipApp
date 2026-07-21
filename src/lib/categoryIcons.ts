@@ -1,10 +1,11 @@
 /**
  * Set curado de emojis para el selector de ícono de categorías custom
- * (sección 3.2 de docs/features/categories-mvp-ux.md). 19 emojis, todos de
+ * (sección 3.2 de docs/features/categories-mvp-ux.md). 22 emojis, todos de
  * texto plano (mismo tipo de dato que ya usa `categories.icon`), ninguno
  * repite los 12 ya sembrados en las categorías default (🍽️🚗🏠💡💊📚🎬👕
  * 💰📦🏦⚖️) — así una categoría custom nunca se confunde visualmente con una
- * default dentro del `Select` de categoría del formulario de gasto.
+ * default dentro del `Select` de categoría del formulario de gasto. Deportes
+ * usa 🏀 (no ⚽ — pedido explícito del Product Owner tras la primera ronda).
  *
  * Se centraliza acá (en vez de una constante local en `CategoryFormSheet.vue`,
  * que la nota de la sección 3.2 dejaba a criterio del implementador) siguiendo
@@ -17,7 +18,7 @@
  */
 export const CATEGORY_ICON_OPTIONS = [
   { emoji: '🐾', label: 'Mascotas' },
-  { emoji: '⚽', label: 'Deportes' },
+  { emoji: '🏀', label: 'Deportes' },
   { emoji: '💻', label: 'Tecnología' },
   { emoji: '🎁', label: 'Regalos' },
   { emoji: '✈️', label: 'Viajes' },
@@ -35,4 +36,7 @@ export const CATEGORY_ICON_OPTIONS = [
   { emoji: '💼', label: 'Trabajo' },
   { emoji: '🎨', label: 'Hobbies y arte' },
   { emoji: '🌱', label: 'Plantas y jardín' },
+  { emoji: '🍺', label: 'Cerveza y bebidas' },
+  { emoji: '⛽', label: 'Gasolina y combustible' },
+  { emoji: '📶', label: 'Internet' },
 ] as const

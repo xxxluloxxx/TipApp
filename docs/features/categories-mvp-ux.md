@@ -24,7 +24,7 @@ header de la pantalla), `Check` (marca de color seleccionado en el swatch
 picker).
 
 **Actualización de esta iteración (selector de ícono/emoji)**: no se suma
-ningún ícono `@lucide/vue` nuevo para el picker de emoji en sí — los 19
+ningún ícono `@lucide/vue` nuevo para el picker de emoji en sí — los 22
 valores del set curado (sección 3.2) son emojis de texto plano (mismo tipo
 de dato que ya usa `categories.icon`), no componentes de librería. La única
 referencia visual que sí se reusa es el patrón ya shippeado de
@@ -262,19 +262,21 @@ renumerar). No hay un motivo fuerte para invertir ese orden; elegir el
 emoji primero y después el color en el que se va a apoyar es una secuencia
 igual de natural que la inversa.
 
-#### Set curado: 19 emojis + "Sin ícono" (grid de 5 columnas × 4 filas = 20 celdas)
+#### Set curado: 22 emojis + "Sin ícono" (23 celdas, layout `flex-wrap`, no grid fijo)
 
 Deliberadamente sin repetir ninguno de los 12 emoji ya sembrados en
 categorías default (🍽️ Alimentación, 🚗 Transporte, 🏠 Vivienda, 💡
 Servicios, 💊 Salud, 📚 Educación, 🎬 Entretenimiento, 👕 Ropa, 💰 Ahorro e
 inversión, 📦 Otros, 🏦 Comisiones bancarias, ⚖️ Ajuste de saldo) — así una
 categoría custom nunca se confunde visualmente con una default dentro del
-`Select` de categoría del formulario de gasto:
+`Select` de categoría del formulario de gasto. **Ronda 2** (pedido explícito
+del Product Owner tras ver la primera versión): se sumaron 🍺/⛽/📶 y se
+reemplazó ⚽ por 🏀 en "Deportes":
 
 | Emoji | Concepto (`aria-label`) |
 |---|---|
 | 🐾 | Mascotas |
-| ⚽ | Deportes |
+| 🏀 | Deportes |
 | 💻 | Tecnología |
 | 🎁 | Regalos |
 | ✈️ | Viajes |
@@ -292,9 +294,15 @@ categoría custom nunca se confunde visualmente con una default dentro del
 | 💼 | Trabajo |
 | 🎨 | Hobbies y arte |
 | 🌱 | Plantas y jardín |
+| 🍺 | Cerveza y bebidas |
+| ⛽ | Gasolina y combustible |
+| 📶 | Internet |
 
-La celda 20 (cierra la 4ª fila) es el botón **"Sin ícono"** — no es un 21er
-emoji, es la opción explícita de "sin selección", ver más abajo.
+La implementación real (`CategoryFormSheet.vue`) usa `flex flex-wrap`, no un
+grid fijo de columnas — mismo patrón ya usado por el picker de color
+(`COLOR_SWATCHES`), que se ajusta solo al ancho disponible. La última celda
+es el botón **"Sin ícono"** — no es un emoji más, es la opción explícita de
+"sin selección", ver más abajo.
 
 #### Layout y marca de selección
 
@@ -353,7 +361,7 @@ no hay ninguna validación que dependa de si el usuario tocó el campo o no.
   (se guarda sin ícono, igual que hoy). No hace falta forzar un tap
   explícito en "Sin ícono" como si fuera una opción más — es, literalmente,
   el estado inicial real.
-- **Edición**: si `category.icon` coincide con uno de los 19 emojis del set
+- **Edición**: si `category.icon` coincide con uno de los 22 emojis del set
   curado, se preselecciona esa celda. Si no coincide (`NULL`, o un emoji
   fuera del set — dato legado o sembrado a mano en la base), se
   preselecciona "Sin ícono" **sin bloquear el guardado** — a diferencia del
@@ -405,7 +413,7 @@ usuario tenga que imaginarse la combinación o esperar a guardar para verla:
 
 #### Nota de implementación (no vinculante, a criterio de `vue-frontend-expert`)
 
-El set de 19 emojis puede vivir como una constante local dentro de
+El set de 22 emojis puede vivir como una constante local dentro de
 `CategoryFormSheet.vue` (p. ej. `CATEGORY_ICON_OPTIONS`), siguiendo el mismo
 patrón que ya usa ese archivo para `COLOR_SWATCHES` (copia local, no
 importada de `src/lib/colors.ts` — ver el comentario en ese archivo que ya
