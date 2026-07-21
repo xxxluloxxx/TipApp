@@ -2044,14 +2044,22 @@ nunca sobre una instancia `paid` o una plantilla pausada, para no ofrecer
   sin `AlertDialog`, mutación optimista (14.3); Card 2: segunda línea
   condicional de `omittedCount` + barra usando `resolvedCount` (14.4);
   Cards 1/3/4 no requieren cambios de UI, solo verificación (14.4).
-- **14.6 — Corrección post-implementación (mismo día)**: la pantalla
-  "Comparación mensual" (sección 13, `FixedExpensesComparisonView.vue`) se
-  construyó ANTES de que existiera `skipped` — el Product Owner probó ambas
-  pantallas juntas y notó que una instancia omitida seguía apareciendo ahí
-  como "Pendiente", sumada al total de esa columna. `FixedExpenseHistoryRow`
-  (`fetchInstancesForPeriod`) ganó un campo `isSkipped` propio (antes
-  `isPending: status !== 'paid'` conflacionaba `pending`+`skipped`, ahora
-  `isPending: status === 'pending'` explícito). La fila sigue LISTÁNDOSE
-  (historial completo del mes), pero con "Omitido" en vez de "Pendiente" y
-  excluida de la suma `column.total` — mismo criterio que ya aplican el hero
-  "Total del mes" y la dona "Por categoría" del dashboard.
+- **14.6 — Corrección post-implementación, dos rondas (mismo día)**: la
+  pantalla "Comparación mensual" (sección 13, `FixedExpensesComparisonView.vue`)
+  se construyó ANTES de que existiera `skipped`. Ronda 1: el Product Owner
+  notó que una instancia omitida seguía apareciendo ahí como "Pendiente",
+  sumada al total de esa columna — se corrigió mostrándola con "Omitido" y
+  excluyéndola de `column.total` (mismo criterio que el hero "Total del mes"
+  y la dona "Por categoría" del dashboard). Ronda 2, pedido explícito del
+  Product Owner tras ver esa primera corrección: una instancia omitida **no
+  debe aparecer ni como fila** en esta pantalla, ni siquiera con la etiqueta
+  "Omitido" — a diferencia del dashboard principal (donde SÍ se lista, con su
+  badge, porque ahí importa ver de un vistazo qué se omitió este mes),
+  "Comparación mensual" es una vista de proyección/historial de gasto real
+  entre meses, donde una omisión no aporta nada. Se filtra con
+  `.neq('status', 'skipped')` directo en la query de
+  `fetchInstancesForPeriod` (no solo en el render): así tampoco cuenta contra
+  `RANGE_SAFETY_LIMIT` en un mes con muchas omisiones. `isSkipped` se
+  removió de `FixedExpenseHistoryRow` (ya no aporta nada si la fila nunca
+  llega): `isPending`/`total`/el label "Pendiente" quedaron en su forma
+  original, sin ninguna rama condicional de "Omitido".

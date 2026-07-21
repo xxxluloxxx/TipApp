@@ -57,18 +57,10 @@ export interface FixedExpenseRow {
 export interface FixedExpenseHistoryRow {
   instanceId: string
   name: string
-  /** Monto real pagado si `paid`, la proyección de la plantilla si `pending`/
-   * `skipped` (sección 14: para una omitida es solo informativo — el caller
-   * NUNCA debe sumarlo al total de la columna, ver `isSkipped`). */
+  /** Monto real pagado si `paid`, la proyección de la plantilla si `pending`. */
   amount: number
-  /** `true` únicamente si la instancia sigue `pending` (sección 14: ya no
-   * incluye `skipped`, que ahora tiene su propio flag). */
+  /** `true` si la instancia nunca se marcó como pagada (monto = proyección). */
   isPending: boolean
-  /** `true` si el usuario omitió a propósito este gasto fijo ese mes (sección
-   * 14 de fixed-expenses-ux.md) — el caller debe excluir `amount` del total de
-   * la columna y mostrar "Omitido" en vez de "Pendiente", mismo criterio ya
-   * aplicado en el dashboard y la dona de "Por categoría". */
-  isSkipped: boolean
   /** Categoría de la plantilla (campo aditivo, sección 13.11): resuelve el
    * color del dot de la fila vía `categoriesStore.categoryById`. */
   categoryId: string | null
@@ -336,6 +328,13 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
       .from('fixed_expense_instances')
       .select('id, status, expense:expenses(amount), fixed_expense:fixed_expenses(name, amount, category_id)')
       .eq('period', periodValue)
+      // Sección 14.6 (corrección post-corrección): el Product Owner probó la
+      // primera versión ("Omitido" listado, monto excluido del total) y pidió
+      // directamente que una instancia omitida NO aparezca en esta pantalla —
+      // ni como fila. Se filtra acá, no solo con `isSkipped` en la vista, para
+      // que tampoco cuente contra `RANGE_SAFETY_LIMIT` en un mes con muchas
+      // omisiones.
+      .neq('status', 'skipped')
       .limit(RANGE_SAFETY_LIMIT)
 
     if (fetchError) {
@@ -358,7 +357,6 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
       name: row.fixed_expense?.name ?? 'Gasto fijo',
       amount: row.expense?.amount ?? row.fixed_expense?.amount ?? 0,
       isPending: row.status === 'pending',
-      isSkipped: row.status === 'skipped',
       categoryId: row.fixed_expense?.category_id ?? null,
     }))
   }
