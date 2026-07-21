@@ -6,7 +6,6 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarSync,
-  CircleCheck,
   Columns3,
   EllipsisVertical,
   PauseCircle,
@@ -446,9 +445,6 @@ function deleteTemplate(templateId: string) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
-                    <DropdownMenuItem v-if="item.isActive && item.status === 'pending'" @select="openPaySheet(item)">
-                      <CircleCheck class="size-4" /> Marcar como pagado
-                    </DropdownMenuItem>
                     <DropdownMenuItem @select="openEditTemplateSheet(item)">
                       <Pencil class="size-4" /> Editar
                     </DropdownMenuItem>
