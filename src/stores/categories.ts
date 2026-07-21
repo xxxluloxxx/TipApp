@@ -10,6 +10,9 @@ export type Category = Tables<'categories'>
 export interface CategoryPayload {
   name: string
   color: string
+  /** Emoji del set curado (sección 3.2 de categories-mvp-ux.md) o `null`
+   * ("Sin ícono"). 100% opcional, nunca bloquea el guardado. */
+  icon: string | null
 }
 
 /** Resultado de alta/edición (sección 3.4 de categories-mvp-ux.md): no se
@@ -144,7 +147,7 @@ export const useCategoriesStore = defineStore('categories', () => {
 
     const { data, error: insertError } = await supabase
       .from('categories')
-      .insert({ name: payload.name, color: payload.color, user_id: userId })
+      .insert({ name: payload.name, color: payload.color, icon: payload.icon, user_id: userId })
       .select('*')
       .single()
 
@@ -160,7 +163,7 @@ export const useCategoriesStore = defineStore('categories', () => {
   async function updateCategory(id: string, payload: CategoryPayload): Promise<CategoryMutationResult> {
     const { data, error: updateError } = await supabase
       .from('categories')
-      .update({ name: payload.name, color: payload.color })
+      .update({ name: payload.name, color: payload.color, icon: payload.icon })
       .eq('id', id)
       .select('*')
       .single()

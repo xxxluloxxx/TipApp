@@ -2,7 +2,8 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Check, Loader2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
-import { readableTextColor } from '@/lib/colors'
+import { readableTextColor, withAlpha } from '@/lib/colors'
+import { CATEGORY_ICON_OPTIONS } from '@/lib/categoryIcons'
 import { useCategoriesStore, type Category } from '@/stores/categories'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -48,6 +49,9 @@ const isEditing = computed(() => !!props.category)
 
 const form = reactive({
   name: '',
+  // Sección 3.2: `null` = "Sin ícono" (celda por default seleccionada en alta,
+  // 100% opcional, sin validación de error posible).
+  icon: null as string | null,
   color: null as string | null,
 })
 
@@ -62,6 +66,13 @@ function resetForm() {
 
   if (props.category) {
     form.name = props.category.name
+    // Sección 3.2: si el ícono guardado coincide con uno del set curado se
+    // preselecciona; si no (NULL, o un emoji fuera del set — dato legado), se
+    // cae a "Sin ícono" (null) SIN bloquear el guardado (a diferencia de
+    // Color, que sí exige reelegir porque es obligatorio).
+    form.icon = CATEGORY_ICON_OPTIONS.some(item => item.emoji === props.category?.icon)
+      ? props.category.icon
+      : null
     // Sección 3.3: si el color guardado no coincide con ninguno de los 10
     // swatches (dato legado / edición manual en la base), no se
     // preselecciona ninguno — se exige elegir de nuevo, no se inventa un
@@ -71,6 +82,7 @@ function resetForm() {
       : null
   } else {
     form.name = ''
+    form.icon = null
     form.color = null
   }
 }
@@ -144,7 +156,7 @@ async function onSubmit() {
 
   isSaving.value = true
   try {
-    const payload = { name: form.name.trim(), color: form.color! }
+    const payload = { name: form.name.trim(), icon: form.icon, color: form.color! }
 
     const result = isEditing.value
       ? await categoriesStore.updateCategory(props.category!.id, payload)
@@ -191,7 +203,7 @@ async function onSubmit() {
       <SheetHeader>
         <SheetTitle>{{ isEditing ? 'Editar categoría' : 'Nueva categoría' }}</SheetTitle>
         <SheetDescription v-if="!isEditing">
-          Elegí un nombre y un color para tu categoría.
+          Elegí un nombre, un ícono y un color para tu categoría.
         </SheetDescription>
       </SheetHeader>
 
@@ -211,6 +223,61 @@ async function onSubmit() {
           <p v-if="errors.name" class="text-xs text-destructive">
             {{ errors.name }}
           </p>
+        </div>
+
+        <!-- Preview en vivo (sección 3.2): refleja exactamente el swatch que va
+             a tener la categoría en el listado real (mismo `withAlpha` + borde),
+             a medida que se elige ícono/color. -->
+        <div class="flex items-center gap-3 py-1">
+          <div
+            class="flex size-11 shrink-0 items-center justify-center rounded-full"
+            :style="form.color
+              ? { background: withAlpha(form.color, 0.12), border: `1px solid ${form.color}` }
+              : { border: '1px dashed var(--border)' }"
+          >
+            <span v-if="form.icon" class="text-lg leading-none">{{ form.icon }}</span>
+          </div>
+          <span class="truncate text-sm text-muted-foreground">
+            {{ form.name.trim() || 'Tu categoría' }}
+          </span>
+        </div>
+
+        <!-- Campo Ícono (sección 3.2): grid de 19 emojis curados + celda "Sin
+             ícono", selección marcada solo con anillo + aria-pressed (sin Check
+             superpuesto, que taparía el emoji). Opcional, nunca bloquea. -->
+        <div class="flex flex-col gap-1.5">
+          <Label id="icono-categoria-label">
+            Ícono <span class="font-normal text-muted-foreground">(opcional)</span>
+          </Label>
+          <div id="icono-categoria" role="group" aria-labelledby="icono-categoria-label" class="flex flex-wrap gap-3">
+            <button
+              v-for="item in CATEGORY_ICON_OPTIONS"
+              :key="item.emoji"
+              type="button"
+              class="flex size-11 shrink-0 items-center justify-center rounded-full bg-muted outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="{ 'ring-2 ring-offset-2 ring-ring': form.icon === item.emoji }"
+              :aria-pressed="form.icon === item.emoji"
+              :aria-label="item.label"
+              :disabled="isSaving"
+              @click="form.icon = item.emoji"
+            >
+              <span class="text-xl leading-none">{{ item.emoji }}</span>
+            </button>
+
+            <!-- Celda "Sin ícono": borde punteado + punto neutro, mismo
+                 tratamiento que una categoría sin ícono en el listado. -->
+            <button
+              type="button"
+              class="flex size-11 shrink-0 items-center justify-center rounded-full border border-dashed border-border outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :class="{ 'ring-2 ring-offset-2 ring-ring': form.icon === null }"
+              :aria-pressed="form.icon === null"
+              aria-label="Sin ícono"
+              :disabled="isSaving"
+              @click="form.icon = null"
+            >
+              <span class="size-2.5 rounded-full bg-muted-foreground/40" />
+            </button>
+          </div>
         </div>
 
         <div class="flex flex-col gap-1.5">

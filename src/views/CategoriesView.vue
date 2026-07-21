@@ -201,7 +201,11 @@ function openEditSheet(category: Category) {
                     borderColor: category.color ?? undefined,
                   }"
                 >
-                  <span class="size-2.5 rounded-full" :style="{ background: category.color ?? undefined }" />
+                  <!-- Sección 2.2: emoji si la categoría custom tiene `icon`
+                       (selector agregado en esta iteración); si no, el punto de
+                       color centrado, mismo fallback ya existente. -->
+                  <span v-if="category.icon" class="text-base leading-none">{{ category.icon }}</span>
+                  <span v-else class="size-2.5 rounded-full" :style="{ background: category.color ?? undefined }" />
                 </span>
                 <p class="flex-1 truncate text-sm font-medium">
                   {{ category.name }}

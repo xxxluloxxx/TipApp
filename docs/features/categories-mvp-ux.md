@@ -23,6 +23,16 @@ requiere instalar paquete nuevo, `@lucide/vue` ya está en el proyecto):
 header de la pantalla), `Check` (marca de color seleccionado en el swatch
 picker).
 
+**Actualización de esta iteración (selector de ícono/emoji)**: no se suma
+ningún ícono `@lucide/vue` nuevo para el picker de emoji en sí — los 19
+valores del set curado (sección 3.2) son emojis de texto plano (mismo tipo
+de dato que ya usa `categories.icon`), no componentes de librería. La única
+referencia visual que sí se reusa es el patrón ya shippeado de
+`ACCOUNT_ICON_OPTIONS` en `AccountFormSheet.vue` (grid `size-11 rounded-full
+bg-muted` con selección marcada solo por anillo, sin `Check` superpuesto) y
+el patrón "Sin color" de `CardPersonFormSheet.vue`/`DebtPersonFormSheet.vue`
+(celda con `border-dashed`) — ver sección 3.2 para el detalle completo.
+
 Aclaración sobre el esquema: todo lo que sigue asume la tabla `categories`
 tal cual está descripta en el encargo (columnas `id`, `user_id`, `name`,
 `icon`, `color`, `created_at`, RLS ya activo, `expenses.category_id` con
@@ -126,10 +136,10 @@ lista de ~10-15 filas cortas.
 - Cada fila (`flex items-center gap-3 px-4 py-3`):
   - Swatch `size-8 rounded-full shrink-0 flex items-center justify-center`,
     fondo = `color` al ~12% de opacidad, borde `1px solid color`. Adentro:
-    el emoji de `icon` (`text-base leading-none`) si existe — **las 10
-    default sí tienen `icon` seedeado, así que esta pantalla es el primer
-    lugar de la app que lo muestra** (ver nota en sección 3 sobre por qué no
-    se agrega selector de ícono en el formulario todavía).
+    el emoji de `icon` (`text-base leading-none`) si existe — las 10
+    default ya tenían `icon` seedeado desde antes; ahora las categorías
+    custom también pueden tener el suyo propio (ver sección 3.2, selector de
+    ícono agregado en esta iteración).
   - Nombre (`text-sm font-medium flex-1 truncate`).
   - Nada más a la derecha: sin badge, sin menú, sin chevron. La ausencia de
     controles es intencional y ya está explicada por el texto de sección de
@@ -151,10 +161,15 @@ lista de ~10-15 filas cortas.
     - `Editar` (ícono `Pencil`) → siempre habilitado.
     - `Eliminar` (ícono `Trash2`) → deshabilitado (`disabled`) si el
       contador de esa fila es ≥1 (ver sección 6).
-  - Las categorías custom **no muestran `icon`** en v1 (siempre `null`, ver
-    sección 3) — el swatch de estas filas solo tiene el punto de color
-    centrado (`size-2.5 rounded-full`, mismo fondo que el swatch), sin
-    emoji.
+  - **Actualizado en esta iteración**: las categorías custom ahora pueden
+    tener su propio `icon` (selector agregado en sección 3.2) — el swatch de
+    estas filas muestra el emoji igual que las default (2.1) cuando
+    `icon` no es `NULL`. Si el usuario no eligió ninguno (fallback ya
+    existente, sigue vigente para las categorías creadas antes de este
+    cambio o para quien guarda con "Sin ícono"), el swatch solo tiene el
+    punto de color centrado (`size-2.5 rounded-full`, mismo fondo que el
+    swatch), sin emoji — el mismo tratamiento que ya tenía toda categoría
+    custom antes de esta iteración.
 
 ### 2.3 Estado vacío de "Mis categorías" (usuario sin categorías propias)
 
@@ -183,7 +198,8 @@ side="bottom"`, `SheetHeader` con `SheetTitle`/`SheetDescription`, body con
 affordance de cierre).
 
 - Alta: `SheetTitle` = `Nueva categoría`, `SheetDescription` = `Elegí un
-  nombre y un color para tu categoría.`
+  nombre, un ícono y un color para tu categoría.` (actualizado en esta
+  iteración — antes decía solo "un nombre y un color", ver sección 3.2).
 - Edición: `SheetTitle` = `Editar categoría` (sin description, redundante).
 - Botón footer: `Guardar categoría` (alta) / `Guardar cambios` (edición).
   Loading: `disabled` + `Loader2` girando + `Guardando…` (mismo texto para
@@ -220,29 +236,182 @@ affordance de cierre).
   mensaje `Ya existe una categoría con ese nombre.` como error inline debajo
   del campo Nombre (no toast) y se refoca el input — ver 3.4.
 
-### 3.2 Campo: Ícono — decisión: se omite del formulario en v1
+### 3.2 Campo: Ícono (agregado en esta iteración — reemplaza la decisión de v1)
 
-No se agrega ningún selector de emoji (ni picker, ni input de texto libre)
-en el formulario de alta/edición. Las categorías custom se crean siempre con
-`icon = NULL`.
+**Reemplaza por completo la decisión anterior.** La v1 de este documento
+omitía el selector de ícono porque nada en el frontend consumía `icon` para
+categorías custom todavía (esa nota queda obsoleta a partir de acá). Pedido
+explícito del Product Owner: *"debería también poder elegir un ícono, algo
+lindo, a colores, como las categorías por defecto"* — se agrega un selector
+de emoji con el mismo nivel de prolijidad que el selector de Color ya
+existente (grid fijo curado, no un picker nativo del SO/teclado ni un
+`<Input>` de texto libre).
 
-Justificación:
-- Hoy `icon` no se renderiza en ningún lado del frontend existente (ni en el
-  `Select` de categoría del gasto, ni en las cards de la lista de gastos) —
-  construir una UI de selección para un dato que nada consume todavía sería
-  invertir esfuerzo especulativo. Esta misma iteración sí empieza a
-  *mostrar* `icon` (sección 2.1, defaults) — pero mostrar un valor ya
-  sembrado es gratis; construir un input para producir valores nuevos no lo
-  es.
-- Un input de texto libre para "un emoji" tiene problemas reales de validar
-  bien (secuencias multi-codepoint con ZWJ, pegar texto que no es un emoji,
-  etc.) que no vale la pena resolver todavía para un campo que nadie ve
-  renderizado fuera de esta pantalla.
-- Camino natural para una próxima iteración, si se decide que vale la pena:
-  un `<Input>` de texto simple (label "Ícono (opcional)", placeholder
-  `🏷️`, sin validar el contenido más allá de un `maxlength` generoso) es
-  la opción de menor esfuerzo cuando llegue el momento — no un picker
-  dedicado. Se deja anotado acá para no tener que redescubrirlo.
+**Por qué un grid fijo curado y no el emoji picker nativo del SO/teclado o
+un input libre**: mismo argumento ya validado para Color (sección 3.3) — un
+picker abierto permitiría elegir emojis sin ninguna relación con gastos
+personales, o (si fuera un `<Input>` de texto) pegar texto que no es un
+emoji real, o una secuencia multi-codepoint con ZWJ que se renderice mal en
+algún dispositivo. Un set curado y acotado es más rápido de elegir dentro de
+un Sheet chico, más prolijo visualmente, y garantiza que todo emoji ofrecido
+tenga sentido real para una categoría de gasto personal.
+
+**Orden en el formulario: Ícono va antes que Color** (mantiene el orden de
+secciones ya existente en este documento — 3.2 antes de 3.3 — sin
+renumerar). No hay un motivo fuerte para invertir ese orden; elegir el
+emoji primero y después el color en el que se va a apoyar es una secuencia
+igual de natural que la inversa.
+
+#### Set curado: 19 emojis + "Sin ícono" (grid de 5 columnas × 4 filas = 20 celdas)
+
+Deliberadamente sin repetir ninguno de los 12 emoji ya sembrados en
+categorías default (🍽️ Alimentación, 🚗 Transporte, 🏠 Vivienda, 💡
+Servicios, 💊 Salud, 📚 Educación, 🎬 Entretenimiento, 👕 Ropa, 💰 Ahorro e
+inversión, 📦 Otros, 🏦 Comisiones bancarias, ⚖️ Ajuste de saldo) — así una
+categoría custom nunca se confunde visualmente con una default dentro del
+`Select` de categoría del formulario de gasto:
+
+| Emoji | Concepto (`aria-label`) |
+|---|---|
+| 🐾 | Mascotas |
+| ⚽ | Deportes |
+| 💻 | Tecnología |
+| 🎁 | Regalos |
+| ✈️ | Viajes |
+| 💅 | Belleza y cuidado personal |
+| 👶 | Hijos y familia |
+| 🧾 | Impuestos y trámites |
+| 🔁 | Suscripciones |
+| 🔧 | Herramientas y hogar |
+| 🎮 | Videojuegos |
+| 🎵 | Música |
+| 📖 | Libros |
+| ☕ | Café y bares |
+| 🏋️ | Gimnasio y fitness |
+| 🛒 | Supermercado |
+| 💼 | Trabajo |
+| 🎨 | Hobbies y arte |
+| 🌱 | Plantas y jardín |
+
+La celda 20 (cierra la 4ª fila) es el botón **"Sin ícono"** — no es un 21er
+emoji, es la opción explícita de "sin selección", ver más abajo.
+
+#### Layout y marca de selección
+
+Calcado del selector de Color (sección 3.3) con un matiz deliberado en cómo
+se marca la selección:
+
+- `<Label id="icono-categoria-label">Ícono <span class="font-normal
+  text-muted-foreground">(opcional)</span></Label>` +
+  `<div role="group" aria-labelledby="icono-categoria-label" class="flex flex-wrap gap-3">`.
+- Cada celda: `<button type="button" class="relative flex size-11 shrink-0
+  items-center justify-center rounded-full bg-muted outline-none
+  focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+  :class="{ 'ring-2 ring-offset-2 ring-ring': form.icon === item.emoji }"
+  :aria-pressed="form.icon === item.emoji" :aria-label="item.label">`, con
+  el emoji adentro (`text-xl leading-none` — más grande que el `text-base`
+  usado en la fila de la lista, sección 2.1, porque acá el emoji es el
+  único contenido de una celda de 44px y necesita más presencia).
+- **Selección marcada solo con anillo (`ring-2 ring-offset-2 ring-ring`) +
+  `aria-pressed`, sin `Check` superpuesto** — a diferencia del swatch de
+  Color, que sí usa `Check` (sección 3.3). Motivo: en el grid de Color
+  todas las celdas son visualmente iguales salvo un matiz de fondo (hace
+  falta un `Check` para que la selección no dependa de percibir una
+  diferencia de color sutil); acá cada celda ya es visualmente única — un
+  `Check` superpuesto solo taparía el propio emoji sin sumar información.
+  Mismo criterio ya en producción en `AccountFormSheet.vue`
+  (`ACCOUNT_ICON_OPTIONS`, grid de íconos de cuenta): anillo + `aria-pressed`
+  siguen cumpliendo "nunca solo color" (es cambio de forma, no de tono, más
+  el estado semántico para lectores de pantalla), sin duplicar el patrón de
+  Color donde no aplica.
+- **Última celda, "Sin ícono"**: mismo tratamiento que "Sin color" ya
+  shippeado en `CardPersonFormSheet.vue`/`DebtPersonFormSheet.vue` (círculo
+  con `border border-dashed border-border`, sin relleno de `bg-muted`) —
+  pero el glifo interno es distinto a propósito: en vez de un ícono `User`
+  (no aplica a una categoría), muestra el mismo punto neutro que ya usa hoy
+  una fila de categoría custom sin ícono en el listado (`<span
+  class="size-2.5 rounded-full bg-muted-foreground/40" />`, sección 2.2) —
+  la celda "Sin ícono" es así un adelanto visual exacto de cómo se ve hoy
+  una categoría sin emoji, no un glifo nuevo sin relación previa.
+  `aria-label="Sin ícono"`.
+
+#### Opcionalidad
+
+Confirmado: el campo es 100% opcional, nunca bloquea el guardado, sin
+mensaje de error posible (no existe un `errors.icon`). Con un matiz respecto
+al patrón "Sin color" de `CardPersonFormSheet`/`DebtPersonFormSheet`: esos
+Sheets distinguen con una bandera `hasChosenColor` el estado "todavía no
+toqué nada" de "elegí explícitamente Sin color", precisamente para no dar
+por seleccionado un swatch que el usuario nunca tocó **mientras el campo es
+obligatorio en otro lado del mismo Sheet** (a Color de categoría, sección
+3.3, si le aplica esa misma exigencia). Acá esa bandera extra no hace falta:
+no hay ninguna validación que dependa de si el usuario tocó el campo o no.
+
+- **Alta**: `form.icon` arranca en `null` → la celda "Sin ícono" aparece
+  marcada por default (`aria-pressed="true"`) desde que se abre el Sheet,
+  comunicando con precisión el resultado real si el usuario no toca nada
+  (se guarda sin ícono, igual que hoy). No hace falta forzar un tap
+  explícito en "Sin ícono" como si fuera una opción más — es, literalmente,
+  el estado inicial real.
+- **Edición**: si `category.icon` coincide con uno de los 19 emojis del set
+  curado, se preselecciona esa celda. Si no coincide (`NULL`, o un emoji
+  fuera del set — dato legado o sembrado a mano en la base), se
+  preselecciona "Sin ícono" **sin bloquear el guardado** — a diferencia del
+  caso análogo de Color (sección 3.3, que si exige elegir de nuevo antes de
+  guardar porque Color es obligatorio), acá guardar sin tocar nada
+  simplemente conserva ese estado ("sin ícono reconocido"), porque ninguna
+  regla obliga a tener uno.
+
+#### Preview conjunta (sí, combinada con Color, en vivo)
+
+Inmediatamente debajo del campo Nombre (antes de los grids de Ícono y
+Color) se agrega una fila de vista previa que refleja, en vivo, exactamente
+cómo se va a ver la fila de esta categoría en el listado real (mismo swatch
+de la sección 2.1/2.2 — fondo `withAlpha(color, 0.12)` + borde `1px solid
+color` + emoji centrado) a medida que se elige ícono/color, en vez de que el
+usuario tenga que imaginarse la combinación o esperar a guardar para verla:
+
+```html
+<div class="flex items-center gap-3 py-1">
+  <div
+    class="flex size-11 shrink-0 items-center justify-center rounded-full"
+    :style="form.color
+      ? { background: withAlpha(form.color, 0.12), border: `1px solid ${form.color}` }
+      : { border: '1px dashed var(--border)' }"
+  >
+    <span v-if="form.icon" class="text-lg leading-none">{{ form.icon }}</span>
+  </div>
+  <span class="text-sm text-muted-foreground truncate">
+    {{ form.name.trim() || 'Tu categoría' }}
+  </span>
+</div>
+```
+
+- Reusa el mismo cálculo (`withAlpha`, ya exportado en `src/lib/colors.ts`)
+  que la fila real de la lista — no una versión simplificada aparte, para
+  que no haya ninguna sorpresa entre "lo que vi en el formulario" y "lo que
+  quedó guardado".
+- Sin color elegido todavía: círculo con borde punteado y sin relleno —
+  mismo lenguaje visual que las celdas "Sin color"/"Sin ícono" de sus
+  propios grids, en vez de un gris sólido que se leería como "ya tiene un
+  color asignado".
+- Sin ícono elegido todavía: círculo vacío (sin emoji adentro) — igual que
+  se ve hoy una categoría custom sin ícono en la lista real (sección 2.2),
+  consistente, no un placeholder inventado.
+- El texto al lado usa el nombre ya tipeado, o `Tu categoría` como
+  placeholder genérico mientras el campo Nombre está vacío — nunca queda en
+  blanco, para que la fila de preview no colapse a un ancho distinto y
+  genere un salto visual apenas el usuario empieza a tipear.
+
+#### Nota de implementación (no vinculante, a criterio de `vue-frontend-expert`)
+
+El set de 19 emojis puede vivir como una constante local dentro de
+`CategoryFormSheet.vue` (p. ej. `CATEGORY_ICON_OPTIONS`), siguiendo el mismo
+patrón que ya usa ese archivo para `COLOR_SWATCHES` (copia local, no
+importada de `src/lib/colors.ts` — ver el comentario en ese archivo que ya
+documenta esta duplicación consciente). No parece haber necesidad de
+centralizarlo en `colors.ts` todavía: a diferencia de `COLOR_SWATCHES`/
+`ACCOUNT_COLOR_SWATCHES`, este set no tiene un segundo consumidor previsto.
 
 ### 3.3 Campo: Color
 
@@ -512,6 +681,10 @@ con las particularidades de esta pantalla:
      distinto entre secciones.
    - Selección de color en el swatch picker: ícono `Check` superpuesto +
      anillo de foco, no solo un cambio sutil de brillo/borde.
+   - Selección de ícono en el emoji picker (sección 3.2, agregado en esta
+     iteración): anillo de foco (cambio de forma, no de tono) + `aria-pressed`
+     — sin `Check` superpuesto acá porque cada celda ya es visualmente única
+     (un emoji distinto por botón), a diferencia del grid de Color.
    - Motivo de "Eliminar" deshabilitado: el contador de gastos en texto
      plano junto a la fila, no solo la opacidad reducida del item.
 3. **Foco visible**: mismo patrón `focus-visible:ring-2 focus-visible:ring-ring
@@ -547,12 +720,17 @@ con las particularidades de esta pantalla:
 3. Sheet de alta/edición (`CategoryFormSheet`, mismo patrón que
    `ExpenseFormSheet`): campo Nombre (validado en `blur`, duplicado
    case-insensitive contra defaults + propias, backstop del error `23505`),
-   campo Color (grid fijo de 10 swatches de 44px con los hex ya sembrados,
-   selección marcada con `Check`, requerido). **Sin campo de ícono en v1**
-   (queda `NULL` para todas las custom). A diferencia del Sheet de gasto,
-   este **no se cierra optimísticamente**: permanece abierto hasta que
-   Supabase confirma, por el caso de conflicto de nombre server-only (ver
-   sección 3.4 para el porqué y el manejo exacto de cada rama de error).
+   una fila de **preview en vivo** (círculo con el color+ícono elegidos,
+   igual swatch que la fila real de la lista, sección 3.2), campo **Ícono**
+   (agregado en esta iteración — antes se omitía en v1: grid fijo de 19
+   emojis curados + celda "Sin ícono" de 44px, 5 columnas × 4 filas,
+   selección marcada solo con anillo + `aria-pressed`, sin `Check`,
+   **opcional**, sin bloquear guardado) y campo Color (grid fijo de 10
+   swatches de 44px con los hex ya sembrados, selección marcada con `Check`,
+   requerido). A diferencia del Sheet de gasto, este **no se cierra
+   optimísticamente**: permanece abierto hasta que Supabase confirma, por el
+   caso de conflicto de nombre server-only (ver sección 3.4 para el porqué y
+   el manejo exacto de cada rama de error).
 4. Borrado: `AlertDialog` de confirmación (`¿Eliminar "{nombre}"?` / `Esta
    acción no se puede deshacer.`), remoción optimista de la fila, con
    rollback + toast de error si falla. "Eliminar" queda **deshabilitado de
