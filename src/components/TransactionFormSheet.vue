@@ -400,12 +400,12 @@ function onSubmit() {
   <Sheet :open="props.open" @update:open="handleOpenChange">
     <SheetContent
       side="bottom"
-      class="max-h-[92dvh]"
+      class="h-[100dvh] max-h-[100dvh] w-full max-w-none gap-2 rounded-none border-t-0 data-[side=bottom]:h-[100dvh]"
       :show-close-button="!isSaving"
       @escape-key-down="preventCloseWhileSaving"
       @interact-outside="preventCloseWhileSaving"
     >
-      <SheetHeader>
+      <SheetHeader class="gap-1 p-3">
         <SheetTitle>{{ sheetTitle }}</SheetTitle>
         <SheetDescription v-if="!isEditing">
           Completá los datos del movimiento.
@@ -418,7 +418,7 @@ function onSubmit() {
            hace el Sheet más alto que el layout apilado anterior. -->
       <form
         id="transaction-form"
-        class="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto"
+        class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
         novalidate
         @submit.prevent="onSubmit"
       >
@@ -454,7 +454,7 @@ function onSubmit() {
         </div>
 
         <!-- 14.4 — Panel superior coloreado por la cuenta seleccionada -->
-        <div class="mx-4 rounded-xl p-5" :style="panelStyle">
+        <div class="mx-4 rounded-xl p-3" :style="panelStyle">
           <!-- 14.4.2 — Píldora de fecha (input date nativo invisible encima) -->
           <div class="relative ml-auto w-fit">
             <button
@@ -478,10 +478,10 @@ function onSubmit() {
           </div>
 
           <!-- 14.4.3 — Monto gigante (número visual + input accesible oculto) -->
-          <div class="relative my-4 text-center">
+          <div class="relative my-1.5 text-center">
             <p
               aria-hidden="true"
-              class="text-5xl font-bold tabular-nums tracking-tight"
+              class="text-4xl font-bold tabular-nums tracking-tight"
               :style="{ color: textColor }"
             >
               ${{ liveFormattedAmount }}
@@ -501,7 +501,7 @@ function onSubmit() {
 
           <!-- 14.4.4 — Fila de cuenta (contexto; el cambio real está en 14.9) -->
           <div
-            class="mt-3 flex items-center justify-center gap-2 text-sm font-medium"
+            class="mt-1.5 flex items-center justify-center gap-2 text-sm font-medium"
             :style="{ color: textColor }"
           >
             <component :is="resolveAccountIcon(selectedAccount?.icon)" class="size-4 shrink-0" />
@@ -519,12 +519,12 @@ function onSubmit() {
         </p>
 
         <!-- 14.6 — Teclado numérico (solo dígitos, sin operadores) -->
-        <div class="grid grid-cols-3 gap-2 px-4">
+        <div class="grid grid-cols-3 gap-1.5 px-4">
           <button
             v-for="key in ['7', '8', '9', '4', '5', '6', '1', '2', '3']"
             :key="key"
             type="button"
-            class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-11 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="isSaving"
             @click="appendDigit(key)"
           >
@@ -535,7 +535,7 @@ function onSubmit() {
             type="button"
             aria-label="Coma decimal"
             :disabled="isSaving"
-            class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-11 items-center justify-center rounded-lg bg-muted text-xl font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             @click="appendDecimalSeparator"
           >
             ,
@@ -543,7 +543,7 @@ function onSubmit() {
           <button
             type="button"
             :disabled="isSaving"
-            class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-11 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             @click="appendDigit('0')"
           >
             0
@@ -552,7 +552,7 @@ function onSubmit() {
             type="button"
             aria-label="Borrar el último dígito"
             :disabled="isSaving"
-            class="flex h-14 items-center justify-center rounded-lg bg-muted transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-11 items-center justify-center rounded-lg bg-muted transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             @click="backspace"
           >
             <Delete class="size-5" />
@@ -567,7 +567,7 @@ function onSubmit() {
           <div
             role="listbox"
             aria-labelledby="categoria-chips-label"
-            class="mt-1.5 flex gap-2 overflow-x-auto px-4 pb-1"
+            class="mt-1 flex gap-2 overflow-x-auto px-4 pb-0.5"
           >
             <button
               v-for="category in allCategories"
@@ -603,7 +603,7 @@ function onSubmit() {
           >
             <StickyNote class="size-4" /> Agregar nota
           </button>
-          <div v-else class="flex flex-col gap-1.5">
+          <div v-else class="flex flex-col gap-1">
             <Label for="descripcion">
               Nota <span class="font-normal text-muted-foreground">(opcional)</span>
             </Label>
@@ -625,7 +625,7 @@ function onSubmit() {
           <div
             role="listbox"
             aria-labelledby="cuentas-chips-label"
-            class="mt-1.5 flex gap-2 overflow-x-auto px-4 pb-1"
+            class="mt-1 flex gap-2 overflow-x-auto px-4 pb-0.5"
           >
             <button
               v-for="account in accountsStore.accounts"
@@ -648,7 +648,7 @@ function onSubmit() {
         </div>
       </form>
 
-      <SheetFooter>
+      <SheetFooter class="p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <Button type="submit" form="transaction-form" class="w-full" :disabled="isSaving">
           <Loader2 v-if="isSaving" class="size-4 animate-spin" />
           {{ isSaving ? 'Guardando…' : (isEditing ? 'Guardar cambios' : 'Guardar movimiento') }}

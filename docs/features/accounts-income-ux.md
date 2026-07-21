@@ -2931,3 +2931,425 @@ estaba conectada) — mismo caveat recurrente del proyecto; recomendado el
 smoke test manual (abrir el Sheet, tipear con el teclado, cambiar de cuenta y
 ver el panel recolorearse, guardar, y probar el modo edición con tabs
 deshabilitados) antes de dar la feature por cerrada en producción.
+
+---
+
+## 15. Full-screen real + compactación sin scroll (feedback de prueba manual sobre la sección 14)
+
+El Product Owner probó la sección 14 ya implementada en un celular real
+(viewport ~390×844) y reportó dos problemas puntuales: (1) hace falta
+scroll para llegar a categoría/cuenta, (2) el Sheet debe ocupar el 100% de
+la pantalla, no un panel inferior. Ambos son ajustes de **presentación/
+layout** sobre un diseño ya aprobado — ningún campo, dato, validación ni
+lógica de negocio de la sección 14 cambia. Confirmado además: la referencia
+visual original ("Wallet by BudgetBakers") en la que se basó todo el
+rediseño **ya era pantalla completa** (header propio con ✕/check, sin panel
+inferior con esquinas redondeadas) — este pedido alinea la implementación
+con lo que la propia referencia ya mostraba, no introduce un concepto
+nuevo.
+
+### 15.1 Mecanismo de presentación full-screen
+
+**Decisión: opción (a) — mantener `Sheet` de shadcn-vue, forzado a pantalla
+completa por clases, no `Dialog` ni una ruta/vista nueva.**
+
+```html
+<Sheet :open="props.open" @update:open="handleOpenChange">
+  <SheetContent
+    side="bottom"
+    class="h-[100dvh] max-h-[100dvh] w-full max-w-none gap-2 rounded-none border-t-0"
+    :show-close-button="!isSaving"
+    @escape-key-down="preventCloseWhileSaving"
+    @interact-outside="preventCloseWhileSaving"
+  >
+    <!-- SheetHeader / form / SheetFooter sin cambios de estructura,
+         solo de clases — ver 15.2 -->
+  </SheetContent>
+</Sheet>
+```
+
+- `max-h-[92dvh]` (el único cambio real de contrato hoy) se reemplaza por
+  `h-[100dvh] max-h-[100dvh]` — el Sheet pasa a ocupar el alto completo del
+  viewport visual siempre, no "hasta el 92% si el contenido lo necesita".
+  `w-full max-w-none` anula el único límite de ancho que `SheetContent`
+  aplica por `side` (`data-[side=bottom]:h-auto` no trae `max-w`, pero se
+  agrega explícito por si el proyecto define un `sm:max-w-*` a futuro para
+  el resto de variantes — defensivo, no corrige nada roto hoy).
+  `rounded-none` es explícito y defensivo: **`SheetContent.vue` no aplica
+  ninguna clase `rounded-*` hoy** (se verificó el archivo — la sensación de
+  "panel con esquinas redondeadas" que reportó el Product Owner viene del
+  conjunto `h-auto` + `shadow-lg` + no llegar al 100% de alto, que hace que
+  el Sheet "flote" como una tarjeta corta en vez de leerse como una pantalla
+  propia, no de un `border-radius` real); se deja `rounded-none` explícito
+  igual, para blindar el caso ante cualquier cambio futuro de la librería
+  base o del preset de Tailwind. `border-t-0` quita la línea
+  `data-[side=bottom]:border-t` que hoy separa visualmente el panel del
+  fondo — una vez que no hay "fondo" detrás (el Sheet **es** la pantalla),
+  esa línea divisoria ya no tiene nada que separar.
+- **`gap-2`** sobrepisa el `gap-4` que `SheetContent` aplica por defecto
+  entre sus 3 hijos directos (`SheetHeader` / `<form>` / `SheetFooter`) —
+  cuenta para el presupuesto de compactación de 15.2 (son 2 gaps de 16px
+  que se vuelven 2 de 8px, 16px ganados). `cn(...)` hace merge por
+  `tailwind-merge`, así que una clase `gap-*` pasada en `class` en el
+  call-site siempre gana sobre el `gap-4` del componente base — no hace
+  falta tocar `SheetContent.vue`.
+- **`side="bottom"` se mantiene** (no se cambia a otro valor ni se agrega
+  uno nuevo): sigue dando la animación de entrada
+  `slide-in-from-bottom-10`, que en pantalla completa se lee exactamente
+  como una presentación modal tipo iOS/la propia referencia "Wallet"
+  (desliza hacia arriba y cubre todo) — se pierde el "panel corto", no la
+  animación, que es justamente la que se quiere conservar.
+- **`preventCloseWhileSaving` (`@escape-key-down`/`@interact-outside`) y
+  `:show-close-button="!isSaving"` no cambian ni una línea**: como el
+  mecanismo sigue siendo el mismo `SheetContent` (que por dentro es
+  `DialogContent`/`DialogPortal`/`DialogClose` de Reka UI, confirmado
+  leyendo `src/components/ui/sheet/SheetContent.vue`), todo el manejo de
+  foco/teclado/Escape/click-outside que ya provee Reka UI para un diálogo
+  modal sigue intacto — no se está reemplazando el mecanismo de
+  presentación, solo su CSS.
+
+#### Por qué no (b) `Dialog` de shadcn-vue
+
+`Dialog` **no está instalado en el proyecto** (`src/components/ui/`
+contiene `alert-dialog`, `sheet`, etc., pero ningún `dialog/` — verificado
+listando el directorio). Instalarlo para este único caso tendría dos
+costos reales sin ninguna ganancia:
+
+1. **Reintroduce el riesgo de regresión ya documentado dos veces en
+   `CLAUDE.md`** ("revisar siempre el diff de `main.css` después de `npx
+   shadcn-vue add <lo que sea>`" — ya pasó con `switch`/`textarea` y de
+   nuevo con `tabs`) para instalar un componente cuyo resultado final sería
+   **funcionalmente idéntico** al Sheet ya forzado a pantalla completa: se
+   verificó que `SheetContent.vue` es literalmente `DialogContent` +
+   `DialogPortal` + `DialogClose` de `reka-ui` con clases de shadcn-vue
+   encima — un "`Dialog` full-screen" sería exactamente los mismos
+   primitivos de Reka UI, envueltos en un componente nuevo a mantener, para
+   llegar al mismo resultado visual que ya se logra con 6 clases sobre el
+   componente que **ya existe y ya se usa** en este mismo archivo.
+2. Ningún requisito de esta sección pide algo que `Dialog` resuelva y
+   `Sheet` no — ambos son la misma capa de presentación modal de Reka UI
+   por debajo. No hay motivo real para el cambio de componente.
+
+#### Por qué no (c) ruta/vista propia
+
+`TransactionFormSheet.vue` se invoca hoy desde múltiples pantallas
+(Inicio, Transacciones, `AccountDetailView`, accesos rápidos, etc. — ver
+secciones 7-8 y las referencias de `presetAccountId`) con el patrón simple
+`v-model:open` + prop `transaction` opcional. Convertirlo en una ruta
+significaría:
+
+- Mover `transaction`/`presetAccountId` de props reactivas a query params o
+  a un store compartido — trabajo real de refactor en todos los
+  call-sites, no un cambio de presentación.
+- **Sentar el primer precedente de "formulario como ruta" del proyecto**:
+  hoy toda pantalla de listado (`CategoriesView`, `AccountsView`,
+  `ManageCardsView`, etc.) es una ruta, pero sus formularios de alta/
+  edición son siempre `Sheet` disparados desde esa ruta — nunca una ruta
+  propia. Cambiar este único Sheet a ruta rompería esa consistencia sin
+  que el encargo pida nada que lo justifique (no se pide URL propia,
+  deep-link, ni entrada de historial distinguible — el único requisito es
+  "que se vea pantalla completa", que (a) ya resuelve).
+- Sin transiciones de ruta configuradas en el proyecto (`vue-router` no
+  tiene ninguna transición de entrada/salida definida hoy), así que una
+  ruta nueva tampoco regalaría gratis la animación de "desliza desde abajo"
+  que sí viene gratis con `side="bottom"` de `Sheet` — sería trabajo
+  adicional para *perder* la animación actual y tener que reconstruirla.
+
+**Precedente nuevo, dicho explícitamente**: no existe hoy en el proyecto
+ningún caso ya documentado de "Sheet forzado a pantalla completa" — esta es
+la primera vez. El mecanismo (`h-[100dvh] max-h-[100dvh] w-full max-w-none
+rounded-none border-t-0`) queda anotado acá como la referencia a reusar si
+a futuro otro Sheet necesita el mismo tratamiento (p. ej. si se decide
+extender este lenguaje a `AccountTransferFormSheet.vue`, ver 14.1).
+
+### 15.2 Plan de compactación — valores concretos
+
+Presupuesto estimado en base a los valores de píxel conocidos de las
+utilidades Tailwind ya usadas en el componente (no una medición en
+navegador real — ver caveat de verificación al final de esta sección).
+Objetivo: que el peor caso (alta de **gasto**, nota **expandida**, con
+`SheetDescription` visible) entre con margen real, no ajustado al límite,
+en los 844px de alto del viewport de referencia.
+
+| Bloque | Antes | Después | Ahorro aprox. |
+|---|---|---|---|
+| `SheetContent` gap entre Header/form/Footer | `gap-4` (16px ×2) | `gap-2` (8px ×2) | 16px |
+| `SheetHeader` | `p-4` (16px), `gap-1.5` | `p-3` (12px), `gap-1` | ~10px |
+| `<form>` gap entre bloques | `gap-4` (16px ×5) | `gap-2` (8px ×5) | 40px |
+| Panel superior, padding | `p-5` (20px) | `p-3` (12px) | 16px |
+| Panel, margen del monto | `my-4` (16px) | `my-1.5` (6px) | 20px |
+| **Monto gigante** | `text-5xl` (48px) | `text-4xl` (36px) | ~16px |
+| Panel, margen fila de cuenta | `mt-3` (12px) | `mt-1.5` (6px) | 6px |
+| **Teclado, alto de tecla** | `h-14` (56px) | `h-11` (44px) — **piso táctil, no bajar de acá** | 12px ×4 filas = 48px |
+| Teclado, separación entre teclas | `gap-2` (8px) | `gap-1.5` (6px) | ~6px |
+| Fila de chips (categoría/cuenta), margen superior | `mt-1.5` | `mt-1` | ~2px c/u |
+| Fila de chips, padding inferior | `pb-1` | `pb-0.5` | ~2px c/u |
+| Nota expandida, gap Label/Input | `gap-1.5` | `gap-1` | ~2px |
+| `SheetFooter` | `p-4` (16px) | `p-3` (12px) + safe-area, ver 15.2.8 | 8px |
+
+#### 15.2.1 `SheetContent`
+
+Ver snippet completo en 15.1 (`gap-2` reemplaza el `gap-4` heredado).
+
+#### 15.2.2 `SheetHeader` — sin cambio de contenido, solo de padding
+
+```html
+<SheetHeader class="gap-1 p-3">
+  <SheetTitle>{{ sheetTitle }}</SheetTitle>
+  <SheetDescription v-if="!isEditing">
+    Completá los datos del movimiento.
+  </SheetDescription>
+</SheetHeader>
+```
+
+#### 15.2.3 `<form>` — gap entre bloques
+
+```html
+<form
+  id="transaction-form"
+  class="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto"
+  novalidate
+  @submit.prevent="onSubmit"
+>
+```
+
+Único cambio: `gap-4` → `gap-2`. El `overflow-y-auto` **se mantiene**
+(desviación ya documentada en 14.15.1) como salvaguarda — con este plan no
+debería activarse en el viewport de referencia, pero sigue siendo la red de
+seguridad correcta para viewports más chicos (p. ej. un iPhone SE de
+375×667, fuera del alcance explícito de este pedido pero no se quiere
+romper: ahí sí puede hacer falta scrollear, y con `overflow-y-auto` ya
+puesto simplemente lo hace en vez de recortar contenido).
+
+#### 15.2.4 Tabs Ingreso/Gasto — **sin cambios**
+
+`min-h-11`/`py-3` ya están al piso táctil de 44px exacto (`min-h-11`
+fuerza el mínimo aunque se reduzca `py-3`, así que achicar el padding
+interno no ahorra alto real) — no hay margen para compactar acá sin violar
+el mínimo de `design-system.md` sección 5, punto 2. Se deja igual.
+
+#### 15.2.5 Panel superior coloreado
+
+```html
+<div class="mx-4 rounded-xl p-3" :style="panelStyle">
+  <!-- píldora de fecha: sin cambios, min-h-9 ya documentado en 14.4.2 -->
+
+  <div class="relative my-1.5 text-center">
+    <p aria-hidden="true" class="text-4xl font-bold tabular-nums tracking-tight" :style="{ color: textColor }">
+      ${{ liveFormattedAmount }}
+    </p>
+    <!-- input accesible: sin cambios -->
+  </div>
+
+  <div class="mt-1.5 flex items-center justify-center gap-2 text-sm font-medium" :style="{ color: textColor }">
+    <!-- fila de cuenta: sin cambios de contenido -->
+  </div>
+</div>
+```
+
+- `p-5` → `p-3`: el panel sigue teniendo aire (12px en sus 4 lados), solo
+  deja de ser el bloque más "inflado" del layout.
+- `text-5xl` → `text-4xl`: el monto sigue siendo, por un margen amplio
+  (36px vs. 14-16px del resto del contenido del panel), el elemento
+  dominante de la pantalla — **no deja de ser protagonista**, solo deja de
+  estar por encima de la escala hero estándar del resto de la app
+  (`text-3xl sm:text-4xl`, citada en la propia sección 14.4.3) — de hecho
+  queda alineado con esa escala en vez de superarla, más consistente con
+  el resto de TipApp sin perder jerarquía visual dentro del propio Sheet.
+- `my-4`/`mt-3` → `my-1.5`/`mt-1.5`: menos aire alrededor del monto y la
+  fila de cuenta, mismo contenido.
+- **No se toca la píldora de fecha** (`min-h-9`, ya documentada en 14.4.2
+  como una excepción existente al piso de 44px, no introducida por esta
+  sección) ni la fila de cuenta más allá de su margen — nada de esto forma
+  parte del pedido puntual del Product Owner.
+
+#### 15.2.6 Teclado numérico
+
+```html
+<div class="grid grid-cols-3 gap-1.5 px-4">
+  <button
+    v-for="key in ['7','8','9','4','5','6','1','2','3']" :key="key" type="button"
+    class="flex h-11 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+    :disabled="isSaving" @click="appendDigit(key)"
+  >{{ key }}</button>
+  <!-- coma, 0, borrar: mismas clases h-11, mismo contenido -->
+</div>
+```
+
+- `h-14` (56px) → `h-11` (44px): **exactamente el piso táctil mínimo**
+  citado por el propio encargo (`design-system.md` sección 5, punto 2) —
+  no se baja de acá, es el límite duro.
+- `gap-2` → `gap-1.5`: las 12 teclas siguen claramente separadas entre sí
+  (6px sigue siendo un espacio visible, no se tocan entre botones), con
+  algo más de aire ganado para el resto del layout.
+- El texto de cada tecla (`text-xl`) y el resto de atributos
+  (`aria-label` en "," y "⌫", `:disabled="isSaving"`, foco visible) **no
+  cambian**.
+
+#### 15.2.7 Chips de categoría/cuenta y nota expandida — ajustes menores
+
+```html
+<!-- categoría / cuentas: igual estructura de 14.7/14.9, solo estos 2 valores -->
+<div role="listbox" aria-labelledby="categoria-chips-label" class="mt-1 flex gap-2 overflow-x-auto px-4 pb-0.5">
+  ...
+</div>
+```
+
+```html
+<!-- nota expandida: igual estructura de 14.8, solo el gap del contenedor -->
+<div class="flex flex-col gap-1">
+  <Label for="descripcion">Nota <span class="font-normal text-muted-foreground">(opcional)</span></Label>
+  <Input id="descripcion" v-model="form.description" placeholder="Ej. Almuerzo con el equipo" maxlength="200" :disabled="isSaving" />
+</div>
+```
+
+- Los chips en sí (`min-h-11`) **no cambian de alto** — igual que los tabs
+  (15.2.4), ya están en el piso táctil, la única grasa disponible para
+  recortar es el margen que los rodea (`mt-1.5`→`mt-1`,
+  `pb-1`→`pb-0.5`), no el propio chip.
+- La nota expandida sigue siendo el mismo `Label` + `Input` de siempre
+  (`h-11` del `Input`, sin tocar) — solo se ajusta el espacio entre ambos.
+
+**Decisión sobre el mecanismo de la nota: se mantiene la expansión inline,
+no se cambia a popover/Sheet flotante.** El costo real de mantenerla
+expandida (Label + Input reemplazando al botón "+ Agregar nota") es
+`+22px` aproximados respecto al estado colapsado — con el presupuesto de
+15.2 ese costo queda absorbido con margen (ver 15.3, el peor caso con nota
+expandida sigue ~70-100px por debajo de los 844px del viewport). Cambiar el
+mecanismo (un ícono que abre un popover/Sheet chico, o flotar el campo
+sobre el teclado) habría sido una superficie de interacción nueva —
+foco/cierre/posicionamiento propios — para resolver un problema de altura
+que la compactación de los otros bloques ya resuelve sin ella. Se prefiere
+no introducir ese costo cuando no hace falta.
+
+#### 15.2.8 `SheetFooter`
+
+```html
+<SheetFooter class="p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
+  <Button type="submit" form="transaction-form" class="w-full" :disabled="isSaving">
+    <!-- sin cambios de contenido -->
+  </Button>
+</SheetFooter>
+```
+
+- `p-4` → `p-3`: mismo criterio que el resto, 8px ganados.
+- `pb-[calc(0.75rem+env(safe-area-inset-bottom))]`: al pasar a
+  `h-[100dvh]` real, el footer con el botón "Guardar" queda tocando el
+  borde físico inferior de la pantalla — mismo patrón ya usado en el
+  proyecto para los FAB de `TransactionsView.vue`/`CardsDashboardView.vue`/
+  etc. (`bottom: calc(1.5rem + env(safe-area-inset-bottom))`), acá aplicado
+  al padding del footer en vez de a un `bottom` absoluto. **Caveat
+  honesto**: hoy `env(safe-area-inset-*)` resuelve a `0` en todo el
+  proyecto porque `index.html` no declara `viewport-fit=cover` en su
+  `<meta name="viewport">` (se verificó) — sin esa directiva, el navegador
+  nunca deja que el contenido se extienda bajo el notch/home indicator, así
+  que hoy esto es un no-op defensivo, exactamente igual de no-op que los
+  usos ya existentes de `env(safe-area-inset-bottom)` en los FAB. Se
+  documenta acá por consistencia con el patrón ya establecido y por si a
+  futuro se agrega `viewport-fit=cover` (fuera de alcance de esta sección,
+  no se pide acá) — no es un bloqueante ni algo a resolver en esta pasada.
+
+### 15.3 Confirmación: qué queda visible sin scroll
+
+Estimación por bloque (valores Tailwind conocidos, no medición en
+navegador real — recomendado, como con toda feature de esta sesión,
+confirmarlo con el smoke test manual antes de cerrar la feature):
+
+| Escenario | Header | `<form>` | Footer | Gaps `SheetContent` | Total aprox. | Margen vs. 844px |
+|---|---|---|---|---|---|---|
+| Alta, Gasto, nota **colapsada** | 72px | ~550px | 68px | 16px | ~706px | ~138px |
+| Alta, Gasto, nota **expandida** | 72px | ~614px | 68px | 16px | ~770px | ~74px |
+| Alta, Ingreso, nota expandida (sin fila de categoría) | 72px | ~540px | 68px | 16px | ~696px | ~148px |
+| Edición, Gasto, nota expandida (sin `SheetDescription`) | 48px | ~614px | 68px | 16px | ~746px | ~98px |
+
+**Confirmado: en los cuatro escenarios (colapsado/expandido × alta/
+edición, con y sin fila de categoría) el contenido completo — tabs, panel
+(fecha + monto + cuenta), slot de error si aplica, teclado completo de 12
+teclas, chips de categoría (si es gasto), chips de cuenta, y el botón
+"Guardar" del footer — entra dentro de los 844px de alto sin necesitar
+scroll**, con un margen real de entre ~74px y ~148px según el caso (no
+ajustado al límite exacto). El `overflow-y-auto` del `<form>` (15.2.3) se
+mantiene como red de seguridad para viewports más chicos que el de
+referencia, no porque se espere que dispare en el viewport de esta prueba.
+
+Si al implementar y probar en un navegador/celular real el margen
+resultara menor al estimado acá (line-heights reales de la fuente Inter,
+redondeo de subpíxeles, o un `SheetDescription` que ocupe 2 líneas en un
+nombre de cuenta muy largo dentro de la fila de cuenta), el próximo recorte
+a aplicar, en este orden de preferencia (de menor a mayor impacto visual):
+1. `SheetHeader` `p-3` → `p-2`.
+2. Panel `p-3` → `p-2`.
+3. `<form>` `gap-2` → `gap-1.5`.
+4. Recién como último recurso, reconsiderar el mecanismo de la nota
+   (15.2.7) hacia un popover — no debería hacer falta con este plan.
+
+### 15.4 Notas de implementación — desviaciones menores respecto a la spec
+
+Implementado por `vue-frontend-expert` a partir de 15.1-15.3. Verificado en
+navegador real (Puppeteer + Chromium headless, `SheetContent` montado con 4
+cuentas + 6 categorías reales vía el mismo mecanismo de fetch de los stores,
+viewport 390×844), no solo por estimación de píxeles. Dos desviaciones:
+
+1. **`SheetContent` necesitó UNA clase extra sobre la spec de 15.1 para que
+   el full-screen tome efecto de verdad: `data-[side=bottom]:h-[100dvh]`.**
+   La clase de 15.1 (`h-[100dvh] max-h-[100dvh] w-full max-w-none gap-2
+   rounded-none border-t-0`) por sí sola NO alcanzaba: `SheetContent.vue`
+   trae `data-[side=bottom]:h-auto` en su lista base, y como esa clase lleva
+   el prefijo de variante `data-[side=bottom]:`, `tailwind-merge` NO la
+   considera en conflicto con el `h-[100dvh]` plano (prefijos distintos → no
+   deduplica), así que ambas sobreviven en el `class` final. En CSS, el
+   selector de la variante (`[data-side=bottom]:h-auto`) tiene MÁS
+   especificidad que la clase plana `.h-\[100dvh\]`, y como el elemento
+   tiene `data-side="bottom"`, ganaba `h-auto`: el Sheet quedaba a altura de
+   contenido (~743px) flotando abajo, con ~101px de fondo visible arriba
+   (medido: `content.top = 101`, exactamente el "panel corto con fondo
+   detrás" que el Product Owner reportó). Agregar `data-[side=bottom]:
+   h-[100dvh]` (misma variante, mismo grupo `height`) sí hace que
+   `tailwind-merge` elimine el `h-auto` base y quede solo el `h-[100dvh]` —
+   con eso el Sheet mide exacto `top:0 / height:844 / width:390 / bottom:844`
+   (medido), pantalla completa real. **Clase final aplicada**: `h-[100dvh]
+   max-h-[100dvh] w-full max-w-none gap-2 rounded-none border-t-0
+   data-[side=bottom]:h-[100dvh]`. El resto de 15.1 (side/show-close-button/
+   escape/interact-outside sin tocar) se respetó tal cual.
+2. Todos los demás valores de 15.2 (Header `gap-1 p-3`, form `gap-2`, panel
+   `p-3`/monto `text-4xl my-1.5`/fila cuenta `mt-1.5`, teclado `h-11`
+   `gap-1.5`, chips `mt-1`/`pb-0.5`, nota `gap-1`, footer `p-3` +
+   safe-area) se aplicaron **exactamente** como los especificó 15.2 — cero
+   desviaciones ahí.
+
+**Resultado medido (no estimado), viewport 390×844, alta + Gasto + categoría
+seleccionada:**
+
+| Escenario | `content` (top/height) | `#transaction-form` scrollea | Botón Guardar visible | Teclas |
+|---|---|---|---|---|
+| Nota **colapsada** | 0 / 844 | no (`scrollHeight == clientHeight`) | sí (bottom 832 ≤ 844) | 12 |
+| Nota **expandida** | 0 / 844 | no (`scrollHeight == clientHeight`) | sí (bottom 832 ≤ 844) | 12 |
+
+Confirmado además visualmente en screenshot (no solo por medición): tabs +
+panel completo (fecha + monto + fila de cuenta con nombre largo "Jardín
+Azuayo · $8.430,5" en una sola línea, panel recoloreado al dorado de la
+cuenta con texto blanco legible) + teclado completo de 12 teclas + chips de
+categoría + Nota expandida (Label + Input) + chips de "Tus cuentas" + botón
+"Guardar" — todo dentro del viewport, sin scroll, en el peor caso (nota
+expandida). Los recortes de fallback listados en 15.3 (Header `p-2`, panel
+`p-2`, form `gap-1.5`) **no hicieron falta** — el plan de 15.2 entró con
+margen.
+
+### Resumen accionable para `vue-frontend-expert` (sección 15)
+
+1. **`TransactionFormSheet.vue`**: aplicar los cambios de clases de 15.1
+   (`SheetContent`) y 15.2 (`SheetHeader`/`<form>`/panel/teclado/chips/
+   nota/`SheetFooter`) tal cual — **son cambios de clases Tailwind
+   únicamente**, cero cambios de `<script setup>` (ni props, ni
+   `form`/`errors`/`validate()`/`onSubmit()`/`resetForm()`, ni los
+   computeds/watchers ya agregados en la sección 14).
+2. **`AccountTransferFormSheet.vue`**: no tocar (mismo alcance ya fijado en
+   14.1, no reabierto por esta sección).
+3. Sin componentes nuevos, sin `npx shadcn-vue add` de ningún tipo — cero
+   dependencias nuevas.
+4. Verificar con el smoke test manual de siempre (build ya no alcanza para
+   esto: es explícitamente un problema de layout en un viewport real) —
+   abrir el Sheet en un dispositivo o devtools a 390×844, confirmar que
+   tabs + panel + teclado + chips + footer entran sin scroll en los 4
+   escenarios de la tabla de 15.3, y que el botón "Guardar" no queda
+   pegado/tapado por el home indicator en un iPhone real.
