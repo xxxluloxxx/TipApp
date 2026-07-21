@@ -1,7 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive, ref, watch, type ComponentPublicInstance } from 'vue'
+import { computed, reactive, ref, watch } from 'vue'
 import {
-  Check,
   ChevronDown,
   CircleArrowDown,
   CircleArrowUp,
@@ -10,7 +9,7 @@ import {
   StickyNote,
 } from '@lucide/vue'
 import { formatDateChip, isFutureDate, todayDateInputValue } from '@/lib/date'
-import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
+import { readableTextColor, resolveAccountColor } from '@/lib/colors'
 import { formatAmount } from '@/lib/currency'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { useAccountsStore } from '@/stores/accounts'
@@ -28,6 +27,15 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuLabel,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu'
 
 // Renombrado desde `ExpenseFormSheet.vue` (accounts-income-ux.md sección
 // 7.1): un único Sheet extendido con un toggle Gasto/Ingreso, en vez de un
@@ -92,28 +100,16 @@ const noteExpanded = ref(false)
 const amountInputRef = ref<HTMLInputElement | null>(null)
 const dateInputRef = ref<HTMLInputElement | null>(null)
 
-// Sección 14.5/14.7/14.9: los chips de categoría/cuenta son la nueva "fila de
-// selección" — se guardan sus elementos por id (function ref) para que
-// `focusCategory()`/`focusAccount()` puedan enfocar el chip seleccionado (o el
-// primero) sin depender del orden del array de refs de un `v-for`.
-const categoryChipEls = new Map<string, HTMLButtonElement>()
-const accountChipEls = new Map<string, HTMLButtonElement>()
+// Sección 16.7.2: cada picker (Cuenta/Categoría) tiene ahora un único trigger
+// (no "un elemento por opción" como los chips viejos), así que basta un ref
+// simple por trigger para que `focusAccount()`/`focusCategory()` puedan
+// enfocar el botón cerrado al fallar la validación (sin abrir el menú).
+const accountTriggerRef = ref<HTMLButtonElement | null>(null)
+const categoryTriggerRef = ref<HTMLButtonElement | null>(null)
 
-function setCategoryChipRef(id: string) {
-  return (el: Element | ComponentPublicInstance | null) => {
-    if (el) categoryChipEls.set(id, el as HTMLButtonElement)
-    else categoryChipEls.delete(id)
-  }
-}
-function setAccountChipRef(id: string) {
-  return (el: Element | ComponentPublicInstance | null) => {
-    if (el) accountChipEls.set(id, el as HTMLButtonElement)
-    else accountChipEls.delete(id)
-  }
-}
-
-// Sección 14.7: fila de chips = default + custom, en ese orden, sin
-// encabezados de grupo (decisión aceptada, riesgo 14.14.2).
+// Sección 14.7 / 16.2: default + custom, en ese orden — reusado por el picker
+// de 16.2 (agrupación visual con `DropdownMenuLabel`/`DropdownMenuSeparator`)
+// y por `selectedCategory` para resolver el nombre mostrado en el trigger.
 const allCategories = computed(() => [
   ...categoriesStore.defaultCategories,
   ...categoriesStore.customCategories,
@@ -122,6 +118,10 @@ const allCategories = computed(() => [
 // Sección 14.4: el panel superior se colorea SIEMPRE con el color de la cuenta
 // seleccionada (nunca cambia con el tab Ingreso/Gasto — decisión 14.14.1).
 const selectedAccount = computed(() => accountsStore.accountById(form.accountId))
+// Sección 16.2: cuenta/categoría elegidas, para pintar el valor en cada trigger.
+const selectedCategory = computed(() =>
+  allCategories.value.find(c => c.id === form.categoryId),
+)
 const selectedAccountColor = computed(() => selectedAccount.value?.color ?? '#6b7280')
 // Color realmente pintado (respeta la variante `darkHex` en modo oscuro).
 const panelBg = computed(() => resolveAccountColor(selectedAccountColor.value, isDarkNow.value))
@@ -132,7 +132,6 @@ const textColor = computed(() => readableTextColor(panelBg.value) ?? '#ffffff')
 // tono del fondo semitransparente de la píldora de fecha) — sin tocar colors.ts.
 const panelIsDark = computed(() => textColor.value === '#ffffff')
 const panelStyle = computed(() => ({ background: panelBg.value }))
-const selectedAccountBalance = computed(() => accountsStore.balanceFor(form.accountId))
 
 // Sección 14.4.3: número gigante SOLO visual (aria-hidden). Parte entera
 // agrupada de a miles con `formatAmount`; parte decimal tal cual la tipeó el
@@ -277,13 +276,14 @@ function backspace() {
 function focusAmount() {
   amountInputRef.value?.focus()
 }
+// Sección 16.7.2: se enfoca el trigger CERRADO (no se abre el menú de forma
+// programática) — el usuario confirma la apertura con Enter/Espacio/flecha, ya
+// con foco puesto y el error anunciado por el slot único de 14.5.
 function focusAccount() {
-  const el = accountChipEls.get(form.accountId) ?? accountChipEls.get(accountsStore.accounts[0]?.id ?? '')
-  el?.focus()
+  accountTriggerRef.value?.focus()
 }
 function focusCategory() {
-  const el = categoryChipEls.get(form.categoryId) ?? categoryChipEls.get(allCategories.value[0]?.id ?? '')
-  el?.focus()
+  categoryTriggerRef.value?.focus()
 }
 function focusDate() {
   dateInputRef.value?.focus()
@@ -454,7 +454,7 @@ function onSubmit() {
         </div>
 
         <!-- 14.4 — Panel superior coloreado por la cuenta seleccionada -->
-        <div class="mx-4 rounded-xl p-3" :style="panelStyle">
+        <div class="mx-4 rounded-xl p-4" :style="panelStyle">
           <!-- 14.4.2 — Píldora de fecha (input date nativo invisible encima) -->
           <div class="relative ml-auto w-fit">
             <button
@@ -478,10 +478,10 @@ function onSubmit() {
           </div>
 
           <!-- 14.4.3 — Monto gigante (número visual + input accesible oculto) -->
-          <div class="relative my-1.5 text-center">
+          <div class="relative my-3 text-center">
             <p
               aria-hidden="true"
-              class="text-4xl font-bold tabular-nums tracking-tight"
+              class="text-5xl font-bold tabular-nums tracking-tight"
               :style="{ color: textColor }"
             >
               ${{ liveFormattedAmount }}
@@ -499,13 +499,121 @@ function onSubmit() {
             <span aria-live="polite" class="sr-only">{{ srAmountAnnouncement }}</span>
           </div>
 
-          <!-- 14.4.4 — Fila de cuenta (contexto; el cambio real está en 14.9) -->
+          <!-- 16.2 — 2 columnas dentro del panel: Cuenta (siempre) / Categoría (solo Gasto) -->
           <div
-            class="mt-1.5 flex items-center justify-center gap-2 text-sm font-medium"
-            :style="{ color: textColor }"
+            class="mt-3 grid gap-2 border-t pt-3"
+            :class="form.type === 'expense' ? 'grid-cols-2' : 'grid-cols-1'"
+            :style="{ borderColor: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }"
           >
-            <component :is="resolveAccountIcon(selectedAccount?.icon)" class="size-4 shrink-0" />
-            <span>Cuenta: {{ selectedAccount?.name ?? '—' }} · ${{ formatAmount(selectedAccountBalance) }}</span>
+            <!-- Columna Cuenta -->
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <button
+                  ref="accountTriggerRef"
+                  type="button"
+                  :disabled="isSaving"
+                  :aria-invalid="!!errors.account"
+                  class="flex min-h-11 flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  :style="{
+                    color: textColor,
+                    outline: errors.account ? `2px solid ${textColor}` : undefined,
+                    outlineOffset: errors.account ? '2px' : undefined,
+                  }"
+                >
+                  <span class="text-xs opacity-80">Cuenta</span>
+                  <span class="flex w-full items-center gap-1 text-sm font-bold">
+                    <span class="truncate">{{ selectedAccount?.name ?? 'Elegí una cuenta' }}</span>
+                    <ChevronDown class="size-3.5 shrink-0 opacity-70" />
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="start" class="w-64 min-w-64 max-w-[85vw]">
+                <DropdownMenuLabel>Tus cuentas</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  :model-value="form.accountId"
+                  @update:model-value="(v) => { form.accountId = String(v) }"
+                >
+                  <DropdownMenuRadioItem
+                    v-for="account in accountsStore.accounts"
+                    :key="account.id"
+                    :value="account.id"
+                  >
+                    <component
+                      :is="resolveAccountIcon(account.icon)"
+                      class="size-4 shrink-0"
+                      :style="{ color: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                    />
+                    <span class="flex-1 truncate">{{ account.name }}</span>
+                    <span class="text-xs text-muted-foreground">
+                      ${{ formatAmount(accountsStore.balanceFor(account.id)) }}
+                    </span>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
+            <!-- Columna Categoría (solo Gasto, igual que 14.7) -->
+            <DropdownMenu v-if="form.type === 'expense'">
+              <DropdownMenuTrigger as-child>
+                <button
+                  ref="categoryTriggerRef"
+                  type="button"
+                  :disabled="isSaving"
+                  :aria-invalid="!!errors.category"
+                  class="flex min-h-11 flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  :style="{
+                    color: textColor,
+                    outline: errors.category ? `2px solid ${textColor}` : undefined,
+                    outlineOffset: errors.category ? '2px' : undefined,
+                  }"
+                >
+                  <span class="text-xs opacity-80">Categoría</span>
+                  <span class="flex w-full items-center gap-1 text-sm font-bold">
+                    <span class="truncate">{{ selectedCategory?.name ?? 'Elegí una categoría' }}</span>
+                    <ChevronDown class="size-3.5 shrink-0 opacity-70" />
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-64 min-w-64 max-w-[85vw]">
+                <DropdownMenuLabel>Categorías</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  :model-value="form.categoryId"
+                  @update:model-value="(v) => { form.categoryId = String(v) }"
+                >
+                  <DropdownMenuRadioItem
+                    v-for="category in categoriesStore.defaultCategories"
+                    :key="category.id"
+                    :value="category.id"
+                  >
+                    <span
+                      class="size-2.5 shrink-0 rounded-full"
+                      :style="{ background: category.color ?? 'var(--color-muted-foreground)' }"
+                    />
+                    <span class="truncate">{{ category.name }}</span>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+                <template v-if="categoriesStore.customCategories.length">
+                  <DropdownMenuSeparator />
+                  <DropdownMenuLabel>Mis categorías</DropdownMenuLabel>
+                  <DropdownMenuRadioGroup
+                    :model-value="form.categoryId"
+                    @update:model-value="(v) => { form.categoryId = String(v) }"
+                  >
+                    <DropdownMenuRadioItem
+                      v-for="category in categoriesStore.customCategories"
+                      :key="category.id"
+                      :value="category.id"
+                    >
+                      <span
+                        class="size-2.5 shrink-0 rounded-full"
+                        :style="{ background: category.color ?? 'var(--color-muted-foreground)' }"
+                      />
+                      <span class="truncate">{{ category.name }}</span>
+                    </DropdownMenuRadioItem>
+                  </DropdownMenuRadioGroup>
+                </template>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </div>
 
@@ -519,12 +627,12 @@ function onSubmit() {
         </p>
 
         <!-- 14.6 — Teclado numérico (solo dígitos, sin operadores) -->
-        <div class="grid grid-cols-3 gap-1.5 px-4">
+        <div class="grid grid-cols-3 gap-2 px-4">
           <button
             v-for="key in ['7', '8', '9', '4', '5', '6', '1', '2', '3']"
             :key="key"
             type="button"
-            class="flex h-11 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             :disabled="isSaving"
             @click="appendDigit(key)"
           >
@@ -535,7 +643,7 @@ function onSubmit() {
             type="button"
             aria-label="Coma decimal"
             :disabled="isSaving"
-            class="flex h-11 items-center justify-center rounded-lg bg-muted text-xl font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             @click="appendDecimalSeparator"
           >
             ,
@@ -543,7 +651,7 @@ function onSubmit() {
           <button
             type="button"
             :disabled="isSaving"
-            class="flex h-11 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             @click="appendDigit('0')"
           >
             0
@@ -552,44 +660,11 @@ function onSubmit() {
             type="button"
             aria-label="Borrar el último dígito"
             :disabled="isSaving"
-            class="flex h-11 items-center justify-center rounded-lg bg-muted transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
+            class="flex h-14 items-center justify-center rounded-lg bg-muted transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent disabled:cursor-not-allowed disabled:opacity-60"
             @click="backspace"
           >
             <Delete class="size-5" />
           </button>
-        </div>
-
-        <!-- 14.7 — Categoría (solo si Gasto) -->
-        <div v-if="form.type === 'expense'">
-          <p id="categoria-chips-label" class="px-4 text-xs font-medium text-muted-foreground">
-            Categoría
-          </p>
-          <div
-            role="listbox"
-            aria-labelledby="categoria-chips-label"
-            class="mt-1 flex gap-2 overflow-x-auto px-4 pb-0.5"
-          >
-            <button
-              v-for="category in allCategories"
-              :key="category.id"
-              :ref="setCategoryChipRef(category.id)"
-              type="button"
-              role="option"
-              :aria-selected="form.categoryId === category.id"
-              :disabled="isSaving"
-              class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-              :class="form.categoryId === category.id ? 'border-transparent' : 'border-border text-muted-foreground'"
-              :style="form.categoryId === category.id ? { background: withAlpha(category.color, 0.18), color: category.color ?? undefined } : undefined"
-              @click="form.categoryId = category.id"
-            >
-              <span
-                class="size-2 rounded-full"
-                :style="{ background: category.color ?? 'var(--color-muted-foreground)' }"
-              />
-              {{ category.name }}
-              <Check v-if="form.categoryId === category.id" class="size-3.5" />
-            </button>
-          </div>
         </div>
 
         <!-- 14.8 — "Agregar nota" (= campo Descripción ya existente) -->
@@ -617,35 +692,6 @@ function onSubmit() {
           </div>
         </div>
 
-        <!-- 14.9 — "Tus cuentas" (cambia la cuenta seleccionada al instante) -->
-        <div class="pb-1">
-          <p id="cuentas-chips-label" class="px-4 text-xs font-medium text-muted-foreground">
-            Tus cuentas
-          </p>
-          <div
-            role="listbox"
-            aria-labelledby="cuentas-chips-label"
-            class="mt-1 flex gap-2 overflow-x-auto px-4 pb-0.5"
-          >
-            <button
-              v-for="account in accountsStore.accounts"
-              :key="account.id"
-              :ref="setAccountChipRef(account.id)"
-              type="button"
-              role="option"
-              :aria-selected="form.accountId === account.id"
-              :disabled="isSaving"
-              class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
-              :class="form.accountId === account.id ? 'border-transparent' : 'border-border text-muted-foreground'"
-              :style="form.accountId === account.id ? { background: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.18), color: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) } : undefined"
-              @click="form.accountId = account.id"
-            >
-              <component :is="resolveAccountIcon(account.icon)" class="size-3.5" />
-              {{ account.name }} · ${{ formatAmount(accountsStore.balanceFor(account.id)) }}
-              <Check v-if="form.accountId === account.id" class="size-3.5" />
-            </button>
-          </div>
-        </div>
       </form>
 
       <SheetFooter class="p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">

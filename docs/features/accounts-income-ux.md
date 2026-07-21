@@ -2477,6 +2477,11 @@ con un input nativo accesible que sigue siendo la fuente de verdad:
 
 #### 14.4.4 Fila de cuenta (solo lectura/contexto — la interacción real está en 14.9)
 
+> **[REEMPLAZADO por la sección 16.2]** Esta fila de solo-texto se sustituye
+> por el tap-target "Cuenta" del bloque de 2 columnas dentro del panel — deja
+> de ser contexto pasivo y pasa a ser el propio disparador del picker. Se
+> deja el contenido original acá como historial.
+
 ```html
 <div class="mt-3 flex items-center justify-center gap-2 text-sm font-medium" :style="{ color: textColor }">
   <component :is="resolveAccountIcon(selectedAccount.icon)" class="size-4 shrink-0" />
@@ -2603,6 +2608,13 @@ correcta es no mostrarlo).
 
 ### 14.7 Categoría — fila de chips debajo del teclado, solo si Gasto (decisión 1)
 
+> **[REEMPLAZADO por la sección 16.2/16.3]** La fila de chips siempre visible
+> debajo del teclado se elimina del flujo principal — Categoría pasa a ser el
+> tap-target derecho del bloque de 2 columnas dentro del panel coloreado, con
+> sus opciones dentro de un `DropdownMenu`. Se deja el contenido original acá
+> como historial (incluye el riesgo 14.14.2 sobre falta de agrupación visual,
+> **resuelto** en la sección 16.3 vía `DropdownMenuLabel`).
+
 **Ubicación elegida: fila de chips horizontal scrolleable, inmediatamente
 debajo del teclado numérico, antes de "Agregar nota".**
 
@@ -2706,6 +2718,12 @@ panel superior):
   quedar vacío.
 
 ### 14.9 "Tus cuentas" — fila de chips (renombrado de "Cuentas frecuentes")
+
+> **[REEMPLAZADO por la sección 16.2/16.3]** La fila de chips siempre visible
+> debajo del teclado se elimina del flujo principal — Cuenta pasa a ser el
+> tap-target izquierdo del bloque de 2 columnas dentro del panel coloreado
+> (reemplaza también a la fila de solo-texto de 14.4.4). Se deja el
+> contenido original acá como historial.
 
 ```html
 <div class="mt-4">
@@ -3353,3 +3371,538 @@ margen.
    tabs + panel + teclado + chips + footer entran sin scroll en los 4
    escenarios de la tabla de 15.3, y que el botón "Guardar" no queda
    pegado/tapado por el home indicator en un iPhone real.
+
+## 16. "Cuenta"/"Categoría" pasan a vivir DENTRO del panel coloreado, como picker (reemplaza 14.4.4, 14.7, 14.9)
+
+Encargo del Product Owner: una captura de referencia **más precisa** de la
+misma app "Wallet by BudgetBakers" (sección 14) muestra, debajo del monto
+gigante y **todavía dentro del panel coloreado**, dos columnas —
+"Cuenta"/"JEP" a la izquierda, "Categoría"/"NIÑOS" a la derecha— en vez de
+las dos filas de chips horizontales siempre visibles debajo del teclado que
+especificaron 14.7/14.9. Se replica contenido/interacción, no marca (mismo
+criterio de toda la sección 14). La franja "PLANTILLAS" de la captura queda
+**fuera de alcance**, mismo criterio de exclusión ya aplicado en 14.13.
+
+Esta sección **reemplaza por completo** 14.4.4 ("fila de cuenta" de solo
+texto), 14.7 (chips de categoría) y 14.9 (chips de cuenta) — las tres
+quedan con una nota de reemplazo inline apuntando acá (mismo patrón que el
+resto del proyecto para secciones reemplazadas, p. ej. `debts-ux.md` sección
+4). Ningún campo/dato nuevo: siguen siendo los mismos 5 campos de siempre.
+Restricciones ya cerradas y no reabiertas en esta pasada: sin operadores en
+el teclado (14.6), sin "Cantidad objetivo"/"PLANTILLAS"/campos nuevos,
+`AccountTransferFormSheet.vue` intacto, cero cambios de backend/schema.
+
+### 16.0 La "‹" de la referencia: se omite
+
+La captura muestra una flecha "‹" chica en el borde del panel, junto al
+signo de tipo. En "Wallet" sugiere navegar entre paneles/cuentas por swipe
+horizontal — TipApp no tiene ese concepto (no hay un carrusel de cuentas: la
+cuenta se elige ahora con el picker de 16.2) y agregar una flecha sin
+ninguna acción real detrás violaría la misma regla de a11y ya citada en
+14.6 ("nunca un elemento que parezca interactivo pero no haga nada al
+activarlo"). El propio encargo la marca como opcional/omitible — se omite.
+
+### 16.1 Mecanismo elegido: `DropdownMenu` + `DropdownMenuRadioGroup` (no `Select`, sin componente nuevo)
+
+**Decisión: los dos tap-targets ("Cuenta"/"Categoría") son
+`DropdownMenuTrigger` con `as-child` envolviendo un `<button>` 100% custom
+(el mismo bloque visual de 2 líneas label/valor), y el contenido del picker
+es un `DropdownMenu` con `DropdownMenuRadioGroup`/`DropdownMenuRadioItem`
+(selección única, `role="menuitemradio"`/`aria-checked` heredado de Reka
+UI). No se instala `popover` ni ningún componente nuevo.**
+
+Se evaluaron 3 opciones (las únicas realistas con el inventario actual:
+`select`, `dropdown-menu`, o un `popover` nuevo) y se descarta la tercera de
+entrada: el encargo pide explícitamente no sumar una dependencia si
+`Select`/`DropdownMenu` alcanzan, y alcanzan. Entre las dos que quedan:
+
+**Por qué no `Select`** (a pesar de ser semánticamente el patrón "correcto"
+de libro para un campo de formulario — WAI-ARIA APG recomienda
+listbox/combobox sobre un patrón de menú para *elegir un valor*, no un
+patrón de menú de acciones): se inspeccionó el componente ya instalado
+(`src/components/ui/select/SelectTrigger.vue`) y su template es fijo:
+
+```html
+<SelectTrigger ...>
+  <slot />
+  <SelectIcon as-child><ChevronDownIcon class="text-muted-foreground size-4 ..." /></SelectIcon>
+</SelectTrigger>
+```
+
+Dos problemas reales, no hipotéticos:
+
+1. **El `ChevronDownIcon` final es forzado y su color está hardcodeado
+   `text-muted-foreground`** (un token neutro fijo) — no hay forma de
+   pasarle el `textColor` dinámico del panel (blanco u oscuro según la
+   cuenta, ver 16.4) sin un selector `:deep()` alcanzando el interior de un
+   componente compartido de `ui/`, exactamente el tipo de hack fatal que
+   el proyecto evita (tocar un componente de `ui/` compartido para el
+   capricho de un solo consumidor, en vez de resolverlo en el propio
+   consumidor). Un chevron gris fijo sobre un panel granate/violeta oscuro
+   puede perder contraste — el mismo tipo de riesgo que 14.4.2 ya resolvió
+   para la píldora de fecha con `rgba` dinámico, y que acá `Select` no deja
+   resolver igual.
+2. **`SelectTrigger` trae alturas/paddings propios** (`data-[size=default]:
+   h-9`, `py-2 pr-2 pl-2.5`) pensados para un valor de una sola línea +
+   chevron — forzar el layout de 2 líneas (label chico arriba / valor en
+   negrita abajo) exige pelear esas clases vía `cn()` (posible, pero
+   frágil: cualquier actualización del componente base puede romperlo
+   silenciosamente).
+3. Descartado también reusar el truco de la píldora de fecha (`<input
+   type="date">` nativo invisible tapando un botón custom, 14.4.2): ahí
+   funciona porque el navegador ya sabe pintar el *picker* de fecha nativo
+   sin ayuda; acá no hay equivalente — un `<select><option>` nativo no
+   puede pintar ícono + nombre + saldo por opción, así que no hay forma de
+   "tapar" un control nativo con el contenido rico que 16.3 necesita.
+
+**Por qué sí `DropdownMenu` + `DropdownMenuRadioGroup`**:
+
+1. **`DropdownMenuTrigger` no fuerza NINGÚN contenido** — su template es
+   literalmente `<slot />` (ver `src/components/ui/dropdown-menu/
+   DropdownMenuTrigger.vue`). El `<button>` de 2 líneas de 16.2 se escribe
+   100% a mano, con control total de color (`:style="{ color: textColor
+   }"`, igual que el resto del panel) — cero pelea con clases ajenas. Si se
+   quiere un chevron, es uno propio (`<ChevronDown :style="{ color:
+   textColor }">`), coherente con el resto del panel.
+2. **`DropdownMenuRadioGroup`/`DropdownMenuRadioItem` sí modelan "un valor
+   actual, entre varios, con check"** — a diferencia de un `DropdownMenuItem`
+   suelto (pensado para *acciones* de una sola vez, el uso que sí
+   preocupa a la guía WAI-ARIA), un grupo de radio dentro de un menú es un
+   patrón documentado y válido de Reka UI/Radix para selección persistente
+   (`role="menuitemradio"`, `aria-checked` que refleja el valor actual, no
+   una acción que "se dispara y desaparece"). Ablanda razonablemente la
+   objeción de "un menú no es un campo de formulario": lo que hace mal ese
+   antipatrón es usar ítems de *acción* como si fueran selección; acá se usa
+   el sub-patrón correcto para selección dentro de un menú.
+3. **Ya es un mecanismo consistente con lo que 14.4.2 ya resolvió** (botón
+   custom + color adaptativo dentro del panel) — no introduce una tercera
+   técnica de interacción a la pantalla, extiende la ya usada.
+4. **`position`/anchoring sin ambigüedad**: `DropdownMenuContent` ya sale
+   con default `align="start"`/`sideOffset={4}`, pensado para anclarse
+   justo debajo/al lado del trigger (patrón "menú", correcto acá). `Select`
+   en cambio default a `position="item-aligned"` (alinea la opción ya
+   elegida bajo el trigger, pensado para imitar un `<select>` nativo) — con
+   contenido custom de altura variable (ícono + nombre + saldo) ese modo
+   es más propenso a desalinearse; usarlo bien requeriría acordarse de
+   pasar `position="popper"` explícito. Con `DropdownMenu` no hay ese
+   parámetro que recordar, ya es "tipo popper" por diseño.
+5. **Bonus, resuelve un riesgo ya documentado sin costo extra**: al pasar a
+   un menú real, `DropdownMenuLabel`/`DropdownMenuSeparator` permiten
+   agrupar "Categorías"/"Mis categorías" (ver 16.3) — **resuelve el riesgo
+   14.14.2** ("sin agrupación visual" en la fila de chips), que en el
+   layout de chips horizontales no tenía dónde ponerse.
+
+**Sobre anidar dentro de un `Sheet` full-screen**: tanto `Select` como
+`DropdownMenu` de shadcn-vue/Reka UI renderizan su contenido flotante vía
+`Portal` (`SelectPortal`/`DropdownMenuPortal`) directo a `document.body`, no
+dentro de otro `Dialog`/`Sheet` anidado — no es el problema real de "Sheet
+dentro de Sheet" (que sí duplicaría scrim, foco atrapado dos veces, y
+Escape/back-button ambiguos). Es la MISMA composición que ya usan hoy,
+shipeada, `Select` dentro de un `Sheet` en `DebtFormSheet.vue`,
+`CardExpenseFormSheet.vue`, `AccountFormSheet.vue` y otros — confirmado por
+grep, son 9 componentes de `ui/select` ya consumidos desde vistas/Sheets del
+proyecto. `DropdownMenuContent`/`SelectContent` comparten el mismo `z-50` que
+`SheetOverlay`/`SheetContent` (revisado en el código de ambos), pero como el
+picker se monta *después* (al tocar el trigger, ya con el Sheet abierto),
+queda como hermano posterior en el DOM de `<body>` y gana el empate de
+z-index por orden de pintado — el mismo mecanismo por el que los `Select` ya
+shippeados funcionan hoy dentro de un `Sheet`. No es una composición nueva
+de riesgo, es la ya usada, con `DropdownMenu` en vez de `Select`.
+
+### 16.2 Layout de 2 columnas dentro del panel (reemplaza 14.4.4)
+
+Va inmediatamente debajo de la fila de monto (14.4.3), todavía dentro del
+mismo contenedor de panel coloreado:
+
+```html
+<!-- 16.2 — 2 columnas dentro del panel: Cuenta (siempre) / Categoría (solo Gasto) -->
+<div
+  class="mt-3 grid gap-2 border-t pt-3"
+  :class="form.type === 'expense' ? 'grid-cols-2' : 'grid-cols-1'"
+  :style="{ borderColor: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }"
+>
+  <!-- Columna Cuenta -->
+  <DropdownMenu>
+    <DropdownMenuTrigger as-child>
+      <button
+        ref="accountTriggerRef"
+        type="button"
+        :disabled="isSaving"
+        :aria-invalid="!!errors.account"
+        class="flex min-h-11 flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+        :style="{
+          color: textColor,
+          outline: errors.account ? `2px solid ${textColor}` : undefined,
+          outlineOffset: errors.account ? '2px' : undefined,
+        }"
+      >
+        <span class="text-xs opacity-80">Cuenta</span>
+        <span class="flex w-full items-center gap-1 text-sm font-bold">
+          <span class="truncate">{{ selectedAccount?.name ?? 'Elegí una cuenta' }}</span>
+          <ChevronDown class="size-3.5 shrink-0 opacity-70" />
+        </span>
+      </button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="start" class="w-64 min-w-64 max-w-[85vw]">
+      <DropdownMenuLabel>Tus cuentas</DropdownMenuLabel>
+      <DropdownMenuRadioGroup
+        :model-value="form.accountId"
+        @update:model-value="(v) => { form.accountId = String(v) }"
+      >
+        <DropdownMenuRadioItem
+          v-for="account in accountsStore.accounts"
+          :key="account.id"
+          :value="account.id"
+        >
+          <component
+            :is="resolveAccountIcon(account.icon)"
+            class="size-4 shrink-0"
+            :style="{ color: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+          />
+          <span class="flex-1 truncate">{{ account.name }}</span>
+          <span class="text-xs text-muted-foreground">
+            ${{ formatAmount(accountsStore.balanceFor(account.id)) }}
+          </span>
+        </DropdownMenuRadioItem>
+      </DropdownMenuRadioGroup>
+    </DropdownMenuContent>
+  </DropdownMenu>
+
+  <!-- Columna Categoría (solo Gasto, igual que 14.7) -->
+  <DropdownMenu v-if="form.type === 'expense'">
+    <DropdownMenuTrigger as-child>
+      <button
+        ref="categoryTriggerRef"
+        type="button"
+        :disabled="isSaving"
+        :aria-invalid="!!errors.category"
+        class="flex min-h-11 flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+        :style="{
+          color: textColor,
+          outline: errors.category ? `2px solid ${textColor}` : undefined,
+          outlineOffset: errors.category ? '2px' : undefined,
+        }"
+      >
+        <span class="text-xs opacity-80">Categoría</span>
+        <span class="flex w-full items-center gap-1 text-sm font-bold">
+          <span class="truncate">{{ selectedCategory?.name ?? 'Elegí una categoría' }}</span>
+          <ChevronDown class="size-3.5 shrink-0 opacity-70" />
+        </span>
+      </button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end" class="w-64 min-w-64 max-w-[85vw]">
+      <DropdownMenuLabel>Categorías</DropdownMenuLabel>
+      <DropdownMenuRadioGroup
+        :model-value="form.categoryId"
+        @update:model-value="(v) => { form.categoryId = String(v) }"
+      >
+        <DropdownMenuRadioItem
+          v-for="category in categoriesStore.defaultCategories"
+          :key="category.id"
+          :value="category.id"
+        >
+          <span
+            class="size-2.5 shrink-0 rounded-full"
+            :style="{ background: category.color ?? 'var(--color-muted-foreground)' }"
+          />
+          <span class="truncate">{{ category.name }}</span>
+        </DropdownMenuRadioItem>
+      </DropdownMenuRadioGroup>
+      <template v-if="categoriesStore.customCategories.length">
+        <DropdownMenuSeparator />
+        <DropdownMenuLabel>Mis categorías</DropdownMenuLabel>
+        <DropdownMenuRadioGroup
+          :model-value="form.categoryId"
+          @update:model-value="(v) => { form.categoryId = String(v) }"
+        >
+          <DropdownMenuRadioItem
+            v-for="category in categoriesStore.customCategories"
+            :key="category.id"
+            :value="category.id"
+          >
+            <span
+              class="size-2.5 shrink-0 rounded-full"
+              :style="{ background: category.color ?? 'var(--color-muted-foreground)' }"
+            />
+            <span class="truncate">{{ category.name }}</span>
+          </DropdownMenuRadioItem>
+        </DropdownMenuRadioGroup>
+      </template>
+    </DropdownMenuContent>
+  </DropdownMenu>
+</div>
+```
+
+- **`grid-cols-2` solo si `form.type === 'expense'`**, si no `grid-cols-1`
+  (Ingreso: la columna Categoría directamente no se renderiza, `v-if`,
+  mismo criterio ya vigente en 14.7) — la columna Cuenta pasa a ocupar el
+  ancho completo, mismo alineado a la izquierda (no se re-centra, cambiar de
+  alineación según el tipo sería una inconsistencia visual innecesaria).
+- **`border-t pt-3` con color `rgba` dinámico** (misma técnica exacta que
+  14.4.2 usa para el fondo semitransparente de la píldora de fecha,
+  `panelIsDark`) marca una separación visual sutil entre el monto y el
+  bloque de picker sin depender de un color fijo que pueda no contrastar
+  contra el panel.
+- **`selectedCategory`** (computed nuevo, no existía): `allCategories.value.
+  find(c => c.id === form.categoryId)` — mismo `allCategories` ya definido
+  en 14.7 (default + custom concatenadas), reusado tal cual.
+- **Dos `DropdownMenuRadioGroup` separados dentro de un mismo
+  `DropdownMenuContent`** (uno para "Categorías" default, otro para "Mis
+  categorías" custom), ambos leyendo/escribiendo el mismo
+  `form.categoryId`: es la forma más simple de lograr dos encabezados de
+  grupo con Reka UI sin reimplementar el radiogroup a mano — una selección
+  hecha en cualquiera de los dos grupos actualiza el mismo valor, y el
+  `aria-checked` de cada ítem se resuelve igual (comparación `value ===
+  modelValue`) sin importar en qué grupo esté. Matiz de a11y aceptado: son
+  técnicamente dos `role="group"` separados representando una sola
+  selección lógica — mismo espíritu de "pequeña pérdida aceptada,
+  documentada" que ya usó 14.14.2, salvo que acá se gana agrupación visual
+  en vez de perderla.
+- **`align="start"` (Cuenta) / `align="end"` (Categoría)**: heurística
+  simple para que el menú se abra hacia el lado con más aire dentro de la
+  pantalla (la columna izquierda ancla por la izquierda, la derecha por la
+  derecha) — de todos modos Reka UI (vía `floating-ui`) hace detección de
+  colisión automática contra el viewport, así que esto es una ayuda, no la
+  única red de seguridad.
+- **`w-64 min-w-64 max-w-[85vw]`**: el `DropdownMenuContent` de shadcn-vue
+  trae por defecto `w-(--reka-dropdown-menu-trigger-width)` (iguala el
+  ancho del trigger) — con un grid de 2 columnas en un panel de ~358px de
+  ancho útil, cada trigger mide ~170px, insuficiente para "Efectivo ·
+  $45.320" sin recortar agresivamente. Se sobreescribe explícitamente a un
+  ancho fijo más generoso (`w-64` = 256px), independiente del ancho del
+  trigger que lo abre — `max-w-[85vw]` como techo defensivo en pantallas
+  angostas.
+
+### 16.3 Contenido de cada opción — mismo dato que el chip de hoy
+
+- **Cuenta**: ícono (`resolveAccountIcon(account.icon)`) coloreado con
+  `resolveAccountColor(account.color, isDarkNow)` + nombre (`flex-1
+  truncate`, se recorta si es muy largo) + saldo (`$` + `formatAmount(
+  accountsStore.balanceFor(account.id))`, alineado a la derecha) — **mismo
+  dato exacto que pintaba el chip de 14.9**, solo dentro de un
+  `DropdownMenuRadioItem` en vez de un `<button>` de chip.
+- **Categoría**: punto de color (`category.color`) + nombre — **mismo dato
+  exacto que pintaba el chip de 14.7**. Sin saldo (las categorías no tienen
+  saldo, igual que hoy).
+- **Indicador de selección**: heredado gratis de `DropdownMenuRadioItem`
+  (`DropdownMenuItemIndicator` con `CheckIcon`, ya en el componente
+  instalado) — mismo criterio de "nunca solo color" que ya exigía 14.12.4,
+  sin tener que reimplementarlo.
+- **Agrupación** (bonus, resuelve 14.14.2): "Tus cuentas" como único grupo
+  (las cuentas no tienen distinción default/custom); "Categorías"/"Mis
+  categorías" como dos grupos con `DropdownMenuLabel` + `DropdownMenuSeparator`
+  entre ambos, en ese orden — mismo orden que ya usa `allCategories` (default
+  primero, custom después).
+
+### 16.4 Legibilidad — mismo `textColor`/`panelIsDark` ya usado en el panel
+
+**No se calcula ningún color nuevo.** Los dos triggers usan
+`:style="{ color: textColor }"` (el mismo computed ya usado por el monto y
+la fila de cuenta de 14.4.3/14.4.4) tanto en su estado cerrado como abierto
+— el trigger no cambia de color al abrirse (el contenido que sí cambia de
+superficie es el `DropdownMenuContent`, que vive en el popover flotante con
+sus propios tokens `bg-popover`/`text-popover-foreground` ya definidos por
+el design system, sin relación con el color de la cuenta — correcto: el
+menú flotante no está "dentro" del panel coloreado visualmente, es una capa
+independiente sobre el resto de la pantalla, así que debe verse con los
+tokens neutros de siempre, no con el color de la cuenta).
+
+- El borde separador (`border-t`) usa el mismo par `rgba(255,255,255,.18)`/
+  `rgba(0,0,0,.12)` que ya calibra `panelIsDark` para el fondo de la
+  píldora de fecha (14.4.2) — ningún color nuevo que validar por contraste.
+- El indicador de error (`outline: 2px solid ${textColor}`, ver 16.7) reusa
+  el mismo `textColor` en vez de un `destructive` fijo — mismo argumento ya
+  usado en 14.5 para el slot de error (rojo sobre un panel rojo/granate
+  podría ser ilegible); usar el color de texto ya legible del panel como
+  color de outline garantiza contraste ≥3:1 contra el panel por
+  construcción (es el mismo color que ya se validó legible para el texto).
+
+### 16.5 Espacio recuperado: se restauran monto y teclado a su tamaño original
+
+Al sacar las 2 filas de chips siempre visibles (14.7/14.9) del flujo
+principal, se libera más espacio del que ocupa el bloque nuevo de 16.2 (que
+reemplaza, no se suma a, la fila de solo-texto de 14.4.4) — con margen de
+sobra para deshacer la compactación de la sección 15 en las dos piezas que
+más sacrificó legibilidad/tacto (monto y teclado), en vez de dejarlas
+achicadas sin necesidad.
+
+| Bloque | Delta |
+|---|---|
+| Fila de chips "Categoría" (14.7, eliminada del flujo, solo gasto) | −74px |
+| Fila de chips "Tus cuentas" (14.9, eliminada del flujo) | −74px |
+| Fila de cuenta de solo texto (14.4.4) → bloque de picker de 2 columnas (16.2) | +22px |
+| **Subtotal liberado (peor caso, Gasto)** | **≈ −126px** |
+
+Con ese excedente, se restauran (respecto a los valores compactados de
+15.2) las dos piezas que 15.2 había reducido al piso:
+
+| Bloque | Valor de 15.2 (compactado) | Valor restaurado (sección 16) | Delta |
+|---|---|---|---|
+| Monto gigante | `text-4xl` (36px) | `text-5xl` (48px) — valor original de 14.4.3 | +16px |
+| Teclado, alto de tecla | `h-11` (44px) | `h-14` (56px) — valor original de 14.6 | +48px (×4 filas) |
+| Teclado, separación entre teclas | `gap-1.5` (6px) | `gap-2` (8px) — valor original | +4.5px |
+| Panel, margen del monto | `my-1.5` (6px) | `my-3` (12px) — punto medio, no el `my-4` original | +12px |
+| Panel, padding | `p-3` (12px) | `p-4` (16px) — punto medio, no el `p-5` original | +8px |
+
+**Estimación del peor caso** (alta, Gasto, nota expandida — el mismo caso
+que 15.3 marcó como el más ajustado, ~770px estimados con ~74px de margen):
+
+```
+770px (estimado 15.3, peor caso)
+− 126px (chips eliminados, neto de 16.2)          →  644px
++  16px (monto text-5xl)                          →  660px
++  48px (teclado h-14)                             →  708px
++ 4.5px (teclado gap-2)                            → 712.5px
++  12px (panel my-3)                                → 724.5px
++   8px (panel p-4)                                 → 732.5px
+────────────────────────────────────────────────────────────
+≈ 732.5px totales → margen vs. 844px ≈ 111px
+```
+
+**Conclusión: incluso restaurando monto y teclado a su tamaño original
+(el que 15.2 había achicado por falta de espacio), el peor caso entra con
+~111px de margen** — más margen del que tenía el layout compactado de la
+sección 15 (~74px) antes de esta sección. Es una estimación por valores de
+Tailwind conocidos, igual que 15.2/15.3, **no una medición en navegador
+real** — mismo caveat de siempre: confirmar con el mismo smoke test manual
+(Puppeteer/dispositivo a 390×844) que hizo la sección 15.4 antes de dar el
+layout por cerrado. El `overflow-y-auto` del `<form>` (15.2.3) se mantiene
+sin cambios como red de seguridad.
+
+### 16.6 Estados a cubrir
+
+1. **Picker cerrado (trigger)**: bloque de 2 líneas (`label` chico + valor
+   en negrita + chevron), color `textColor`, sin fondo propio (transparente
+   sobre el panel) — mismo criterio "sin decoración de más" que ya usa la
+   fila de cuenta de 14.4.4 que reemplaza.
+2. **Picker abierto**: `DropdownMenuContent` flotante con los tokens
+   neutros de siempre (`bg-popover`/`ring-1`/`shadow-md`, ya definidos por
+   el design system, sin cambios); ítem actual marcado con check (16.3).
+   Opcional, no bloqueante: rotar el `ChevronDown` con
+   `data-[state=open]:rotate-180` (Reka UI expone `data-state` en el
+   elemento que envuelve `as-child`) para reforzar visualmente que el
+   picker está abierto — micro-interacción sutil, omitible sin pérdida de
+   funcionalidad si no se prioriza.
+3. **Sin cuenta aún** (no debería pasar en la práctica: siempre hay una
+   cuenta default vía `defaultAccountId()`/cuenta "General" automática, ver
+   8.2): el trigger muestra `"Elegí una cuenta"` en vez de un nombre —
+   mismo `?? 'Elegí una cuenta'` que ya contemplaba 14.4.4 con `'—'`, acá
+   con copy explícito en vez de un guion ambiguo.
+4. **Sin categoría elegida** (caso real y frecuente en alta): trigger
+   muestra `"Elegí una categoría"`; si además es el error activo, ver 16.7.
+5. **Columna "Categoría" ausente en Ingreso**: `v-if="form.type ===
+   'expense'"`, igual que 14.7 — la columna Cuenta pasa a `grid-cols-1`
+   (16.2).
+6. **Guardando** (`isSaving`): ambos triggers `:disabled="isSaving"`, mismo
+   criterio que el resto de controles del Sheet (tabs/teclado/nota).
+
+### 16.7 Accesibilidad — foco y errores
+
+1. **Roles/aria heredados de Reka UI, sin reinventar** (mismo criterio que
+   pide el encargo): `DropdownMenuTrigger` expone `aria-haspopup`/
+   `aria-expanded` automáticamente; `DropdownMenuRadioItem` expone
+   `role="menuitemradio"`/`aria-checked` automáticamente. No se agrega
+   ningún atributo ARIA manual sobre estos, solo `aria-invalid` (propio del
+   patrón de campo con error, no provisto por el primitivo) en el `<button>`
+   custom del trigger.
+2. **Foco al error, re-mapeado**: `focusAccount()`/`focusCategory()` (hoy
+   enfocan un chip por `id`, sección 14.5) pasan a enfocar el `<button>`
+   trigger correspondiente —
+   `accountTriggerRef.value?.focus()`/`categoryTriggerRef.value?.focus()`
+   (un único ref por trigger, no un `Map` por id como los chips: ya no hay
+   "un elemento por opción" visible a la vez, solo un trigger). **Decisión
+   explícita: NO se fuerza la apertura programática del menú al validar
+   fallido.** Se enfoca el trigger cerrado, igual que se enfocaría
+   cualquier `<input>`/`<select>` inválido — el usuario (de teclado o
+   lector de pantalla) confirma la apertura él mismo con Enter/Espacio/
+   flecha abajo, ya con foco puesto y el error anunciado por el slot único
+   de 14.5. Abrir el menú por sorpresa en respuesta a un submit fallido se
+   evaluó y se descarta: es una interacción no pedida por el usuario en ese
+   instante (distinto de un click voluntario en el trigger), y contradice
+   el mismo principio ya aplicado en 14.6 de "no hacer cosas no pedidas por
+   el usuario".
+3. **Indicador visual de error en el trigger** (además del slot de 14.5):
+   `outline: 2px solid ${textColor}` + `outline-offset: 2px` cuando
+   `errors.account`/`errors.category` está seteado — reusa `textColor` en
+   vez de `destructive` fijo (ver 16.4), consistente con por qué el slot de
+   error central (14.5) tampoco usa el color de cuenta como fondo.
+4. **Foco visible en todo estado**: mismo `focus-visible:ring-2
+   focus-visible:ring-ring focus-visible:ring-offset-2` de siempre en el
+   trigger; los ítems del menú heredan el estilo de foco ya definido por
+   `DropdownMenuRadioItem` (`focus:bg-accent focus:text-accent-foreground`,
+   ya en el componente instalado).
+5. **Tamaño táctil**: `min-h-11` en ambos triggers (44px, piso ya usado en
+   toda la app) y en cada `DropdownMenuRadioItem` (heredado del componente,
+   `py-1.5` + line-height ya da ≥44px con el contenido de ícono+texto).
+6. **Truncado de nombres largos**: `truncate` en el nombre dentro del
+   trigger (una sola línea, con `min-h-11` fijo el layout no salta de alto)
+   y en el nombre dentro de cada ítem del menú (el saldo/checkmark quedan
+   siempre visibles a la derecha, nunca empujados fuera por un nombre
+   largo).
+
+### 16.8 Confirmación de exclusiones
+
+- **Sin franja "PLANTILLAS"**: no existe en ningún punto de esta sección,
+  confirmado fuera de alcance por el propio encargo.
+- **Sin flecha "‹" del panel**: omitida, ver 16.0.
+- **Sin operadores en el teclado, sin "Cantidad objetivo", sin campo
+  nuevo**: nada de esto se reabre, mismas exclusiones ya confirmadas en
+  14.13, que siguen vigentes sin cambios.
+- **Sin componente `ui/` nuevo**: se reusan `dropdown-menu` (ya instalado)
+  y los helpers ya existentes (`resolveAccountIcon`, `resolveAccountColor`,
+  `formatAmount`, `readableTextColor` vía `textColor`/`panelIsDark`) — cero
+  `npx shadcn-vue add`.
+- **`AccountTransferFormSheet.vue` intacto**: no tocado, mismo alcance ya
+  fijado en 14.1.
+
+### 16.9 Riesgos/ambigüedades para el Product Owner antes de implementar
+
+1. **Dos `DropdownMenuRadioGroup` separados representando una sola
+   selección lógica** (16.2, categorías default/custom): matiz de a11y
+   menor aceptado a criterio de este documento (ver justificación en 16.2)
+   — señalado por si se prefiere una sola agrupación sin separador en vez
+   de dos grupos de radio técnicamente distintos.
+2. **Ancho fijo `w-64` del picker** (16.2), independiente del ancho real
+   del trigger que lo abre: es una estimación razonable (256px cubre
+   nombres de cuenta largos + saldo en una línea en la mayoría de los
+   casos reales del proyecto), pero no se validó contra el nombre de cuenta
+   más largo que un usuario podría cargar (`accounts.name` no tiene
+   longitud máxima documentada en el esquema) — si un nombre real resulta
+   más largo que el ancho fijo, `truncate` ya lo corta con seguridad
+   (16.7.6), así que el peor caso es "se recorta con elipsis", no un
+   layout roto.
+3. **Presupuesto de espacio de 16.5 es estimado, no medido** (mismo caveat
+   que toda la sección 15) — recomendado confirmarlo con el mismo smoke
+   test real (Puppeteer/dispositivo, 390×844) que ya usó 15.4, antes de dar
+   esta sección por cerrada. Si el margen real resultara menor al estimado,
+   el primer recorte a revertir (en este orden) sería: panel `p-4`→`p-3`,
+   luego `my-3`→`my-1.5`, dejando `text-5xl`/`h-14` como los últimos en
+   tocar (son los que esta sección más quiere preservar).
+
+### Resumen accionable para `vue-frontend-expert` (sección 16)
+
+1. **`TransactionFormSheet.vue`**: eliminar por completo los bloques de
+   14.7 (chips de categoría) y 14.9 (chips de cuenta) del template, y
+   reemplazar la fila de solo-texto de 14.4.4 por el bloque de 2 columnas
+   de 16.2 (dentro del mismo contenedor de panel coloreado, debajo de la
+   fila de monto). Agregar el computed `selectedCategory` (16.2). Cambiar
+   `focusAccount()`/`focusCategory()` para enfocar `accountTriggerRef`/
+   `categoryTriggerRef` en vez de un chip por `id` (16.7.2) — se puede
+   borrar el `Map`/`setCategoryChipRef`/`setAccountChipRef` actuales, ya no
+   hacen falta con un solo trigger por picker. Aplicar los valores
+   restaurados de 16.5 (`text-5xl`, `h-14`, `gap-2` del teclado, `my-3`/
+   `p-4` del panel).
+2. **Imports nuevos**: `DropdownMenu`, `DropdownMenuTrigger`,
+   `DropdownMenuContent`, `DropdownMenuLabel`, `DropdownMenuRadioGroup`,
+   `DropdownMenuRadioItem`, `DropdownMenuSeparator` desde
+   `@/components/ui/dropdown-menu` — componente ya instalado, sin `npx
+   shadcn-vue add`.
+3. **`AccountTransferFormSheet.vue`**: no tocar (14.1, sin cambios).
+4. Verificar con el mismo smoke test manual de 15.4 (Puppeteer/dispositivo,
+   390×844): abrir cada picker desde dentro del Sheet full-screen,
+   confirmar que el menú se ve por encima de todo sin z-index roto,
+   confirmar contraste del texto de ambos triggers contra al menos 3
+   colores de cuenta distintos (uno claro, uno oscuro saturado, uno medio),
+   confirmar que los 2 escenarios de peor caso de la tabla de 16.5 entran
+   sin scroll, y confirmar el foco/anuncio de error de 16.7.2 con
+   Cuenta/Categoría sin elegir.
