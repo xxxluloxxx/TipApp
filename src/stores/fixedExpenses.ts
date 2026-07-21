@@ -57,10 +57,18 @@ export interface FixedExpenseRow {
 export interface FixedExpenseHistoryRow {
   instanceId: string
   name: string
-  /** Monto real pagado si `paid`, la proyección de la plantilla si `pending`. */
+  /** Monto real pagado si `paid`, la proyección de la plantilla si `pending`/
+   * `skipped` (sección 14: para una omitida es solo informativo — el caller
+   * NUNCA debe sumarlo al total de la columna, ver `isSkipped`). */
   amount: number
-  /** `true` si la instancia nunca se marcó como pagada (monto = proyección). */
+  /** `true` únicamente si la instancia sigue `pending` (sección 14: ya no
+   * incluye `skipped`, que ahora tiene su propio flag). */
   isPending: boolean
+  /** `true` si el usuario omitió a propósito este gasto fijo ese mes (sección
+   * 14 de fixed-expenses-ux.md) — el caller debe excluir `amount` del total de
+   * la columna y mostrar "Omitido" en vez de "Pendiente", mismo criterio ya
+   * aplicado en el dashboard y la dona de "Por categoría". */
+  isSkipped: boolean
   /** Categoría de la plantilla (campo aditivo, sección 13.11): resuelve el
    * color del dot de la fila vía `categoriesStore.categoryById`. */
   categoryId: string | null
@@ -349,7 +357,8 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
       // (sección 13.4). El `?? 0`/'Gasto fijo' son un backstop defensivo.
       name: row.fixed_expense?.name ?? 'Gasto fijo',
       amount: row.expense?.amount ?? row.fixed_expense?.amount ?? 0,
-      isPending: row.status !== 'paid',
+      isPending: row.status === 'pending',
+      isSkipped: row.status === 'skipped',
       categoryId: row.fixed_expense?.category_id ?? null,
     }))
   }

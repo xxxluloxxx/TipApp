@@ -136,7 +136,11 @@ async function loadColumn(period: Date): Promise<void> {
   } else if (result.length === 0) {
     next = { state: 'empty', rows: [], total: null }
   } else {
-    const total = result.reduce((sum, row) => sum + row.amount, 0)
+    // Sección 14: una instancia omitida se sigue LISTANDO (para que el
+    // historial de ese mes quede completo), pero su monto no cuenta para el
+    // total de la columna — mismo criterio ya aplicado al hero "Total del
+    // mes" y a la dona "Por categoría" del dashboard.
+    const total = result.reduce((sum, row) => (row.isSkipped ? sum : sum + row.amount), 0)
     next = { state: 'data', rows: result, total }
   }
   columnData.value = { ...columnData.value, [periodKey]: next }
@@ -315,7 +319,10 @@ const variationIndicators = computed<VariationIndicator[]>(() => {
                     <p class="text-xs font-medium tabular-nums">
                       ${{ formatAmount(row.amount) }}
                     </p>
-                    <p v-if="row.isPending" class="text-[10px] text-muted-foreground">
+                    <p v-if="row.isSkipped" class="text-[10px] text-muted-foreground">
+                      Omitido
+                    </p>
+                    <p v-else-if="row.isPending" class="text-[10px] text-muted-foreground">
                       Pendiente
                     </p>
                   </div>

@@ -2044,3 +2044,14 @@ nunca sobre una instancia `paid` o una plantilla pausada, para no ofrecer
   sin `AlertDialog`, mutación optimista (14.3); Card 2: segunda línea
   condicional de `omittedCount` + barra usando `resolvedCount` (14.4);
   Cards 1/3/4 no requieren cambios de UI, solo verificación (14.4).
+- **14.6 — Corrección post-implementación (mismo día)**: la pantalla
+  "Comparación mensual" (sección 13, `FixedExpensesComparisonView.vue`) se
+  construyó ANTES de que existiera `skipped` — el Product Owner probó ambas
+  pantallas juntas y notó que una instancia omitida seguía apareciendo ahí
+  como "Pendiente", sumada al total de esa columna. `FixedExpenseHistoryRow`
+  (`fetchInstancesForPeriod`) ganó un campo `isSkipped` propio (antes
+  `isPending: status !== 'paid'` conflacionaba `pending`+`skipped`, ahora
+  `isPending: status === 'pending'` explícito). La fila sigue LISTÁNDOSE
+  (historial completo del mes), pero con "Omitido" en vez de "Pendiente" y
+  excluida de la suma `column.total` — mismo criterio que ya aplican el hero
+  "Total del mes" y la dona "Por categoría" del dashboard.
