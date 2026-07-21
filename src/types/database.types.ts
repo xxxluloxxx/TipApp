@@ -125,6 +125,7 @@ export type Database = {
           id: string
           initial_balance: number
           name: string
+          sort_order: number
           transfer_commission: number
           updated_at: string
           user_id: string
@@ -136,6 +137,7 @@ export type Database = {
           id?: string
           initial_balance?: number
           name: string
+          sort_order?: number
           transfer_commission?: number
           updated_at?: string
           user_id: string
@@ -147,6 +149,7 @@ export type Database = {
           id?: string
           initial_balance?: number
           name?: string
+          sort_order?: number
           transfer_commission?: number
           updated_at?: string
           user_id?: string

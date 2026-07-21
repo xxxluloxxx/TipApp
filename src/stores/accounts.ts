@@ -38,11 +38,24 @@ export const useAccountsStore = defineStore('accounts', () => {
    * calculado sumando listas de gastos/ingresos en el cliente. */
   const balances = ref<Record<string, number>>({})
 
-  // Sección 6.2: orden de creación (más vieja primero), estable, a
-  // diferencia del grid de Inicio que ordena por saldo desc (sección 2.3).
+  // Sección 13.3.6: orden manual por `sort_order` (el usuario lo reordena a
+  // mano vía los botones ↑/↓ del modo "Ordenar"), con `created_at` como
+  // desempate estable si dos filas comparten `sort_order` (no debería pasar
+  // en operación normal — el backfill/trigger de la migración lo garantiza —,
+  // pero es un desempate barato de dejar puesto). Reemplaza el orden por
+  // `created_at` de la Fase 1 (sección 6.2). A diferencia del grid de Inicio,
+  // que ordena por saldo desc (sección 2.3).
   const sortedAccounts = computed(() =>
-    [...accounts.value].sort((a, b) => a.created_at.localeCompare(b.created_at)),
+    [...accounts.value].sort(
+      (a, b) => a.sort_order - b.sort_order || a.created_at.localeCompare(b.created_at),
+    ),
   )
+
+  /** True mientras hay un swap de `sort_order` en vuelo hacia el servidor
+   * (sección 13.3.3/13.3.4): la vista deshabilita TODOS los botones ↑/↓
+   * mientras dura, para que dos taps rápidos no disparen swaps superpuestos
+   * que podrían pisarse si la segunda respuesta llega antes que la primera. */
+  const isReordering = ref(false)
 
   const totalBalance = computed(() =>
     accounts.value.reduce((sum, account) => sum + (balances.value[account.id] ?? 0), 0),
@@ -83,7 +96,16 @@ export const useAccountsStore = defineStore('accounts', () => {
   }
 
   async function fetchAccounts(): Promise<boolean> {
-    const { data, error: fetchError } = await supabase.from('accounts').select('*')
+    // Sección 13.3.6: orden explícito por `sort_order` (orden manual del
+    // usuario) con `created_at` como desempate — mismo criterio que
+    // `sortedAccounts` re-aplica en cliente, pero se pide ya ordenado al
+    // servidor en vez de traer sin `.order()` (que antes dejaba el orden a
+    // criterio de Postgres).
+    const { data, error: fetchError } = await supabase
+      .from('accounts')
+      .select('*')
+      .order('sort_order', { ascending: true })
+      .order('created_at', { ascending: true })
 
     if (fetchError) {
       console.error('[accounts] No se pudieron cargar las cuentas', fetchError)
@@ -196,6 +218,12 @@ export const useAccountsStore = defineStore('accounts', () => {
 
     const tempId = `temp-${crypto.randomUUID()}`
     const nowIso = new Date().toISOString()
+    // Sección 13.3.5: la cuenta nueva va SIEMPRE al final del orden manual.
+    // Este valor optimista es solo un espejo del que asigna el trigger
+    // `accounts_set_sort_order` server-side (max(sort_order) + 1) — no se
+    // manda en el insert (el trigger lo recalcula), pero se necesita para que
+    // `sortedAccounts` la ubique al final antes de la confirmación del server.
+    const nextSortOrder = accounts.value.reduce((max, a) => Math.max(max, a.sort_order), -1) + 1
     const optimistic: Account = {
       id: tempId,
       user_id: userId,
@@ -204,6 +232,7 @@ export const useAccountsStore = defineStore('accounts', () => {
       icon: payload.icon,
       initial_balance: payload.initialBalance,
       transfer_commission: payload.transferCommission,
+      sort_order: nextSortOrder,
       created_at: nowIso,
       updated_at: nowIso,
     }
@@ -344,11 +373,63 @@ export const useAccountsStore = defineStore('accounts', () => {
     void persist()
   }
 
+  /**
+   * Reordenamiento manual optimista (sección 13.3.4): mueve la cuenta en la
+   * posición `index` (del orden actual `sortedAccounts`) una posición hacia
+   * arriba (`direction = -1`) o abajo (`direction = 1`), intercambiando su
+   * `sort_order` con el de la cuenta adyacente. Mismo patrón optimista con
+   * rollback + toast "Reintentar" que `addAccount`/`updateAccount`/
+   * `deleteAccount`. Swap de a pares (no reescribir todos los `sort_order` de
+   * la lista): mover una posición solo requiere intercambiar con el vecino,
+   * el payload de red es O(1), no O(N).
+   */
+  function moveAccount(index: number, direction: -1 | 1): void {
+    const list = sortedAccounts.value
+    const otherIndex = index + direction
+    if (otherIndex < 0 || otherIndex >= list.length) return
+
+    const a = list[index]!
+    const b = list[otherIndex]!
+    const previousOrderA = a.sort_order
+    const previousOrderB = b.sort_order
+
+    // Optimista: swap de `sort_order` en el estado local — `sortedAccounts`
+    // ya refleja el nuevo orden en el próximo render, sin esperar al servidor.
+    replaceById(a.id, { ...a, sort_order: previousOrderB })
+    replaceById(b.id, { ...b, sort_order: previousOrderA })
+
+    isReordering.value = true
+    const persist = async (): Promise<void> => {
+      const [resA, resB] = await Promise.all([
+        supabase.from('accounts').update({ sort_order: previousOrderB }).eq('id', a.id),
+        supabase.from('accounts').update({ sort_order: previousOrderA }).eq('id', b.id),
+      ])
+
+      isReordering.value = false
+
+      if (resA.error || resB.error) {
+        // Rollback: ambas filas vuelven a su `sort_order` previo a la vez, no
+        // se quedan "a mitad de camino" mostrando un orden no confirmado.
+        replaceById(a.id, { ...a, sort_order: previousOrderA })
+        replaceById(b.id, { ...b, sort_order: previousOrderB })
+        toast.error('No se pudo guardar el nuevo orden', {
+          description: 'Revisá tu conexión e intentá de nuevo.',
+          action: { label: 'Reintentar', onClick: () => moveAccount(index, direction) },
+        })
+      }
+      // Sin toast de éxito: el usuario ya ve el resultado (la fila se movió),
+      // un toast por cada tap de ↑/↓ sería ruido (sección 13.3.4).
+    }
+
+    void persist()
+  }
+
   return {
     accounts: sortedAccounts,
     usageCounts,
     balances,
     totalBalance,
+    isReordering,
     accountById,
     countFor,
     balanceFor,
@@ -359,5 +440,6 @@ export const useAccountsStore = defineStore('accounts', () => {
     addAccount,
     updateAccount,
     deleteAccount,
+    moveAccount,
   }
 })

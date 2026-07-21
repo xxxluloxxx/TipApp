@@ -83,6 +83,13 @@ export function currentMonthLabel(reference: Date = new Date()): string {
   return `${MONTHS_ES[reference.getMonth()]} ${reference.getFullYear()}`
 }
 
+/** Nombre del mes en minúscula, sin año (p. ej. "junio") — usado por el copy
+ * "vs. {mes}" del hero de "Saldo total" de `/cuentas` (accounts-income-ux.md
+ * sección 13.1.3, que no lleva año a diferencia de `currentMonthLabel`). */
+export function monthNameOnly(date: Date): string {
+  return MONTHS_ES[date.getMonth()] ?? ''
+}
+
 /** Primer día del mes calendario de `date` (a medianoche local). Usado por la
  * pantalla de Comparación mensual (fixed-expenses-ux.md sección 13.1/13.10)
  * para normalizar el pivote y los `period` que se pasan al `.eq()` de las

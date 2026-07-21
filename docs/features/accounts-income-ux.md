@@ -1418,3 +1418,737 @@ dashboard/detalle propio en esta iteración. Se agrega a
     Fase 2 (Deudas/Préstamos) — el acceso rápido "Deudas" queda
     deshabilitado y sin ruta, listo para activarse el día que exista esa
     especificación.
+
+---
+
+## 13. Rediseño visual de `/cuentas` (referencia "Wallet") + orden manual de cuentas
+
+**Nota de vigencia, léase primero**: esta sección se agrega mucho después de
+las 12 anteriores, sobre el estado **actual** del código, no sobre el de la
+Fase 1 original. Dos decisiones de esta sección 13 quedaron ya
+**superadas por documentos posteriores** que el lector debe conocer antes de
+seguir:
+
+- `docs/features/account-detail-ux.md` ya construyó `AccountDetailView.vue`
+  (`/cuentas/:id`) — la sección 2.3 de este mismo documento (que decía "no se
+  construye" ese detalle) está desactualizada en ese punto exacto, y
+  `AccountsView.vue` **ya navega** a esa ruta al tocar una fila (no es una
+  propuesta nueva de esta sección, es el estado real del código verificado
+  contra `src/router/index.ts` y `src/views/AccountsView.vue` antes de
+  escribir esto).
+- `docs/features/account-transfers-ux.md` sección 6.6 ya **reemplazó** la
+  regla de color de monto de gasto real ("no pintar de rojo cada gasto")
+  por `text-destructive` para todo gasto real en listados de
+  transacciones. Esa regla es sobre **filas de transacción** (Inicio/
+  Transacciones), un componente distinto de la fila de **cuenta** que
+  rediseña esta sección — no hay conflicto, pero el lector no debe
+  confundir ambas superficies.
+
+Con eso aclarado: el Product Owner mostró una captura de otra app ("Wallet")
+y pidió replicar su **contenido y estilo visual** (no su navegación ni su
+marca — mismo criterio de exclusión ya aplicado en todo TipApp, ver
+`credit-cards-ux.md` sección 11 y el encabezado de este mismo documento).
+Se agregan, además, dos piezas de contenido/funcionalidad reales: un hero de
+"Saldo total" (que hoy `/cuentas` no tiene — el que ya existe con ese nombre
+vive en `HomeView.vue`, sección 2.3, y es una cosa distinta, ver 13.1.1) y
+orden manual de cuentas.
+
+Explícitamente **no reabierto** (ya decidido por el Product Owner, fuera de
+esta sección): sin badge "Activa"/"Inactiva" (no existe ese campo en el
+modelo), sin "Ocultar saldos", sin ninguna tarjeta promocional/upsell al
+final del listado (TipApp no tiene upsells, criterio ya establecido en
+`dashboard-redesign-ux.md`).
+
+### 13.1 Hero "Saldo total" en `/cuentas`
+
+#### 13.1.1 Por qué esto NO es el mismo hero de "Mis cuentas" en Inicio
+
+`HomeView.vue` ya muestra un "Saldo total" (sección 2.3 de este documento)
+pero es un `CardDescription` chico, subordinado al grid de hasta 5 tiles —
+no es un hero, no tiene indicador de variación ni gráfico. La captura de
+referencia pide un hero de verdad **en la parte de arriba de `/cuentas`**
+(hoy esa pantalla no tiene ningún hero: `AccountsView.vue` va directo del
+`AppHeader` a la Card "Tus cuentas", ver el archivo actual). Es una pieza
+nueva, propia de esta pantalla — no se toca `HomeView.vue` en esta sección.
+
+#### 13.1.2 Layout — mismo lenguaje visual que el hero ya existente de Inicio, no uno nuevo
+
+**Decisión: `Card` plana (`bg-card`, borde), no una card con fondo de color
+sólido/degradado como en la captura de referencia.** La referencia usa un
+fondo azul intenso de marca para este hero; TipApp no lo replica porque
+rompería la consistencia visual ya establecida por **todos** los demás
+heroes/resúmenes de la app (`Total del mes` de Inicio, las cards resumen de
+`DebtsDashboardView`, el total de `CardsDashboardView`) — ninguno usa un
+fondo de color sólido, todos son `Card` neutra con el monto en
+`text-foreground` y color reservado para acentos puntuales (ícono, delta).
+Introducir acá la única card "de color" de toda la app sería inconsistente
+sin que el Product Owner lo haya pedido explícitamente (pidió el contenido/
+layout de la referencia, no literalmente su paleta) — mismo criterio de
+"replicar contenido, no marca" ya aplicado al resto de la feature.
+
+```html
+<Card>
+  <CardHeader class="flex-row items-start justify-between gap-2">
+    <div class="flex flex-col gap-1">
+      <CardDescription class="text-xs font-medium uppercase tracking-wide">
+        Saldo total
+      </CardDescription>
+      <CardTitle class="text-3xl font-bold tabular-nums tracking-tight sm:text-4xl">
+        <span class="align-top text-sm font-normal text-muted-foreground">$</span>{{ formatAmount(accountsStore.totalBalance) }}
+      </CardTitle>
+      <div
+        v-if="totalBalanceDelta"
+        class="flex items-center gap-1 text-sm font-medium"
+        :class="totalBalanceDelta.direction === 'up' ? 'text-success' : 'text-destructive'"
+      >
+        <component :is="totalBalanceDelta.direction === 'up' ? ArrowUp : ArrowDown" class="size-3.5" />
+        {{ totalBalanceDelta.label }} vs. {{ previousMonthName }}
+      </div>
+    </div>
+
+    <!-- Ícono decorativo, sección 13.1.4: NO es un botón, no navega a
+         ningún lado. -->
+    <span
+      class="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10"
+      aria-hidden="true"
+    >
+      <ChartLine class="size-4 text-primary" />
+    </span>
+  </CardHeader>
+</Card>
+```
+
+Ubicación: primer elemento de `<main>` en `AccountsView.vue`, antes de la
+Card "Tus cuentas" (que sigue exactamente igual salvo por el control
+"Ordenar" nuevo, sección 13.3, y el chevron/color de fila, sección 13.2).
+
+- **Monto**: mismo tratamiento tipográfico exacto que el hero de "Total del
+  mes" de Inicio (`design-system.md` sección 2, "Cómo destacar montos de
+  dinero") — `text-3xl sm:text-4xl font-bold tabular-nums tracking-tight`,
+  símbolo `$` en `text-sm font-normal text-muted-foreground`. Fuente:
+  `accountsStore.totalBalance` (ya existe, computed sobre `balances`,
+  sección 1.2 — no se recalcula nada nuevo para el monto en sí).
+- **`CardDescription` como label chico**: "Saldo total" en mayúsculas,
+  mismo patrón ya usado para "Tus cuentas" (`text-xs font-medium uppercase
+  tracking-wide text-muted-foreground`) — nótese que acá se omite
+  `text-muted-foreground` explícito en el snippet porque `CardDescription`
+  ya aplica ese color por defecto (mismo componente, mismo comportamiento
+  que en el resto del proyecto).
+- **Ícono decorativo**: círculo `bg-primary/10` con `ChartLine` en
+  `text-primary` — "círculo de acento" del pedido se resuelve con el token
+  `primary` (que en TipApp **es** el color de acento configurable por el
+  usuario, `docs/features/accent-color-ux.md`), no con un hex nuevo.
+  Confirmado en `node_modules/@lucide/vue/dist/esm/icons/chart-line.mjs`
+  (mismo método de verificación que el resto de los documentos del
+  proyecto).
+
+#### 13.1.3 La variación ("12% vs. junio") — cálculo, sin RPC nueva, con un caso borde aceptado
+
+Mismo principio general ya usado dos veces en el proyecto para evitar sumar
+historial completo (`debts-ux.md` sección 1.4, `account-detail-ux.md`
+sección 6.1): el "saldo de arranque" de la ventana se deriva de dos números
+ya seguros — el agregado de servidor sin límite de fecha
+(`accountsStore.totalBalance`, siempre correcto) y el neto de movimientos
+**acotados por fecha** (nunca una lista global capada).
+
+**Insight clave que simplifica esto respecto al precedente de una sola
+cuenta**: acá el total suma **todas** las cuentas del usuario, y una
+transferencia entre dos cuentas propias (`account-transfers-ux.md` sección
+1) es, por definición, un movimiento de suma cero a nivel agregado — sale
+de una cuenta del usuario, entra a otra cuenta del mismo usuario. **No hace
+falta ninguna query a `account_transfers` para este cálculo**: alcanza con
+`expenses`/`incomes`, mismo criterio de "no pedir al servidor más de lo que
+hace falta" ya establecido en el resto del proyecto. (La comisión de una
+transferencia sí impacta, correctamente, porque ya es una fila real de
+`expenses` — sección 6 de `account-transfers-ux.md` — que la query de gastos
+ya trae sin tratamiento especial.)
+
+```ts
+// AccountsView.vue — junto a loadAll(), un tercer fetch acotado por fecha
+// (no una lista global capada), mismo criterio que el resto de la feature.
+const monthStartDate = startOfMonth(new Date())
+const monthStartKey = formatDateOnly(monthStartDate)
+
+const [expensesRes, incomesRes] = await Promise.all([
+  supabase.from('expenses').select('amount').gte('expense_date', monthStartKey),
+  supabase.from('incomes').select('amount').gte('income_date', monthStartKey),
+])
+
+const monthNet =
+  (incomesRes.data ?? []).reduce((sum, i) => sum + i.amount, 0) -
+  (expensesRes.data ?? []).reduce((sum, e) => sum + e.amount, 0)
+
+const startOfMonthBalance = accountsStore.totalBalance - monthNet
+```
+
+```ts
+// Delta expuesto a la plantilla — mismo vocabulario/íconos que el delta ya
+// existente de "vs. mes anterior" en el hero de Inicio (ArrowUp/ArrowDown +
+// success/destructive), y mismo tratamiento del caso borde "arranque en $0"
+// ya resuelto en account-detail-ux.md sección 6.3 para el saldo de UNA
+// cuenta (acá es el mismo problema, a nivel del total).
+const totalBalanceDelta = computed(() => {
+  const delta = accountsStore.totalBalance - startOfMonthBalance.value
+  if (delta === 0) return null // sin cambio real, no forzar un "0%"/"+$0"
+  const direction: 'up' | 'down' = delta >= 0 ? 'up' : 'down'
+
+  if (startOfMonthBalance.value === 0) {
+    const sign = delta >= 0 ? '+' : '-'
+    return { direction, label: `${sign}$${formatAmount(Math.abs(delta))}` }
+  }
+  const pct = (delta / Math.abs(startOfMonthBalance.value)) * 100
+  const sign = pct >= 0 ? '+' : ''
+  return { direction, label: `${sign}${pct.toFixed(0)}%` }
+})
+```
+
+- **Más saldo = bueno** (`success` si sube, `destructive` si baja) — misma
+  semántica ya fijada para saldo de cuenta en la sección 2.3 de este
+  documento y reconfirmada en `account-detail-ux.md` sección 6.3,
+  deliberadamente **opuesta** a la de "Total del mes" (donde gastar más es
+  `destructive`): no es una inconsistencia, son preguntas distintas (stock
+  vs. flujo, ya justificado en la sección 2 de este documento).
+- **Caso borde — `startOfMonthBalance === 0`**: mismo tratamiento ya
+  aceptado en `account-detail-ux.md` sección 6.3 para una cuenta individual
+  (dividir por cero no es informativo) — se muestra el monto con signo en
+  vez de un porcentaje, nunca `Infinity%`/`NaN%`.
+- **Caso borde conocido y aceptado, sin resolver** (documentado, no un
+  olvido): si el usuario crea una cuenta **nueva dentro del mes en curso**
+  con un `initial_balance` distinto de cero, ese monto no queda registrado
+  como un "movimiento con fecha" — la fórmula de arriba lo cuenta como si ya
+  hubiera estado ahí desde antes del mes, subestimando levemente el
+  porcentaje de crecimiento real de ese mes. Se acepta sin resolver por el
+  mismo criterio ya usado para el sobrepago de deudas
+  (`debts-ux.md` sección "Deudas/Préstamos... backend"): es un caso de
+  probabilidad baja (`initial_balance` casi siempre es `0`, sección 6.3 de
+  este documento) y de impacto acotado (un pequeño error de magnitud en un
+  indicador secundario, no un dato mostrado como si fuera exacto donde
+  importa — el saldo total en sí, arriba, sigue siendo exacto siempre). Si
+  a futuro se quiere corregir, la solución exacta existe (excluir del
+  `monthNet` a las cuentas con `created_at >= inicio de mes` y restar,
+  además, su saldo actual completo de `startOfMonthBalance`) pero no se
+  justifica el costo de implementarla ahora.
+- **Por qué es seguro sin `isMonthSafeToShow`**: a diferencia de
+  `expensesStore.monthTotal` (que sí necesita esa heurística porque deriva
+  de una lista capada, `dashboard-redesign-ux.md` sección 1), acá las dos
+  queries de arriba están acotadas por fecha (`gte`) contra la tabla real,
+  nunca contra `expensesStore.expenses`/`incomesStore.incomes` — mismo
+  argumento de seguridad de datos ya usado en toda esta feature (sección 1)
+  y en `account-detail-ux.md` sección 6.1.
+- **`previousMonthName`**: nombre del mes anterior en minúscula, sin año
+  (`"junio"`, no `"junio 2026"` — la referencia visual no lleva año).
+  `src/lib/date.ts` no expone hoy un helper así (`currentMonthLabel` incluye
+  el año, y `MONTHS_ES` es privado) — agregar un helper chico
+  `monthNameOnly(date: Date): string` (o exportar `MONTHS_ES` si
+  `vue-frontend-expert` prefiere resolverlo en el componente) es una
+  decisión de implementación menor, no de diseño.
+- Si el usuario no tiene ninguna cuenta (estado vacío ya cubierto en sección
+  6.2), el hero completo se oculta (no hay "saldo total" que mostrar de
+  cero cuentas) — mismo criterio que ocultar secciones enteras sin datos ya
+  aplicado en el resto del proyecto (p. ej. el gráfico de "Últimos 30 días"
+  de `account-detail-ux.md` sección 6.3 con un solo punto).
+
+#### 13.1.4 El ícono decorativo no es clickeable, a propósito
+
+La captura de referencia lo muestra como un adorno visual, sin indicar a
+dónde navega. **Se implementa como puramente decorativo**
+(`<span aria-hidden="true">`, no un `<button>`): un elemento que *parece*
+interactivo (círculo con ícono, mismo lenguaje visual que un botón real de
+la app) pero no responde a un tap sería exactamente el antipatrón que
+`design-system.md` sección 5 prohíbe ("nunca un elemento que parezca
+interactivo pero no haga nada al activarlo"). Si a futuro el Product Owner
+quiere que navegue a `/estadisticas` (destino más obvio para un ícono de
+gráfico), es un cambio de una línea — pero no se inventa ese destino sin
+pedido explícito.
+
+---
+
+### 13.2 Fila de cuenta rediseñada: chevron + color de saldo
+
+#### 13.2.1 Chevron — afordancia visual, no una función nueva
+
+Se agrega `ChevronRight` (`size-4 text-muted-foreground shrink-0`) al final
+de cada fila de `AccountsView.vue`, antes del botón de menú `⋮` (o después,
+ver nota de layout abajo). **No es una inconsistencia agregar esto ahora**:
+como quedó confirmado leyendo `src/router/index.ts` y `src/views/
+AccountsView.vue` antes de escribir esta sección, `/cuentas/:id`
+(`account-detail`) **ya existe y ya está enrutado** — la fila completa ya
+navega ahí al tocarla (`account-detail-ux.md` sección 1.3, ya implementado).
+El chevron no es una promesa a futuro: es la afordancia visual que hoy le
+falta a una fila que **ya es clickeable**, cerrando exactamente el hueco que
+el encargo pedía confirmar antes de resolver solo.
+
+Layout de la fila (orden de derecha a izquierda: saldo → chevron → menú
+`⋮`, para que el chevron quede pegado al bloque de contenido de la fila y
+el menú `⋮` — una acción secundaria, distinta de "ver detalle" — quede
+separado al extremo, mismo criterio ya usado en `credit-cards-ux.md` para
+separar "navegar" de "acciones de gestión"):
+
+```html
+<div class="flex flex-col items-end gap-0.5">
+  <p class="text-sm font-semibold tabular-nums" :class="balanceColorClass(account)">
+    {{ ...saldo... }}
+  </p>
+</div>
+<ChevronRight class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+<DropdownMenu>...</DropdownMenu>
+```
+
+- `aria-hidden="true"`: el chevron es puramente decorativo — la fila ya
+  tiene `aria-label="Ver detalle de {name}"` (código actual, sin cambios),
+  que ya comunica la acción a un lector de pantalla; el chevron no debe
+  anunciarse una segunda vez.
+- No se toca el mecanismo de `@click.stop` en el trigger del menú `⋮`
+  (`account-detail-ux.md` sección 1.3) — el chevron es puramente visual, sin
+  ningún listener propio.
+
+#### 13.2.2 Color del saldo de fila — decisión: combinado, no reemplazo total
+
+**Pregunta del encargo**: ¿el color de cuenta reemplaza por completo la
+semántica `destructive` en negativo, o se combina?
+
+**Decisión: se combina — color de cuenta cuando el saldo es `>= 0`,
+`text-destructive` cuando es negativo (la semántica de alerta nunca se
+pierde).**
+
+```ts
+function balanceColorStyle(account: Account): string | undefined {
+  const balance = accountsStore.balanceFor(account.id)
+  if (balance < 0) return undefined // cae a `text-destructive` por clase, ver abajo
+  return resolveAccountColor(account.color ?? '#6b7280', isDarkNow.value)
+}
+```
+
+```html
+<p
+  class="text-sm font-semibold tabular-nums"
+  :class="accountsStore.balanceFor(account.id) < 0 ? 'text-destructive' : undefined"
+  :style="accountsStore.balanceFor(account.id) < 0 ? undefined : { color: balanceColorStyle(account) }"
+>
+  {{ accountsStore.balanceFor(account.id) < 0 ? '-' : '' }}${{ formatAmount(Math.abs(accountsStore.balanceFor(account.id))) }}
+</p>
+```
+
+**Por qué no el reemplazo total** (color de cuenta siempre, incluso en
+negativo, como en la captura de referencia — que no muestra ningún saldo
+negativo, así que no resuelve el dilema por sí sola):
+
+1. **Es la única señal de alerta real que le queda a esta fila.** A
+   diferencia del monto de una transacción (que ya tiene el signo `$`/`+$`
+   como indicador primario, `account-transfers-ux.md` sección 6.6), el
+   saldo de una cuenta **ya** usa el signo `-` como indicador primario
+   (sección 6.2 de este documento) — pero `design-system.md` sección 5
+   ("color nunca como único indicador") es una regla sobre **no depender
+   solo de color**, no una prohibición de reforzar con color cuando hay una
+   alerta real que comunicar. Un saldo negativo (cuenta en descubierto) es,
+   objetivamente, un estado más urgente que "esta cuenta es violeta" — dejar
+   que el color categórico de la cuenta lo enmascare sería perder
+   información real a cambio de nada (la identidad de la cuenta ya está
+   comunicada por el ícono + nombre + el fondo teñido de toda la fila, no
+   depende del color del monto para eso).
+2. **No hay precedente de "romper" `destructive` por un color decorativo en
+   ningún otro lugar de la app.** Categorías, tarjetas y personas tienen
+   swatches de color propios y **nunca** se usan para pintar un monto en
+   negativo — el color de swatch siempre queda relegado al ícono/badge,
+   nunca compite con la semántica de alerta de un monto. Cambiar ese
+   criterio solo para Cuentas, sin que el resto de la app lo replique,
+   introduciría una inconsistencia real (dos filas de dinero en pantallas
+   distintas, incluso en la misma sesión, con reglas de color diferentes
+   para "negativo").
+3. **Costo de implementación bajo, beneficio de consistencia alto**: la
+   combinación (`destructive` si negativo, color de cuenta si no) es
+   literalmente el mismo condicional que ya existe hoy
+   (`balance < 0 ? 'text-destructive' : 'text-foreground'`), solo
+   reemplazando el `else` (`text-foreground`) por el color resuelto de la
+   cuenta — no una reescritura, un cambio de una rama.
+
+Aplica en los **tres** lugares que hoy muestran saldo de cuenta con la regla
+`destructive`/`foreground`: la fila de `AccountsView.vue` (sección 6.2 de
+este documento), el nuevo hero de `AccountDetailView.vue` si aplica (fuera
+de alcance de esta sección — `account-detail-ux.md` ya fija su propio color
+para el saldo de ESA cuenta puntual, no se reabre acá) y las tiles de "Mis
+cuentas" de `HomeView.vue` (sección 2.3 de este documento, que **ya**
+documentaba el mismo condicional `destructive`/`foreground` — se actualiza
+igual, por consistencia, aunque el encargo de esta sesión solo pidió
+`/cuentas`).
+
+---
+
+### 13.3 Orden manual de cuentas ("Ordenar")
+
+#### 13.3.1 Mecanismo elegido: botones ↑/↓ por fila, no drag nativo
+
+**Decisión: botones `ChevronUp`/`ChevronDown` por fila (mover una posición
+arriba/abajo por tap), no un drag reorder con Pointer Events.**
+
+Motivos, en orden de peso:
+
+1. **Conflicto de gesto real en mobile**: un drag vertical para reordenar
+   compite literalmente con el gesto de **scroll** de la propia página — la
+   lista de cuentas vive dentro de un `<main>` que scrollea, no dentro de un
+   contenedor de altura fija. Resolverlo bien requiere suprimir el scroll de
+   la página mientras el dedo sostiene una fila (`touch-action: none` en el
+   elemento arrastrado, pero **no** en el resto del scroll del documento),
+   detectar cuándo un touch es "quiero arrastrar esta fila" vs. "quiero
+   seguir scrolleando la página" (normalmente con un umbral de tiempo/
+   distancia antes de "armar" el drag), y in mid-drag, auto-scrollear si el
+   usuario arrastra cerca del borde superior/inferior de la ventana visible
+   — three problemas reales de UX que ninguna combinación simple de
+   Pointer Events nativos resuelve con poco código sin conseguir casos
+   borde raros (el drag se "pega", la página scrollea sola de golpe, un tap
+   corto se interpreta como el inicio de un drag).
+2. **Accesibilidad de teclado/lector de pantalla gratis**: un botón
+   `ChevronUp`/`ChevronDown` es, por construcción, operable con
+   teclado/switch access sin ningún trabajo adicional (foco + Enter, mismo
+   patrón que cualquier otro botón del proyecto) y anunciable por lector de
+   pantalla con un `aria-label` simple ("Subir Efectivo", "Bajar
+   Procredito"). Un drag reorder necesita, para llegar al mismo nivel de
+   accesibilidad, una alternativa de teclado completa **además** del drag
+   (típicamente las mismas flechas ↑/↓ que esta decisión ya provee como
+   único mecanismo) — implementar ambas rutas para terminar dependiendo
+   igual de la alternativa de teclado es esfuerzo duplicado sin beneficio
+   neto real para el caso de uso (reordenar una lista corta de cuentas, no
+   una lista larga de cientos de ítems donde el costo de "N taps" sí
+   importaría).
+3. **Cero dependencias, exactamente lo pedido**: sin librería de
+   drag-and-drop (descartado explícitamente por el encargo si se puede
+   evitar) y sin necesidad de manejar eventos `pointerdown`/`pointermove`/
+   `pointercancel` con su propia máquina de estados — es la opción de menor
+   superficie de bug para una lista que, en la práctica, va a tener pocas
+   cuentas (típicamente menos de 10, ver sección 6.5 sobre la cuenta
+   "General" — no es una lista larga que se beneficie de la velocidad de un
+   drag directo).
+4. **Confiabilidad ya verificada como criterio explícito del encargo**: el
+   encargo pide "lo más simple y confiable en mobile/touch" — un botón con
+   área táctil de 44×44px (ya el estándar de toda la app,
+   `design-system.md` sección 5) es, por definición, 100% confiable en
+   touch (no hay ambigüedad de gesto posible); un drag siempre tiene una
+   tasa de error de reconocimiento de gesto mayor a cero, sin importar cuán
+   bien implementado esté.
+
+Se evaluó y se descarta el drag nativo con Pointer Events **para esta
+iteración** — no por ser imposible, sino porque el costo de implementarlo
+bien (los 3 problemas del punto 1) no se justifica frente a una lista corta
+donde botones ↑/↓ ya dan una experiencia sólida. Si a futuro la lista de
+cuentas creciera mucho (no es el patrón de uso esperado de un tracker
+personal) o el Product Owner pidiera explícitamente la sensación táctil de
+un drag, es una mejora incremental sobre este mismo modelo de datos
+(`sort_order`), no un cambio de arquitectura.
+
+#### 13.3.2 Entrada/salida del modo: toggle en el mismo botón, sin ruta/vista nueva
+
+**"Ordenar" es un modo dentro de la misma `AccountsView.vue`, no una
+pantalla separada.** El botón "Ordenar" del header de "Tus cuentas" alterna
+su propio texto/ícono a "Listo" mientras el modo está activo — mismo
+criterio ya usado en el resto del proyecto para alternar estados sin
+navegar (p. ej. el toggle Gasto/Ingreso de `TransactionFormSheet.vue`,
+sección 7.3: cambiar de estado in-place cuando no hay necesidad real de una
+ruta nueva).
+
+```html
+<CardHeader class="flex-row items-center justify-between gap-2">
+  <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+    Tus cuentas
+  </CardTitle>
+  <CardAction class="flex items-center gap-1">
+    <Button
+      v-if="accountsStore.accounts.length > 1"
+      variant="ghost"
+      size="sm"
+      class="h-11 gap-1.5 px-2 text-sm font-medium"
+      :aria-pressed="isOrderingMode"
+      @click="toggleOrderingMode"
+    >
+      <component :is="isOrderingMode ? Check : ArrowUpDown" class="size-4" />
+      {{ isOrderingMode ? 'Listo' : 'Ordenar' }}
+    </Button>
+    <Button
+      v-if="!isOrderingMode"
+      variant="ghost"
+      size="icon"
+      aria-label="Nueva cuenta"
+      @click="openAddSheet"
+    >
+      <Plus class="size-5" />
+    </Button>
+  </CardAction>
+</CardHeader>
+```
+
+- **El botón "Ordenar" se oculta directamente si `accounts.length <= 1`**
+  (no solo se deshabilita): con 0 o 1 cuenta no existe ningún orden posible
+  que cambiar — mismo criterio de "no ofrecer una acción sin efecto posible"
+  ya usado en el guard de borrado de la sección 6.4 (aunque ahí se
+  deshabilita en vez de ocultar, porque ahí sigue siendo relevante comunicar
+  "no podés borrar esta" fila por fila; acá el control es único y de
+  encabezado, ocultarlo es más limpio que un botón deshabilitado sin ningún
+  efecto posible ni siquiera en potencia).
+- **"Nueva cuenta" (`+`) se oculta por completo mientras `isOrderingMode`
+  es `true`** (no solo se deshabilita): agregar una cuenta nueva en medio de
+  una sesión de reordenamiento es una acción no relacionada que además
+  complica el modelo mental ("¿la cuenta que acabo de crear entra en el
+  medio del orden que estoy armando, o al final?" — sección 13.3.5 ya
+  resuelve eso para el caso general, pero mezclarlo con una sesión de
+  reordenamiento activa es una complejidad de UX innecesaria que se evita
+  simplemente no permitiendo ambas cosas a la vez).
+- **Qué más cambia en el resto de `/cuentas` mientras `isOrderingMode` es
+  `true`**: el hero de "Saldo total" (sección 13.1) y el propio header de
+  página (`AppHeader`) **no cambian** — siguen dando contexto de qué se está
+  reordenando y permiten seguir navegando por el drawer sin restricción. La
+  única superficie que cambia es la lista de filas en sí (sección 13.3.3).
+
+#### 13.3.3 La fila durante "Ordenar": deja de navegar, deja de tener menú `⋮`, gana ↑/↓
+
+```html
+<div
+  v-for="(account, idx) in accountsStore.accounts"
+  :key="account.id"
+  class="flex items-center gap-3 px-4 py-3"
+  :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
+>
+  <span class="flex size-10 shrink-0 items-center justify-center rounded-lg" :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }">
+    <component :is="resolveAccountIcon(account.icon)" class="size-4.5" :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }" />
+  </span>
+  <div class="flex min-w-0 flex-1 flex-col">
+    <p class="truncate text-sm font-medium">{{ account.name }}</p>
+  </div>
+
+  <div class="flex items-center gap-1">
+    <Button
+      variant="ghost"
+      size="icon"
+      class="size-9"
+      :aria-label="`Subir ${account.name}`"
+      :disabled="idx === 0 || isReordering"
+      @click="moveAccount(idx, -1)"
+    >
+      <ChevronUp class="size-4" />
+    </Button>
+    <Button
+      variant="ghost"
+      size="icon"
+      class="size-9"
+      :aria-label="`Bajar ${account.name}`"
+      :disabled="idx === accountsStore.accounts.length - 1 || isReordering"
+      @click="moveAccount(idx, 1)"
+    >
+      <ChevronDown class="size-4" />
+    </Button>
+  </div>
+</div>
+```
+
+- **Sin navegación, sin menú `⋮`**: el `role="button"`/`@click`/
+  `@keydown.enter` de navegación a `/cuentas/:id` (sección 13.2.1) y el
+  `DropdownMenu` de Editar/Eliminar se **omiten por completo** mientras
+  `isOrderingMode` es `true` — no tiene sentido navegar a un detalle ni
+  editar/borrar en medio de una sesión de reordenamiento, y dejar cualquiera
+  de los dos activo competiría por el mismo espacio de toque que los
+  botones ↑/↓ nuevos.
+- **Se muestra menos contenido por fila a propósito** (sin
+  `usageLabel`/subtítulo, sin saldo): durante "Ordenar" lo único relevante
+  es "cuál cuenta es cuál" (ícono + nombre alcanza, igual que ya alcanza en
+  el selector de cuenta de `TransactionFormSheet.vue`, sección 8) — mostrar
+  menos reduce el ruido visual de una tarea que ya requiere concentración
+  (tocar el botón correcto repetidamente). El saldo/uso siguen disponibles
+  con un tap en "Listo" para salir del modo.
+- **Botones deshabilitados en los extremos** (`idx === 0` para ↑,
+  `idx === length - 1` para ↓): comunica el límite de la lista sin
+  necesitar texto adicional — mismo criterio de "disabled nativo + visible"
+  ya aceptado en el resto del proyecto (sección 6.4 de este documento) en
+  vez de ocultar el botón (ocultarlo desplazaría el resto de los controles
+  de la fila, un salto de layout que un `disabled` evita).
+- **`isReordering` global deshabilita TODOS los botones ↑/↓ mientras hay una
+  persistencia en curso** (sección 13.3.4) — evita que dos taps rápidos en
+  filas distintas disparen swaps superpuestos que podrían pisarse entre sí
+  si la segunda petición llega al servidor antes que la primera. Es una
+  limitación aceptada (el usuario no puede encadenar movimientos
+  instantáneamente uno tras otro sin esperar), pero es la forma más simple
+  de eliminar una clase entera de bug de carrera sin necesitar una cola de
+  operaciones.
+
+#### 13.3.4 Guardado: optimista en cada movimiento, sin botón "Guardar" explícito
+
+**Decisión: cada tap en ↑/↓ persiste de inmediato (optimista + rollback),
+no hay un botón "Guardar" al final de la sesión de "Ordenar".**
+
+Es el mismo patrón que **ya** usa el 100% de `accounts.ts` (alta, edición,
+borrado, sección 6.3/6.4 de este documento) — introducir acá el único flujo
+de la pantalla con un paso de confirmación explícito ("Guardar") sería
+inconsistente con el resto del store, y además más arriesgado en la
+práctica: si el usuario reordena 5 cuentas y cierra la pestaña/pierde
+conexión antes de tocar un hipotético botón "Guardar", los 5 movimientos se
+perderían igual — persistiendo en cada paso, como mucho se pierde el último
+movimiento en vuelo si algo falla, nunca la sesión completa.
+
+```ts
+// src/stores/accounts.ts — función nueva, mismo patrón optimista con
+// rollback que addAccount/updateAccount/deleteAccount.
+function moveAccount(index: number, direction: -1 | 1): void {
+  const list = sortedAccounts.value // orden actual por sort_order
+  const otherIndex = index + direction
+  if (otherIndex < 0 || otherIndex >= list.length) return
+
+  const a = list[index]!
+  const b = list[otherIndex]!
+  const previousOrderA = a.sort_order
+  const previousOrderB = b.sort_order
+
+  // Optimista: swap de sort_order en el estado local — sortedAccounts ya
+  // refleja el nuevo orden en el próximo render, sin esperar al servidor.
+  replaceById(a.id, { ...a, sort_order: previousOrderB })
+  replaceById(b.id, { ...b, sort_order: previousOrderA })
+
+  isReordering.value = true
+  const persist = async (): Promise<void> => {
+    const [resA, resB] = await Promise.all([
+      supabase.from('accounts').update({ sort_order: previousOrderB }).eq('id', a.id),
+      supabase.from('accounts').update({ sort_order: previousOrderA }).eq('id', b.id),
+    ])
+
+    isReordering.value = false
+
+    if (resA.error || resB.error) {
+      // Rollback: vuelve a los valores previos, ambos a la vez.
+      replaceById(a.id, { ...a, sort_order: previousOrderA })
+      replaceById(b.id, { ...b, sort_order: previousOrderB })
+      toast.error('No se pudo guardar el nuevo orden', {
+        description: 'Revisá tu conexión e intentá de nuevo.',
+        action: { label: 'Reintentar', onClick: () => moveAccount(index, direction) },
+      })
+    }
+  }
+
+  void persist()
+}
+```
+
+- **Feedback de error**: mismo patrón exacto que el resto de `accounts.ts`
+  — `toast.error` con `description` + acción "Reintentar", **y** rollback
+  visual inmediato (las dos filas vuelven a su posición anterior apenas
+  falla, no se quedan "a mitad de camino" mostrando un orden que el servidor
+  nunca confirmó). No hay ningún otro indicador de error adicional (sin
+  ícono rojo persistente en la fila, sin bloquear el resto de la pantalla)
+  — mismo nivel de feedback ya aceptado para cualquier otra mutación
+  optimista del proyecto.
+- **Sin toast de éxito** (a diferencia de `addAccount`/`updateAccount`, que
+  sí muestran "Cuenta creada"/"Cambios guardados"): un `toast.success` en
+  **cada** tap de ↑/↓ sería ruido — el usuario ya ve el resultado
+  inmediato (la fila se movió) sin necesitar una confirmación de texto
+  adicional por cada paso; mismo criterio de "no confirmar lo que ya es
+  visualmente obvio" que el proyecto no había necesitado enunciar antes
+  porque no había una acción tan repetitiva como esta.
+- **Por qué swap de a pares, no reescribir todos los `sort_order` de la
+  lista en cada tap**: mover una cuenta una posición solo requiere
+  intercambiar su valor con el de la cuenta adyacente — reescribir toda la
+  lista en cada tap sería trabajo (y payload de red) proporcional a N
+  cuentas por cada movimiento de una sola posición, sin ningún beneficio
+  real.
+
+#### 13.3.5 Cuenta nueva: siempre al final, nunca en medio de un orden ya armado
+
+Una cuenta recién creada (Sheet de alta, sección 6.3) recibe el
+`sort_order` **más alto** existente + 1 (va al final de la lista) — nunca
+se inserta en una posición intermedia ni se le asigna `0`/el más bajo (que
+la pondría primera, desplazando silenciosamente el orden que el usuario ya
+armó a mano). Nota para `supabase-backend-expert`/`vue-frontend-expert`
+(fuera de esta especificación de diseño, se deja como contrato esperado):
+puede resolverse con un `default` calculado en un trigger de Postgres o
+enviando el valor ya calculado (`Math.max(...accounts.map(a => a.sort_order)) + 1`)
+desde `addAccount` — cualquiera de las dos formas cumple el contrato, la
+decisión de dónde vive el cálculo es de implementación, no de UX.
+
+#### 13.3.6 Nota para `supabase-backend-expert`: columna `sort_order` (ilustrativo)
+
+No es una migración final (responsabilidad del siguiente agente), pero se
+deja el contrato exacto que este diseño asume:
+
+```sql
+-- Ilustrativo, no es la migración final.
+alter table accounts add column sort_order integer not null default 0;
+```
+
+- **`fetchAccounts()` pasa a ordenar por `sort_order asc, created_at asc`**
+  (el segundo criterio como desempate estable si dos filas comparten
+  `sort_order` — no debería pasar en operación normal, pero es un desempate
+  barato de dejar puesto). Reemplaza al `sortedAccounts` actual de
+  `accounts.ts` (hoy ordena solo por `created_at asc`, sección 6.2 de este
+  documento) — ese computed pasa a ordenar por `sort_order` en vez de
+  `created_at`.
+- **Backfill para cuentas ya existentes**: asignar `sort_order` secuencial
+  por `created_at asc` (0, 1, 2, ...) por usuario, para que el orden
+  percibido **no cambie** para ningún usuario ya existente el día que esto
+  se despliegue — mismo criterio de "no reordenar silenciosamente algo que
+  el usuario ya veía en un orden dado" ya aplicado en otros backfills del
+  proyecto (p. ej. `debts.person_id`, `CLAUDE.md` "Deudas/Préstamos... 3
+  migraciones nuevas").
+- **El grid de "Mis cuentas" en `HomeView.vue` (sección 2.3) NO usa
+  `sort_order`** — sigue ordenando por `balance desc` (las cuentas más
+  relevantes primero en un espacio recortado a 5, motivo ya documentado en
+  esa sección). `sort_order` gobierna exclusivamente el listado completo de
+  `/cuentas` — no se propaga a ningún otro lugar de la app en esta
+  iteración.
+
+---
+
+### 13.4 Accesibilidad — particularidades nuevas de esta sección
+
+Se reafirman los lineamientos ya vigentes (sección 11 de este documento),
+con lo específico de esta sección 13:
+
+1. **El ícono decorativo del hero (13.1.4) es `aria-hidden`, nunca un
+   elemento que parezca interactivo sin serlo.**
+2. **El chevron de fila (13.2.1) es `aria-hidden`** — la afordancia real ya
+   la comunica el `aria-label="Ver detalle de {name}"` existente de la
+   fila.
+3. **Botones ↑/↓ con `aria-label` específico por cuenta** ("Subir
+   Efectivo"/"Bajar Procredito", nunca un genérico "Subir"/"Bajar" sin
+   nombre — indispensable para que un lector de pantalla distinga qué fila
+   se está moviendo sin depender de la posición visual).
+4. **Botones ↑/↓ en los extremos usan `disabled` nativo** (nunca ocultos ni
+   solo con opacidad reducida sin el atributo real) — mismo criterio de
+   a11y de siempre, ya aplicado en el guard de borrado (sección 6.4).
+5. **Mínimo táctil 44×44px también en ↑/↓**: `size-9` (36px) en el ejemplo
+   de 13.3.3 es el tamaño del **ícono**, no del botón — el `Button
+   size="icon"` que lo envuelve ya garantiza el mínimo de `h-11 w-11`
+   (44px) por el mismo ajuste global de `design-system.md` sección 4
+   (Botones ajustados a `h-11`/`size-11`), sin necesitar ninguna clase
+   adicional.
+6. **El botón "Ordenar"/"Listo" nunca depende solo de su texto para
+   comunicar el estado**: cambia también de ícono (`ArrowUpDown` ↔ `Check`)
+   y lleva `aria-pressed` — mismo principio de "nunca un solo indicador"
+   aplicado a un control de modo, no solo a color.
+
+---
+
+## Resumen accionable — adenda de la sección 13
+
+1. **`AccountsView.vue`**: agregar el hero "Saldo total" (13.1) antes de la
+   Card "Tus cuentas"; agregar el chevron de fila (13.2.1); cambiar el color
+   del saldo de fila a la combinación color-de-cuenta/`destructive` (13.2.2);
+   agregar el botón "Ordenar"/"Listo" al header de la Card (13.3.2) y el modo
+   de reordenamiento de la lista (13.3.3).
+2. **`HomeView.vue`**: replicar el mismo cambio de color de saldo (13.2.2)
+   en las tiles de "Mis cuentas" (sección 2.3), por consistencia — no pedido
+   explícitamente por este encargo puntual, pero se deja anotado para no
+   dejar dos reglas de color distintas conviviendo en la misma sesión de
+   usuario.
+3. **`src/stores/accounts.ts`**: función nueva `moveAccount(index, direction)`
+   (13.3.4), `sort_order` incorporado al tipo `Account` (ya vendrá de
+   `database.types.ts` regenerado una vez exista la columna),
+   `sortedAccounts` pasa a ordenar por `sort_order asc, created_at asc` en
+   vez de solo `created_at asc` (13.3.6). `addAccount` calcula/envía el
+   `sort_order` de cola (13.3.5).
+4. **`src/lib/date.ts`**: agregar `monthNameOnly(date): string` (o exportar
+   `MONTHS_ES`) para el copy "vs. {mes}" del hero (13.1.3) — detalle de
+   implementación, no de diseño.
+5. **Pendiente para `supabase-backend-expert`** (13.3.6): columna
+   `accounts.sort_order integer not null default 0`, backfill secuencial por
+   `created_at asc` para no reordenar cuentas ya existentes, y decidir dónde
+   vive el cálculo de "cola" para altas nuevas (trigger vs. payload del
+   insert).
+6. **Fuera de alcance explícito de esta sección**: drag-and-drop real
+   (13.3.1, evaluado y descartado con justificación); que el ícono
+   decorativo del hero navegue a algún lado (13.1.4); corregir el caso
+   borde de `initial_balance` en cuentas nuevas creadas dentro del mes en
+   curso (13.1.3, aceptado tal cual).
