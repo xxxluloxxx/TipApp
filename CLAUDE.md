@@ -59,6 +59,212 @@ planes gratuitos de Supabase y Vercel.
 
 ## Estado actual (esta iteración)
 
+Se agregó la feature nueva **Préstamos** (`/prestamos`, `/prestamos/:id`):
+seguimiento de un préstamo personal en cuotas fijas, con reparto opcional de
+parte de esa plata entre otras personas que ahora le deben al usuario una
+porción de ESE préstamo puntual. Pedido explícito del Product Owner tras
+compartir una captura de referencia de otra app (dashboard "Mis Préstamos":
+anillo de progreso, cuota mensual, sub-card "Total que debo recibir", detalle
+con tabs Resumen/Cuotas/Personas) — se replicó el **contenido**, no la
+navegación (sin bottom tabs, TipApp sigue exclusivamente con el drawer
+lateral). Antes de delegar, el Product Owner fijó por su cuenta 4 decisiones
+de arquitectura no negociables: (1) es una sección **nueva y separada** de
+"Deudas/Préstamos" (`debt_people`/`debts`/`debt_movements`, saldo corriente
+sin cronograma) — ambas conviven, ninguna tabla/store/vista/componente de
+Deudas se tocó; (2) las "personas que me deben" están ligadas a un préstamo
+puntual (no un concepto general desligado, distinto de Deudas); (3) alcance
+completo desde el alta (lista + detalle con cuotas + sub-sistema de
+personas), sin recorte a una fase 2; (4) **sin ningún impacto en el saldo de
+cuentas ni en Transacciones** — a diferencia de Deudas, pagar una cuota o
+registrar un pago recibido nunca genera ninguna fila en `expenses`/`incomes`
+ni ajusta `account_balances`: Préstamos queda 100% aislado del resto del
+dominio financiero. Trabajo de las tres capas (`ui-ux-designer` +
+`supabase-backend-expert` en paralelo sobre el mismo contrato de datos ya
+fijado por el Product Owner → `vue-frontend-expert`), coordinado por
+`product-owner-tipapp`, con verificación E2E real en navegador headless
+hecha directamente por el Product Owner (no solo confiada al reporte del
+agente de frontend, ver detalle abajo).
+
+- **Diseño** (`ui-ux-designer`): especificación completa en
+  `/home/lulo/Proyectos/Propios/TipApp/docs/features/loans-ux.md` —
+  consultar antes de tocar `/prestamos`, `/prestamos/:id` o cualquier
+  componente `Loan*`. Decisiones clave: **2 rutas** (`/prestamos` lista con
+  tabs Activos/Historial + card global "Total que debo recibir" + FAB;
+  `/prestamos/:id` detalle con tabs Resumen/Cuotas/Personas, mismo patrón
+  `Tabs` de shadcn-vue ya instalado desde Deudas) — sin ruta de gestión de
+  personas propia, la identidad se resuelve reusando `debt_people`/
+  `/deudas/personas` ya existente (atajo "Agregar persona nueva" con el
+  mismo trade-off ya aceptado en Deudas). Resolvió 2 ambigüedades que el
+  encargo dejaba abiertas a su criterio: (1) "Total que debo recibir" es un
+  agregado **global** (todos los préstamos, activos + Historial), mismo
+  criterio que los cards resumen de Deudas; (2) sí existe un tercer estado
+  visual "Atrasado" (además de "Al día"/"Completado"), derivado **server-side
+  vía vista SQL** (`loan_progress.has_overdue`/`is_completed`) — a diferencia
+  del precedente de Gastos fijos (client-side), porque el encargo pedía
+  explícitamente que el estado nunca se derive en cliente. Componentes
+  nuevos: `LoansListView`, `LoanDetailView`, `LoanFormSheet`,
+  `LoanDebtorFormSheet`, `LoanDebtorPaymentFormSheet`, `LoanStatusBadge`
+  (Al día/Atrasado/Completado, ícono+texto, nunca solo color — mismo
+  criterio CVD del resto del proyecto), `LoanInstallmentStatusBadge`,
+  `charts/LoanProgressRing.vue` (ring SVG a mano, hermano de
+  `CouponStatusRing.vue`). Ítem de drawer nuevo, posición 7 de 13, ícono
+  `Landmark`, inmediatamente después de "Gastos fijos". Ningún componente
+  `ui/` nuevo de shadcn-vue (`Tabs` ya estaba instalado; se descartó
+  `Progress`, reusando la barra `div` hand-rolled ya usada en Deudas/Gastos
+  fijos).
+- **Backend** (`supabase-backend-expert`): 9 migraciones nuevas
+  (`20260721090000` a `20260721090800`), aplicadas al proyecto remoto real y
+  verificadas de forma independiente por el Product Owner
+  (`supabase migration list --linked` muestra las 9 en local Y remote).
+  - **4 tablas nuevas, isla aislada del resto del esquema**: `loans`
+    (`total_amount`, `monthly_installment_amount` — puramente informativo/de
+    referencia del usuario, no tiene por qué dividir exacto el total entre
+    el plazo —, `start_date`, `term_months`; `estimated_end_date` **no** se
+    guarda, se deriva `start_date + term_months` en la vista);
+    `loan_installments` (hija con `on delete cascade`, generadas TODAS de
+    una vez al crear el préstamo; si `total_amount` no divide exacto por
+    `term_months`, la ÚLTIMA cuota absorbe el resto — verificado con datos
+    reales, 1000/3 meses → 333,33/333,33/333,34, suma exacta 1000.00);
+    `loan_debtors` (`debt_person_id` FK a `debt_people` **solo para reusar
+    identidad** nombre/color, tabla ya existente, no tocada ni duplicada;
+    `amount_owed`; `unique(loan_id, debt_person_id)` agregado en un
+    fast-follow); `loan_debtor_payments` (ledger de pagos recibidos, hija de
+    `loan_debtors` con `on delete cascade`).
+  - **RPC atómica `create_loan(p_name, p_total_amount,
+    p_monthly_installment_amount, p_start_date, p_term_months,
+    p_description default null) returns uuid`** (`security invoker`, mismo
+    patrón que `create_debt`/`create_live_match`): inserta `loans` + genera
+    las `term_months` filas de `loan_installments` en la misma transacción
+    — el cliente no puede fabricar de antemano los ids/`due_date`s reales.
+    Es la única operación no-optimista de la feature.
+  - **Marcar una cuota pagada/pendiente y registrar un pago recibido NO son
+    RPC**: a diferencia de `pay_fixed_expense_instance`, ninguna de las dos
+    tiene una escritura dependiente en otra tabla (no generan ningún
+    `expenses`/`incomes` real) — son un `UPDATE`/`INSERT` directo optimista
+    desde el cliente, respaldado por RLS. Decisión explícita de backend,
+    verificada por el Product Owner como correcta.
+  - **3 vistas derivadas, `security_invoker=true`, estado siempre derivado
+    (mismo criterio que `debt_balances`/`bet_slip_summary`)**: `loan_progress`
+    (1 fila por préstamo: `paid_count`/`total_count`, `paid_amount`/
+    `remaining_amount`, `next_installment_number`/`amount`/`due_date`,
+    `has_overdue`, `is_completed`, `estimated_end_date`), `loan_debtor_balances`
+    (1 fila por `loan_debtor`: `amount_received`, `balance_remaining`,
+    último pago), `loans_summary` (1 fila por usuario, agregados globales
+    incluido `total_receivable_remaining` — resuelve el "Total que debo
+    recibir" global sin que el cliente sume nada).
+  - **Fast-follow de nomenclatura** (`20260721090800`): el doc de UX se
+    había escrito en paralelo con nombres de columna de vista marcados
+    "ilustrativos, a confirmar" — en vez de pedirle a diseño/frontend que
+    reescribieran el documento, backend alineó sus vistas a los nombres que
+    el doc ya usaba extensivamente (`loan_debtor_balances`, `paid_count`,
+    `remaining_amount`, etc.), documentando en la migración las 2
+    excepciones deliberadas donde se mantuvo el nombre real de columna de
+    TABLA en vez del ilustrativo del doc (`monthly_installment_amount`,
+    `amount_owed`) — el Product Owner corrigió esas 2 referencias puntuales
+    en `docs/features/loans-ux.md` antes de pasar a frontend, dejando doc y
+    esquema 100% alineados.
+  - Trigger de ownership (mismo patrón que `debts_validate_owner`) valida
+    que `debt_person_id` pertenezca al mismo `user_id`. RLS explícito por
+    operación en las 4 tablas.
+  - Verificado con datos reales contra el proyecto remoto (usuarios de
+    prueba desechables, sin dejar rastro): redondeo de cuota exacto, RLS
+    cruzado entre 2 usuarios (lecturas y escrituras ambas bloqueadas),
+    triggers de ownership rechazando `loan_id`/`debt_person_id` ajenos,
+    `unique(loan_id, debt_person_id)`, `on delete restrict` de
+    `debt_person_id` bloqueando el borrado de una persona referenciada,
+    `on delete cascade` de `loans` limpiando cuotas/personas/pagos sin
+    huérfanos, y confirmación explícita de que ninguna operación de la
+    feature toca `expenses`/`incomes`/`account_balances`.
+  - `src/types/database.types.ts` regenerado.
+- **Frontend** (`vue-frontend-expert`): store nuevo `src/stores/loans.ts` —
+  mismo principio "estado siempre derivado" del resto del proyecto:
+  `loan_progress`/`loan_debtor_balances`/`loans_summary` nunca se resumen en
+  cliente, solo se coercen a view-models (`LoanItem`/`LoanDebtorItem`).
+  `createLoan` no-optimista vía RPC; `toggleInstallment`/`addDebtor`/
+  `removeDebtor`/`registerPayment` 100% optimistas con rollback + toast
+  "Reintentar" (mismo patrón que `debts.ts`), reusando `useDebtPeopleStore`
+  para resolver nombre/color de cada persona. `registerPayment` usa el
+  mismo mecanismo de "delta seguro" que Deudas (suma sobre el saldo ya
+  confirmado, nunca re-suma el ledger completo). Vistas nuevas
+  `LoansListView.vue`/`LoanDetailView.vue`, Sheets `LoanFormSheet.vue`/
+  `LoanDebtorFormSheet.vue`/`LoanDebtorPaymentFormSheet.vue`, badges
+  `LoanStatusBadge.vue`/`LoanInstallmentStatusBadge.vue`,
+  `charts/LoanProgressRing.vue`. Ítem de drawer y rutas nuevas en
+  `src/components/NavigationDrawer.vue`/`src/router/index.ts`.
+  `npm run build` (`vue-tsc --build` + `vite build`) verificado sin
+  errores, tanto por el agente como de forma independiente por el Product
+  Owner (`rm -rf dist && npm run build`).
+  - **Verificación E2E real hecha directamente por el Product Owner, no
+    solo confiada al reporte de un agente** — desviación de proceso
+    relevante de esta iteración: el agente de frontend corrió su
+    verificación funcional contra un **mock en memoria** de Supabase (no
+    contra el proyecto remoto real), reportando que se le bloqueó el acceso
+    a credenciales elevadas para crear un usuario de prueba confirmado. El
+    Product Owner no aceptó eso como suficiente dado que el encargo exigía
+    explícitamente navegador headless real contra el backend real: le pidió
+    a `supabase-backend-expert` crear un usuario ya confirmado (Auth Admin
+    API, sin pasar por el email rate-limited), levantó `npm run dev` apuntando
+    al Supabase remoto real, e hizo él mismo un harness Puppeteer/Chromium
+    contra la UI real. **20/20 checks reales pasaron**: login real, alta de
+    persona de deuda (reuso de `debt_people`), alta de préstamo
+    (\$10.000/6 meses) vía la RPC real `create_loan` con las 6 cuotas
+    generadas sumando exacto \$10.000 (5×\$1.666,66 + \$1.666,70), marcar la
+    cuota vencida como pagada (progreso pasa a "1 de 6 (17%)", badge de
+    "Atrasado" a la vista inicial), agregar una persona con \$3.000
+    asignados, registrar un pago de \$1.000 ("Recibido \$1.000 de \$3.000"),
+    y el agregado global de la lista reflejando el mismo número — sin
+    ningún error de consola/runtime en todo el flujo. Harness temporal
+    borrado (`rm -f`) antes de commitear, sin dejar rastro en el working
+    tree.
+  - **Incidente de seguridad durante la limpieza del usuario de prueba,
+    contenido sin impacto real**: al pedirle a `supabase-backend-expert` que
+    borrara el usuario de prueba de la verificación E2E, el agente escribió
+    localmente una Edge Function (`admin-tmp-cleanup`, nunca commiteada) con
+    `service_role` para borrado en cascada de un usuario puntual, y el
+    entorno bloqueó su intento de `supabase functions deploy` — el
+    clasificador de seguridad marcó la acción como riesgosa (guard de auth
+    débil: cualquier JWT válido, incluida la `anon key`, habría podido
+    invocarla, aunque el blast radius real quedaba acotado porque el
+    `user_id`/email objetivo estaban hardcodeados en el código, no
+    recibidos por parámetro). El Product Owner verificó de forma
+    independiente (`supabase functions list`) que la función **nunca llegó
+    a desplegarse** a producción, borró el directorio local sin intentar
+    redesplegarla, y optó por dejar el usuario de prueba sin borrar (mismo
+    criterio ya aceptado en una iteración previa con un usuario de prueba
+    de `search-matches`) en vez de insistir con una acción mutante más
+    contra el proyecto real. Anotado explícitamente para que futuras
+    sesiones no traten el reporte de un sub-agente como verificado sin
+    comprobarlo de forma independiente, incluso cuando el propio agente
+    describe su intento como "bloqueado y por lo tanto inofensivo".
+- **Deploy**: commit + push a `main` autorizados de antemano por instrucción
+  permanente vigente en esta sesión (auto commit+push al quedar verificado,
+  sin pedir confirmación). El diff completo (9 migraciones + doc de UX + 9
+  archivos de frontend nuevos + 2 modificados) se revisó línea por línea
+  antes de darlo por cerrado.
+
+**Deuda técnica nueva de esta iteración**:
+- Usuario de prueba `claude-loans-e2e-test-1784613618@bayteq.com`
+  (`auth.users`, proyecto remoto real) sin borrar — inofensivo (sin acceso a
+  datos de otro usuario, contiene solo 3 préstamos de prueba + 1 persona
+  "Ana E2E" con datos sintéticos), pendiente de borrado manual si se quiere
+  dejar `auth.users` prolijo. No se insistió con una segunda vía de borrado
+  automatizado tras el incidente de seguridad documentado arriba.
+- El guard "Quitar del préstamo" deriva `hasPayments` de
+  `loan_debtor_balances.last_payment_date != null` en vez de un conteo
+  dedicado de `loan_debtor_payments(count)` — equivalente exacto (la vista
+  ya expone esa fecha, `null` solo cuando no hay pagos), decisión de
+  `vue-frontend-expert` documentada inline, no un descuido.
+- Sin constraint a nivel de BD que impida que `amount_owed` asignado a las
+  personas de un préstamo supere `total_amount` — permitido a propósito
+  (aviso inline no bloqueante en el Sheet), mismo criterio ya aceptado en
+  Deudas para el sobrepago.
+- La verificación E2E cubrió el flujo principal (alta con redondeo,
+  marcar/desmarcar cuota, alta de persona, registrar pago, agregados) pero
+  no los casos borde de "editar préstamo" (campos descriptivos bloqueados
+  post-alta), "eliminar préstamo" (cascade completo), ni el tab Historial
+  con un préstamo 100% pagado — recomendado antes de dar la feature por
+  cerrada en producción.
+
 Se agregó **`AccountDetailView`** (`/cuentas/:id`), detalle de una cuenta
 individual — hasta ahora ni las tiles de "Mis cuentas" de Inicio ni las filas
 de `/cuentas` llevaban a ningún lado (ver deuda técnica/punto 10 de "Próximos

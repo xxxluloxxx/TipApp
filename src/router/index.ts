@@ -130,6 +130,20 @@ const router = createRouter({
       component: () => import('@/views/FixedExpensesComparisonView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 3 de loans-ux.md: lista + detalle, sin colisión de segmento
+    // literal-vs-dinámico (como Deudas/Partidos), no hace falta orden especial.
+    {
+      path: '/prestamos',
+      name: 'loans',
+      component: () => import('@/views/LoansListView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/prestamos/:id',
+      name: 'loan-detail',
+      component: () => import('@/views/LoanDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
     // Sección 2 de live-matches-ux.md: dashboard + detalle, sin colisión de
     // segmento literal-vs-dinámico (como Deudas), no hace falta orden especial.
     {

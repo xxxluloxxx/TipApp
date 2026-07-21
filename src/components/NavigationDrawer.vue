@@ -11,6 +11,7 @@ import {
   Goal,
   HandCoins,
   Home,
+  Landmark,
   LogOut,
   Menu,
   Settings,
@@ -25,7 +26,7 @@ import { Sheet, SheetContent, SheetFooter, SheetTitle, SheetTrigger } from '@/co
 // Drawer de navegación principal, autocontenido y reusable desde cualquier
 // pantalla autenticada (dashboard-redesign-ux.md, sección 6.1 + patrón de
 // header único documentado en design-system.md): botón `Menu` que abre el
-// Sheet lateral con perfil + nav de 11 ítems (highlight de ruta activa) +
+// Sheet lateral con perfil + nav de 13 ítems (highlight de ruta activa) +
 // "Cerrar sesión". Antes vivía solo dentro de HomeView.vue; se extrajo para
 // que todas las vistas lo compartan sin duplicar el markup.
 
@@ -47,6 +48,7 @@ type NavRouteName =
   | 'account-transfers'
   | 'debts'
   | 'fixed-expenses'
+  | 'loans'
   | 'matches'
   | 'categories'
   | 'statistics'
@@ -171,6 +173,16 @@ function logoutFromDrawer() {
         >
           <CalendarSync class="size-5 shrink-0" />
           Gastos fijos
+        </button>
+        <button
+          type="button"
+          class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          :class="isActive('loans') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+          :aria-current="isActive('loans') ? 'page' : undefined"
+          @click="navigateFromDrawer('loans')"
+        >
+          <Landmark class="size-5 shrink-0" />
+          Préstamos
         </button>
         <button
           type="button"

@@ -944,6 +944,193 @@ export type Database = {
         }
         Relationships: []
       }
+      loan_debtor_payments: {
+        Row: {
+          amount: number
+          created_at: string
+          id: string
+          loan_debtor_id: string
+          payment_date: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          id?: string
+          loan_debtor_id: string
+          payment_date?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          id?: string
+          loan_debtor_id?: string
+          payment_date?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loan_debtor_payments_loan_debtor_id_fkey"
+            columns: ["loan_debtor_id"]
+            isOneToOne: false
+            referencedRelation: "loan_debtor_balances"
+            referencedColumns: ["loan_debtor_id"]
+          },
+          {
+            foreignKeyName: "loan_debtor_payments_loan_debtor_id_fkey"
+            columns: ["loan_debtor_id"]
+            isOneToOne: false
+            referencedRelation: "loan_debtors"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loan_debtors: {
+        Row: {
+          amount_owed: number
+          created_at: string
+          debt_person_id: string
+          id: string
+          loan_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount_owed: number
+          created_at?: string
+          debt_person_id: string
+          id?: string
+          loan_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount_owed?: number
+          created_at?: string
+          debt_person_id?: string
+          id?: string
+          loan_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loan_debtors_debt_person_id_fkey"
+            columns: ["debt_person_id"]
+            isOneToOne: false
+            referencedRelation: "debt_people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loan_debtors_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loan_progress"
+            referencedColumns: ["loan_id"]
+          },
+          {
+            foreignKeyName: "loan_debtors_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loan_installments: {
+        Row: {
+          amount: number
+          created_at: string
+          due_date: string
+          id: string
+          installment_number: number
+          loan_id: string
+          paid_at: string | null
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          due_date: string
+          id?: string
+          installment_number: number
+          loan_id: string
+          paid_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          due_date?: string
+          id?: string
+          installment_number?: number
+          loan_id?: string
+          paid_at?: string | null
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loan_installments_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loan_progress"
+            referencedColumns: ["loan_id"]
+          },
+          {
+            foreignKeyName: "loan_installments_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loans: {
+        Row: {
+          created_at: string
+          description: string | null
+          id: string
+          monthly_installment_amount: number
+          name: string
+          start_date: string
+          term_months: number
+          total_amount: number
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          monthly_installment_amount: number
+          name: string
+          start_date: string
+          term_months: number
+          total_amount: number
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          created_at?: string
+          description?: string | null
+          id?: string
+          monthly_installment_amount?: number
+          name?: string
+          start_date?: string
+          term_months?: number
+          total_amount?: number
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           accent_color: string | null
@@ -1145,6 +1332,80 @@ export type Database = {
         }
         Relationships: []
       }
+      loan_debtor_balances: {
+        Row: {
+          amount_owed: number | null
+          amount_received: number | null
+          balance_remaining: number | null
+          debt_person_id: string | null
+          last_payment_amount: number | null
+          last_payment_date: string | null
+          loan_debtor_id: string | null
+          loan_id: string | null
+          user_id: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "loan_debtors_debt_person_id_fkey"
+            columns: ["debt_person_id"]
+            isOneToOne: false
+            referencedRelation: "debt_people"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "loan_debtors_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loan_progress"
+            referencedColumns: ["loan_id"]
+          },
+          {
+            foreignKeyName: "loan_debtors_loan_id_fkey"
+            columns: ["loan_id"]
+            isOneToOne: false
+            referencedRelation: "loans"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      loan_progress: {
+        Row: {
+          description: string | null
+          estimated_end_date: string | null
+          has_overdue: boolean | null
+          is_completed: boolean | null
+          loan_id: string | null
+          monthly_installment_amount: number | null
+          name: string | null
+          next_installment_amount: number | null
+          next_installment_due_date: string | null
+          next_installment_number: number | null
+          paid_amount: number | null
+          paid_count: number | null
+          remaining_amount: number | null
+          start_date: string | null
+          term_months: number | null
+          total_amount: number | null
+          total_count: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
+      loans_summary: {
+        Row: {
+          active_loans_count: number | null
+          has_any_overdue: boolean | null
+          loans_count: number | null
+          total_borrowed: number | null
+          total_paid: number | null
+          total_pending: number | null
+          total_receivable: number | null
+          total_receivable_remaining: number | null
+          total_received: number | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       _account_transfer_delete: {
@@ -1219,6 +1480,17 @@ export type Database = {
           p_stage_code?: number
           p_yellow_cards_away?: number
           p_yellow_cards_home?: number
+        }
+        Returns: string
+      }
+      create_loan: {
+        Args: {
+          p_description?: string
+          p_monthly_installment_amount: number
+          p_name: string
+          p_start_date: string
+          p_term_months: number
+          p_total_amount: number
         }
         Returns: string
       }
