@@ -17,7 +17,7 @@ export type FixedExpensesSummary = Tables<'fixed_expenses_summary'>
 
 /** Estado visual de una fila (sección 6): `paid`/`pending` llegan del backend,
  * `overdue` y `paused` son derivaciones 100% de cliente (secciones 6.1). */
-export type FixedExpenseDisplayStatus = 'paid' | 'overdue' | 'pending' | 'paused'
+export type FixedExpenseDisplayStatus = 'paid' | 'overdue' | 'pending' | 'paused' | 'skipped'
 
 /**
  * Fila lista para renderizar en la lista/dashboard (sección 3.7): plantilla
@@ -43,7 +43,7 @@ export interface FixedExpenseRow {
   notes: string | null
   isActive: boolean
   /** Estado crudo de la instancia (`null` si pausada / sin instancia). */
-  status: 'pending' | 'paid' | null
+  status: 'pending' | 'paid' | 'skipped' | null
   displayStatus: FixedExpenseDisplayStatus
 }
 
@@ -108,7 +108,7 @@ function rowRank(row: FixedExpenseRow): number {
   // Sección 3.7: activas primero (pendientes/vencidas antes que pagadas),
   // pausadas al final.
   if (!row.isActive) return 2
-  if (row.status === 'paid') return 1
+  if (row.status === 'paid' || row.status === 'skipped') return 1
   return 0
 }
 
@@ -152,7 +152,7 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
       const instance = template.is_active ? instanceByTemplateId(template.id) : undefined
       const category = categoriesStore.categoryById(template.category_id)
 
-      const status = (instance?.status as 'pending' | 'paid' | undefined) ?? null
+      const status = (instance?.status as 'pending' | 'paid' | 'skipped' | undefined) ?? null
       const paidAmount = instance?.paid_amount ?? null
       const amount = status === 'paid' && paidAmount !== null ? paidAmount : template.amount
 
@@ -161,6 +161,10 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
         displayStatus = 'paused'
       } else if (status === 'paid') {
         displayStatus = 'paid'
+      } else if (status === 'skipped') {
+        // Sección 14.2: `skipped` se prioriza SOBRE `overdue` — una instancia
+        // omitida cuyo día de pago ya pasó nunca debe mostrarse "Vencido".
+        displayStatus = 'skipped'
       } else if (status === 'pending' && isOverdue(template.payment_day, now)) {
         displayStatus = 'overdue'
       } else {
@@ -201,6 +205,8 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
   const monthTotal = computed(() => summary.value?.total_amount ?? 0)
   const paidCount = computed(() => summary.value?.paid_count ?? 0)
   const plannedCount = computed(() => summary.value?.planned_count ?? 0)
+  // Sección 14.4: conteo de instancias `skipped` del mes, agregado server-side.
+  const omittedCount = computed(() => summary.value?.omitted_count ?? 0)
   const monthlyAverage = computed(() => summary.value?.trailing_avg_monthly ?? null)
 
   /** Instancias pendientes del mes, ordenadas por día de pago (sección 3.5). */
@@ -514,6 +520,50 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
     void persist()
   }
 
+  /**
+   * Toggle omitir/reactivar una instancia del mes (sección 14.3): optimista
+   * simple, sin confirmación — reversible con un solo tap, mismo criterio que
+   * `toggleActive`. A diferencia de "Marcar como pagado" (RPC atómico), acá es
+   * un único `update` de `status` sobre una fila que ya existe. Solo alterna
+   * entre `pending` ↔ `skipped`; el estado visual lo deriva `rows`.
+   */
+  function toggleSkipped(instanceId: string): void {
+    const previous = currentInstances.value.find(instance => instance.instance_id === instanceId)
+    if (!previous) return
+
+    const previousStatus = previous.status
+    const nextStatus = previousStatus === 'skipped' ? 'pending' : 'skipped'
+
+    const applyStatus = (status: string) => {
+      currentInstances.value = currentInstances.value.map(instance =>
+        instance.instance_id === instanceId ? { ...instance, status } : instance,
+      )
+    }
+
+    applyStatus(nextStatus)
+
+    const persist = async (): Promise<void> => {
+      const { error: updateError } = await supabase
+        .from('fixed_expense_instances')
+        .update({ status: nextStatus })
+        .eq('id', instanceId)
+
+      if (updateError) {
+        applyStatus(previousStatus ?? 'pending')
+        toast.error('No se pudo actualizar el gasto fijo', {
+          description: 'Revisá tu conexión e intentá de nuevo.',
+        })
+        return
+      }
+
+      toast.success(nextStatus === 'skipped' ? 'Gasto fijo omitido este mes' : 'Gasto fijo reactivado')
+      // `omitted_count`/`total_amount` cambiaron — se refresca en background.
+      void fetchSummary()
+    }
+
+    void persist()
+  }
+
   /** Borrado optimista de una plantilla (sección 1.3/7): SIN guard de conteo.
    * Borrar la plantilla no toca los `expenses` ya generados — solo se pierde
    * el seguimiento futuro (el copy del `AlertDialog` lo aclara). También quita
@@ -593,6 +643,7 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
     monthTotal,
     paidCount,
     plannedCount,
+    omittedCount,
     monthlyAverage,
     upcomingInstances,
     instanceByTemplateId,
@@ -605,6 +656,7 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
     addTemplate,
     updateTemplate,
     toggleActive,
+    toggleSkipped,
     deleteTemplate,
     payInstance,
   }

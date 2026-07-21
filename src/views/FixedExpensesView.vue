@@ -5,6 +5,8 @@ import {
   AlertCircle,
   ArrowDown,
   ArrowUp,
+  CalendarClock,
+  CalendarOff,
   CalendarSync,
   Columns3,
   EllipsisVertical,
@@ -107,9 +109,13 @@ const monthDelta = computed<{ direction: 'up' | 'down', percent: number } | null
   return { direction: current > prev ? 'up' : 'down', percent }
 })
 
-// Sección 3.3: progreso "X de Y pagados".
+// Sección 3.3 / 14.4: progreso "X de Y pagados". La barra considera "resuelto"
+// = pagado + omitido (para poder llegar al 100% cuando no queda nada
+// pendiente), pero el texto primario nunca conflaciona omitido con pagado.
 const paidCount = computed(() => fixedExpensesStore.paidCount)
 const totalCount = computed(() => fixedExpensesStore.plannedCount)
+const omittedCount = computed(() => fixedExpensesStore.omittedCount)
+const resolvedCount = computed(() => paidCount.value + omittedCount.value)
 
 // Sección 3.4: promedio mensual (`null` = sin historial suficiente).
 const monthlyAverage = computed(() => fixedExpensesStore.monthlyAverage)
@@ -151,11 +157,15 @@ const upcomingAriaLabel = computed(() => {
 })
 
 // Sección 3.6: "Por categoría" — dona reusando `buildDonutSlices`/
-// `CategoryDonutChart` tal cual. Se agrupan TODAS las instancias del mes
-// (pagadas + pendientes), mismo total que el hero.
+// `CategoryDonutChart` tal cual. Se agrupan las instancias del mes que
+// cuentan para la proyección (pagadas + pendientes), mismo total que el hero
+// — una instancia omitida (sección 14) se excluye acá igual que ya excluye
+// `fixed_expenses_summary.total_amount` server-side, para que ambos números
+// no queden inconsistentes entre sí.
 const categorySlices = computed(() => {
   const byCategory = new Map<string, CategoryTotal>()
   for (const instance of fixedExpensesStore.currentInstances) {
+    if (instance.status === 'skipped') continue
     const categoryId = instance.category_id ?? 'unknown'
     const amount = instance.status === 'paid' && instance.paid_amount !== null
       ? instance.paid_amount
@@ -208,6 +218,14 @@ function openPaySheet(row: FixedExpenseRow) {
 
 function toggleActive(row: FixedExpenseRow) {
   fixedExpensesStore.toggleActive(row.templateId)
+}
+
+// Sección 14.3: omitir/reactivar la instancia del mes. Solo aplica a filas con
+// instancia (activa, pending/skipped) — se valida `instanceId` como en
+// `openPaySheet` antes de mutar.
+function toggleSkipped(row: FixedExpenseRow) {
+  if (!row.instanceId) return
+  fixedExpensesStore.toggleSkipped(row.instanceId)
 }
 
 function deleteTemplate(templateId: string) {
@@ -310,10 +328,13 @@ function deleteTemplate(templateId: string) {
               <div class="h-2 overflow-hidden rounded-full bg-muted">
                 <div
                   class="h-full rounded-full transition-[width]"
-                  :class="paidCount === totalCount && totalCount > 0 ? 'bg-success' : 'bg-primary'"
-                  :style="{ width: `${totalCount ? (paidCount / totalCount) * 100 : 0}%` }"
+                  :class="resolvedCount === totalCount && totalCount > 0 ? 'bg-success' : 'bg-primary'"
+                  :style="{ width: `${totalCount ? (resolvedCount / totalCount) * 100 : 0}%` }"
                 />
               </div>
+              <p v-if="omittedCount > 0" class="text-xs text-muted-foreground">
+                {{ omittedCount }} omitido{{ omittedCount === 1 ? '' : 's' }} este mes
+              </p>
             </div>
           </Card>
 
@@ -445,6 +466,13 @@ function deleteTemplate(templateId: string) {
                     </Button>
                   </DropdownMenuTrigger>
                   <DropdownMenuContent align="end">
+                    <DropdownMenuItem
+                      v-if="item.isActive && (item.status === 'pending' || item.status === 'skipped')"
+                      @select="toggleSkipped(item)"
+                    >
+                      <component :is="item.status === 'skipped' ? CalendarClock : CalendarOff" class="size-4" />
+                      {{ item.status === 'skipped' ? 'Reactivar este mes' : 'Omitir este mes' }}
+                    </DropdownMenuItem>
                     <DropdownMenuItem @select="openEditTemplateSheet(item)">
                       <Pencil class="size-4" /> Editar
                     </DropdownMenuItem>

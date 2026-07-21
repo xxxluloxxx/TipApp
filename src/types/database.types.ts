@@ -1132,6 +1132,7 @@ export type Database = {
       fixed_expenses_summary: {
         Row: {
           current_period: string | null
+          omitted_count: number | null
           paid_amount: number | null
           paid_count: number | null
           planned_count: number | null

@@ -1831,3 +1831,216 @@ botones de pivote y scroll con snap (13.8), layout responsive (scroll
 horizontal con snap en mobile, grid de 3 columnas desde `sm:`) — todo se
 mantiene exactamente igual, solo se le agregó color/peso tipográfico a los
 elementos ya existentes descritos arriba.
+
+---
+
+## 14. Tercer estado de instancia — "Omitido" (omitir un mes puntual sin generar gasto)
+
+Encargo del Product Owner (pedido textual: *"por ejemplo yo pago el
+internet saltando un mes, debería poder ponerse algo como cancelado solo
+para este mes"*): hoy `fixed_expense_instances.status` solo modela
+`'pending'`/`'paid'` (sección 1), lo que deja un caso real sin representar —
+el usuario decide, a propósito, no pagar el gasto fijo **este mes puntual**
+(sin cancelar la suscripción/servicio en sí). Necesita dejar de verse como
+"Pendiente"/"Vencido" para siempre sin que eso genere ningún `expenses` real
+(a diferencia de "Marcar como pagado", sección 5).
+
+**No confundir con pausar la plantilla** (`is_active`, sección 7): pausar
+afecta **todos los meses futuros** de una plantilla completa; esto es un
+estado **por instancia**, acotado al mes en curso — el mes siguiente la
+instancia nueva vuelve a nacer `pending` como si nada, sin que el usuario
+tenga que "reanudar" nada a nivel de plantilla.
+
+### 14.1 Nombre del estado
+
+- **Valor de BD sugerido**: `'skipped'` — el CHECK de `status` pasa a
+  `'pending' | 'paid' | 'skipped'`. Se descarta cualquier término que
+  pudiera confundirse con `is_active=false` (p. ej. `'paused'` o
+  `'inactive'` a nivel de instancia): `skipped` no tiene relación léxica ni
+  conceptual con el toggle de plantilla, que es justo el punto que pedía el
+  encargo. Nombre final a confirmar por `supabase-backend-expert`, pero
+  esta es la recomendación de diseño.
+- **`FixedExpenseDisplayStatus`** (sección 6, `src/stores/fixedExpenses.ts`):
+  se extiende a `'paid' | 'overdue' | 'pending' | 'paused' | 'skipped'`.
+  Mismo criterio, `FixedExpenseRow['status']` pasa de `'pending' | 'paid' |
+  null` a `'pending' | 'paid' | 'skipped' | null`.
+- **Label del badge**: **"Omitido"** — confirmado tal cual lo propuso el
+  Product Owner. Tono **neutro** (`muted-foreground`, no
+  `destructive`/`warning`): omitir un mes es una decisión consciente del
+  usuario, no un problema ni una mala noticia — mismo argumento ya usado en
+  la sección 3.3 para no moralizar "todavía no pagaste" (`pending`), llevado
+  un paso más allá acá porque este caso ni siquiera *va a* pagarse, por
+  elección explícita.
+- **Ícono**: `CalendarOff` (`@lucide/vue`, ya disponible en el proyecto sin
+  instalar nada). Se descarta `PauseCircle` para este estado aunque
+  comparta el mismo color neutro que `paused` — reusar el ícono de pausa
+  acá reintroduciría exactamente la confusión conceptual que el encargo pide
+  evitar (plantilla pausada vs. instancia omitida son cosas distintas, no
+  deben compartir ícono). `CalendarOff` (calendario tachado) comunica "este
+  mes puntual, no el servicio en sí", coherente con el resto del set de
+  íconos de calendario ya usado en la feature (`CalendarSync` del vacío
+  total, sección 3.9; `Columns3` de comparación, sección 3).
+
+Tabla que **extiende** (no reemplaza) la de la sección 6:
+
+| Estado (`displayStatus`) | Cuándo | Ícono | Color | Texto del badge |
+|---|---|---|---|---|
+| `skipped` | `status === 'skipped'` | `CalendarOff` | `muted-foreground` | "Omitido" |
+
+### 14.2 Prioridad de derivación — actualiza la cadena de la sección 6.1
+
+`rows` (`src/stores/fixedExpenses.ts`) ya resuelve `displayStatus` con una
+cadena de prioridad (`!is_active` → `paid` → `overdue` → `pending`, ver
+snippet citado en sección 6.1). `skipped` se inserta **entre** `paid` y la
+evaluación de `overdue` — nunca después: si no se prioriza sobre `overdue`,
+una instancia omitida cuyo `payment_day` ya pasó se mostraría erróneamente
+como "Vencido", exactamente el resultado contrario al que pide el encargo
+("no debe quedar mostrado como Pendiente/Vencido para siempre").
+
+```
+1. !template.is_active            → 'paused'
+2. status === 'paid'               → 'paid'
+3. status === 'skipped'            → 'skipped'   ← nuevo, antes del chequeo de overdue
+4. status === 'pending' && overdue → 'overdue'
+5. (default)                       → 'pending'
+```
+
+**`rowRank` (orden de la lista, sección 3.7)**: hoy es `0` = activa
+accionable (pendiente/vencida), `1` = activa pagada, `2` = pausada. Una
+instancia `skipped` es "resuelta" (no accionable, no hay nada más que hacer
+este mes) igual que una pagada — se suma al rank `1` junto con `paid`, no
+crea un rank nuevo: `if (!row.isActive) return 2; if (row.status === 'paid'
+|| row.status === 'skipped') return 1; return 0`.
+
+### 14.3 Acción en el menú "⋮" — reversible, sin confirmación
+
+**Nota sobre la sección 7 de este documento**: su snippet todavía muestra
+un ítem "Marcar como pagado" en el menú — eso quedó desactualizado, ese
+duplicado ya se sacó del menú en una iteración anterior (el código real de
+`FixedExpensesView.vue` hoy tiene únicamente Editar → Pausar/Reanudar →
+Eliminar). Lo que sigue extiende ese menú **real**, no el snippet
+desactualizado de la sección 7.
+
+**Un único ítem dinámico** (mismo patrón exacto que "Pausar"/"Reanudar":
+un solo `DropdownMenuItem` que alterna ícono+texto según el estado actual,
+no dos ítems separados), visible solo cuando la instancia está activa y en
+uno de los dos estados que este toggle conecta (`pending` ↔ `skipped`) —
+nunca sobre una instancia `paid` o una plantilla pausada, para no ofrecer
+"omitir" algo que ya se pagó o que ni siquiera está generando instancias:
+
+```html
+<DropdownMenuItem
+  v-if="item.isActive && (item.status === 'pending' || item.status === 'skipped')"
+  @select="toggleSkipped(item)"
+>
+  <component :is="item.status === 'skipped' ? CalendarClock : CalendarOff" class="size-4" />
+  {{ item.status === 'skipped' ? 'Reactivar este mes' : 'Omitir este mes' }}
+</DropdownMenuItem>
+```
+
+- **Posición**: primer ítem del menú, antes de "Editar" — mismo lugar que
+  ocupaba "Marcar como pagado" en el diseño original de la sección 7 (una
+  acción de instancia/mes puntual antes que las de plantilla), y coherente
+  con que sea la razón más probable por la que el usuario abrió el menú de
+  una fila `pending` en primer lugar. "Editar"/"Pausar-Reanudar" siguen
+  debajo sin cambios de orden entre sí, "Eliminar" se mantiene siempre
+  último.
+- **Copy**: `"Omitir este mes"` (acción) / `"Reactivar este mes"` (deshacer)
+  — el sufijo "este mes" en **ambos** textos, no solo en el primero, para
+  que quede inequívoco en todo momento que es un efecto acotado a la
+  instancia actual y no a la plantilla (mismo cuidado de copy ya aplicado al
+  aviso del vínculo a cuenta de `debts-ux.md` sección 5.3).
+- **Sin `AlertDialog` de confirmación** — confirmado explícitamente: mismo
+  criterio ya usado para "Pausar"/"Reanudar" (sección 7), no destructivo ni
+  irreversible. Omitir un mes se deshace con un solo tap adicional
+  ("Reactivar este mes"), exactamente el mismo costo de reversión que
+  pausar/reanudar una plantilla — no hay motivo para tratarlo con más
+  fricción que ese precedente ya establecido.
+- **Sin botón inline duplicado**: a diferencia de "Marcar como pagado"
+  original, esta acción vive **únicamente** en el menú `⋮`, nunca como
+  botón visible en la fila (sección 3.7) — el Product Owner pidió
+  explícitamente no reintroducir la duplicación botón-inline + ítem-de-menú
+  que ya se había resuelto sacando "Marcar como pagado" del menú. "Pagar"
+  sigue siendo el único botón inline de la fila.
+- **Mutación recomendada**: optimista simple (flip local de
+  `displayStatus`/`status` + confirmación en background + rollback y toast
+  en error), mismo mecanismo ya usado por `toggleActive` — a diferencia de
+  "Marcar como pagado" (sección 5.2, no optimista), acá no hay dependencia
+  atómica entre dos escrituras: es un único `update` de
+  `fixed_expense_instances.status` sobre una fila que ya existe.
+
+### 14.4 Efecto en las 4 cards del dashboard (secciones 3.2–3.5)
+
+- **Card 1 — "Total del mes" (3.2)**: **sin ajuste de diseño adicional**.
+  El backend ya excluye el monto de la instancia omitida de
+  `total_amount`; como `monthDelta` (comparación vs. mes anterior) también
+  se resuelve contra la misma vista/criterio para ambos meses, el copy y el
+  comportamiento visible no cambian. Único ítem para que
+  backend/frontend verifiquen al implementar: confirmar que
+  `previousMonthTotal` sale de la misma vista con la misma exclusión (no de
+  un cálculo distinto que sí sume lo omitido) — si eso ya es así por
+  construcción (misma vista, mismo filtro), no hace falta ningún cambio de
+  UI.
+- **Card 2 — "Progreso X de Y pagados" (3.3)**: **dos cambios, ambos
+  necesarios**.
+  1. **Contador nuevo pedido a backend**: `omittedCount` en
+     `fixed_expenses_summary` (conteo de instancias `status='skipped'` del
+     mes, mismo criterio de "agregado server-side, nunca sumado en
+     cliente" del resto de la vista). Se muestra como una **segunda línea
+     condicional**, no se mete en la oración principal: la línea primaria
+     sigue siendo exactamente `"{{ paidCount }} de {{ totalCount }}
+     pagados"` sin cambios (nunca cuenta lo omitido como "pagado", sería
+     falso), y **solo si `omittedCount > 0`** se agrega debajo una línea
+     `text-xs text-muted-foreground`: `"{{ omittedCount }} omitido{{
+     omittedCount === 1 ? '' : 's' }} este mes"`. Se descarta la redacción
+     de una sola oración con los 3 números ("3 pagados, 1 omitido, de 4
+     planeados" tal como lo sugirió el Product Owner) por espacio real de
+     la card (mismo límite de ancho ya señalado en la sección 3.5 para el
+     mini gráfico de barras) y porque el caso común (sin omisiones ese mes)
+     no debe pagar el costo visual de una oración más larga que nunca
+     aplica.
+  2. **La barra de progreso pasa a considerar "resuelto" = pagado +
+     omitido, no solo pagado** — hallazgo de esta sección, no pedido
+     explícito pero necesario para que la card siga siendo honesta: con
+     `totalCount` incluyendo la instancia omitida (decisión ya tomada por
+     backend, "fue planificada"), el ancho/color de la barra basados solo
+     en `paidCount` **nunca llegarían al 100%** si hay una omitida, aunque
+     el usuario ya no tenga nada pendiente de verdad ese mes. Se define
+     `resolvedCount = paidCount + omittedCount` (cálculo trivial de
+     cliente, sin pedir nada nuevo a backend más allá de `omittedCount` ya
+     solicitado arriba) y se usa **solo** para el ancho/color de la barra:
+     `width: (resolvedCount / totalCount) * 100`, `bg-success` cuando
+     `resolvedCount === totalCount && totalCount > 0`. El texto sigue
+     mostrando `paidCount`/`omittedCount` por separado (punto 1) — la
+     barra es la única pieza que necesita la noción agregada de "nada
+     queda pendiente", el texto nunca debe conflacionar pagado con
+     omitido.
+- **Card 3 — "Promedio mensual" (3.4)**: **sin ningún cambio, confirmado**.
+  La query ya filtra explícitamente `status='paid'` (sección 3.4) — una
+  instancia `skipped` queda excluida por construcción, sin tocar nada.
+- **Card 4 — "Próximos pagos" (3.5)**: **se excluye, confirmado**. El
+  conteo/sparkline ya filtra `instance.status === 'pending'` (mismo filtro
+  que hoy usa `upcomingInstances`, ver referencia de código en
+  `src/stores/fixedExpenses.ts`) — una instancia `skipped` tiene un
+  `status` distinto de `'pending'` y queda excluida automáticamente sin
+  ningún cambio de lógica, solo hace falta que el filtro exista tal cual ya
+  existe hoy. Explícito para que quede documentado y no se reintroduzca por
+  accidente un filtro más laxo (p. ej. `status !== 'paid'`, que sí
+  incluiría por error las omitidas).
+
+### 14.5 Resumen para implementación
+
+- Backend: agregar `'skipped'` al CHECK de `status` (nombre final a
+  confirmar por `supabase-backend-expert`, `skipped` es la recomendación de
+  diseño); excluir `skipped` de `total_amount`; agregar `omittedCount` a
+  `fixed_expenses_summary`; `planned_count` sigue siendo `count(*)` sin
+  cambios.
+- Frontend: extender `FixedExpenseDisplayStatus`/`FixedExpenseRow['status']`
+  (14.1); insertar el chequeo `skipped` en la cadena de prioridad de
+  `displayStatus` **antes** de `overdue` (14.2); sumar `skipped` al rank 1
+  de `rowRank` junto a `paid` (14.2); agregar la fila `skipped` a
+  `FixedExpenseStatusBadge.vue` (14.1); agregar el ítem dinámico
+  "Omitir este mes"/"Reactivar este mes" al menú `⋮`, primero en el orden,
+  sin `AlertDialog`, mutación optimista (14.3); Card 2: segunda línea
+  condicional de `omittedCount` + barra usando `resolvedCount` (14.4);
+  Cards 1/3/4 no requieren cambios de UI, solo verificación (14.4).
