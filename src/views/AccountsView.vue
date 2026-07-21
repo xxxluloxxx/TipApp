@@ -27,7 +27,7 @@ import { useAccountsStore, type Account } from '@/stores/accounts'
 import AppHeader from '@/components/AppHeader.vue'
 import AccountFormSheet from '@/components/AccountFormSheet.vue'
 import { Button } from '@/components/ui/button'
-import { Card, CardAction, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
 import { Skeleton } from '@/components/ui/skeleton'
 import {
@@ -258,42 +258,47 @@ function openEditSheet(account: Account) {
           </CardHeader>
         </Card>
 
-        <Card>
-          <CardHeader class="flex-row items-center justify-between gap-2">
-            <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
-              Tus cuentas
-            </CardTitle>
-            <CardAction class="flex items-center gap-1">
-              <!-- Sección 13.3.2: "Ordenar" ↔ "Listo", oculto con <= 1 cuenta
-                   (no hay orden posible que cambiar). -->
-              <Button
-                v-if="accountsStore.accounts.length > 1"
-                variant="ghost"
-                size="sm"
-                class="h-11 gap-1.5 px-2 text-sm font-medium"
-                :aria-pressed="isOrderingMode"
-                @click="toggleOrderingMode"
-              >
-                <component :is="isOrderingMode ? Check : ArrowUpDown" class="size-4" />
-                {{ isOrderingMode ? 'Listo' : 'Ordenar' }}
-              </Button>
-              <!-- "Nueva cuenta" se oculta por completo durante el modo
-                   "Ordenar" (sección 13.3.2). -->
-              <Button
-                v-if="!isOrderingMode"
-                variant="ghost"
-                size="icon"
-                aria-label="Nueva cuenta"
-                @click="openAddSheet"
-              >
-                <Plus class="size-5" />
-              </Button>
-            </CardAction>
-          </CardHeader>
+        <!-- "Tus cuentas" pasó a ser solo el encabezado + acciones (sección
+             13.4, pedido del Product Owner tras ver la primera versión: las
+             filas se sentían "muy unidas" dentro de una única Card con
+             separadores internos) — el listado de abajo son Cards
+             independientes, no un `Card` que las contenga a todas. -->
+        <div class="flex items-center justify-between gap-2 px-1">
+          <p class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Tus cuentas
+          </p>
+          <div class="flex items-center gap-1">
+            <!-- Sección 13.3.2: "Ordenar" ↔ "Listo", oculto con <= 1 cuenta
+                 (no hay orden posible que cambiar). -->
+            <Button
+              v-if="accountsStore.accounts.length > 1"
+              variant="ghost"
+              size="sm"
+              class="h-11 gap-1.5 px-2 text-sm font-medium"
+              :aria-pressed="isOrderingMode"
+              @click="toggleOrderingMode"
+            >
+              <component :is="isOrderingMode ? Check : ArrowUpDown" class="size-4" />
+              {{ isOrderingMode ? 'Listo' : 'Ordenar' }}
+            </Button>
+            <!-- "Nueva cuenta" se oculta por completo durante el modo
+                 "Ordenar" (sección 13.3.2). -->
+            <Button
+              v-if="!isOrderingMode"
+              variant="ghost"
+              size="icon"
+              aria-label="Nueva cuenta"
+              @click="openAddSheet"
+            >
+              <Plus class="size-5" />
+            </Button>
+          </div>
+        </div>
 
-          <!-- Estado vacío (sección 6.2): salvaguarda defensiva, no debería
-               ocurrir en la práctica (la cuenta "General" se crea sola). -->
-          <div v-if="accountsStore.accounts.length === 0" class="flex flex-col items-center gap-2 px-4 py-8">
+        <!-- Estado vacío (sección 6.2): salvaguarda defensiva, no debería
+             ocurrir en la práctica (la cuenta "General" se crea sola). -->
+        <Card v-if="accountsStore.accounts.length === 0">
+          <div class="flex flex-col items-center gap-2 px-4 py-8">
             <Wallet class="size-8 text-muted-foreground" />
             <p class="text-center text-sm font-medium">
               Todavía no tenés ninguna cuenta.
@@ -303,143 +308,149 @@ function openEditSheet(account: Account) {
               Nueva cuenta
             </Button>
           </div>
-
-          <!-- Modo normal: fila navegable con saldo + chevron + menú ⋮. -->
-          <div v-else-if="!isOrderingMode" class="flex flex-col">
-            <template v-for="(account, idx) in accountsStore.accounts" :key="account.id">
-              <Separator v-if="idx > 0" />
-              <div
-                class="flex cursor-pointer items-center gap-3 px-4 py-3 transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
-                role="button"
-                tabindex="0"
-                :aria-label="`Ver detalle de ${account.name}`"
-                @click="router.push({ name: 'account-detail', params: { id: account.id } })"
-                @keydown.enter="router.push({ name: 'account-detail', params: { id: account.id } })"
-              >
-                <span
-                  class="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                  :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
-                >
-                  <component
-                    :is="resolveAccountIcon(account.icon)"
-                    class="size-4.5"
-                    :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
-                  />
-                </span>
-                <div class="flex min-w-0 flex-1 flex-col">
-                  <p class="truncate text-sm font-medium">
-                    {{ account.name }}
-                  </p>
-                  <p class="text-xs text-muted-foreground">
-                    {{ usageLabel(account.id) }}
-                  </p>
-                </div>
-                <div class="flex flex-col items-end gap-0.5">
-                  <p
-                    class="text-sm font-semibold tabular-nums"
-                    :class="accountsStore.balanceFor(account.id) < 0 ? 'text-destructive' : undefined"
-                    :style="accountsStore.balanceFor(account.id) < 0 ? undefined : { color: balanceColorStyle(account) }"
-                  >
-                    {{ accountsStore.balanceFor(account.id) < 0 ? '-' : '' }}${{ formatAmount(Math.abs(accountsStore.balanceFor(account.id))) }}
-                  </p>
-                </div>
-                <!-- Chevron: afordancia visual de fila clickeable (sección
-                     13.2.1), `aria-hidden` — la acción ya la anuncia el
-                     `aria-label` de la fila. -->
-                <ChevronRight class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-                <DropdownMenu>
-                  <DropdownMenuTrigger as-child>
-                    <Button variant="ghost" size="icon" :aria-label="`Opciones de ${account.name}`" @click.stop>
-                      <EllipsisVertical class="size-5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
-                    <DropdownMenuItem @select="openEditSheet(account)">
-                      <Pencil class="size-4" />
-                      Editar
-                    </DropdownMenuItem>
-                    <AlertDialog>
-                      <AlertDialogTrigger as-child>
-                        <DropdownMenuItem
-                          variant="destructive"
-                          :disabled="!canDelete(account.id)"
-                          @select="(e: Event) => e.preventDefault()"
-                        >
-                          <Trash2 class="size-4" />
-                          Eliminar
-                        </DropdownMenuItem>
-                      </AlertDialogTrigger>
-                      <AlertDialogContent>
-                        <AlertDialogHeader>
-                          <AlertDialogTitle>¿Eliminar "{{ account.name }}"?</AlertDialogTitle>
-                          <AlertDialogDescription>
-                            Esta acción no se puede deshacer.
-                          </AlertDialogDescription>
-                        </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancelar</AlertDialogCancel>
-                          <AlertDialogAction @click="accountsStore.deleteAccount(account.id)">
-                            Eliminar
-                          </AlertDialogAction>
-                        </AlertDialogFooter>
-                      </AlertDialogContent>
-                    </AlertDialog>
-                  </DropdownMenuContent>
-                </DropdownMenu>
-              </div>
-            </template>
-          </div>
-
-          <!-- Modo "Ordenar" (sección 13.3.3): sin navegación, sin menú ⋮, sin
-               saldo/subtítulo — solo ícono + nombre + botones ↑/↓. -->
-          <div v-else class="flex flex-col">
-            <template v-for="(account, idx) in accountsStore.accounts" :key="account.id">
-              <Separator v-if="idx > 0" />
-              <div
-                class="flex items-center gap-3 px-4 py-3"
-                :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
-              >
-                <span
-                  class="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                  :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
-                >
-                  <component
-                    :is="resolveAccountIcon(account.icon)"
-                    class="size-4.5"
-                    :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
-                  />
-                </span>
-                <div class="flex min-w-0 flex-1 flex-col">
-                  <p class="truncate text-sm font-medium">
-                    {{ account.name }}
-                  </p>
-                </div>
-
-                <div class="flex items-center gap-1">
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    :aria-label="`Subir ${account.name}`"
-                    :disabled="idx === 0 || accountsStore.isReordering"
-                    @click="moveAccount(idx, -1)"
-                  >
-                    <ChevronUp class="size-4" />
-                  </Button>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    :aria-label="`Bajar ${account.name}`"
-                    :disabled="idx === accountsStore.accounts.length - 1 || accountsStore.isReordering"
-                    @click="moveAccount(idx, 1)"
-                  >
-                    <ChevronDown class="size-4" />
-                  </Button>
-                </div>
-              </div>
-            </template>
-          </div>
         </Card>
+
+        <!-- Modo normal: cada cuenta en su propia Card (sección 13.4),
+             separadas por `gap-3` — fila navegable con saldo + chevron +
+             menú ⋮. El tinte de color se aplica directo sobre la Card vía
+             `:style` (gana por especificidad sobre `bg-card`). -->
+        <div v-else-if="!isOrderingMode" class="flex flex-col gap-3">
+          <Card
+            v-for="account in accountsStore.accounts"
+            :key="account.id"
+            class="cursor-pointer p-0 transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
+            role="button"
+            tabindex="0"
+            :aria-label="`Ver detalle de ${account.name}`"
+            @click="router.push({ name: 'account-detail', params: { id: account.id } })"
+            @keydown.enter="router.push({ name: 'account-detail', params: { id: account.id } })"
+          >
+            <div class="flex items-center gap-3 px-4 py-3">
+              <span
+                class="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+              >
+                <component
+                  :is="resolveAccountIcon(account.icon)"
+                  class="size-4.5"
+                  :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
+                />
+              </span>
+              <div class="flex min-w-0 flex-1 flex-col">
+                <p class="truncate text-sm font-medium">
+                  {{ account.name }}
+                </p>
+                <p class="text-xs text-muted-foreground">
+                  {{ usageLabel(account.id) }}
+                </p>
+              </div>
+              <div class="flex flex-col items-end gap-0.5">
+                <p
+                  class="text-sm font-semibold tabular-nums"
+                  :class="accountsStore.balanceFor(account.id) < 0 ? 'text-destructive' : undefined"
+                  :style="accountsStore.balanceFor(account.id) < 0 ? undefined : { color: balanceColorStyle(account) }"
+                >
+                  {{ accountsStore.balanceFor(account.id) < 0 ? '-' : '' }}${{ formatAmount(Math.abs(accountsStore.balanceFor(account.id))) }}
+                </p>
+              </div>
+              <!-- Chevron: afordancia visual de fila clickeable (sección
+                   13.2.1), `aria-hidden` — la acción ya la anuncia el
+                   `aria-label` de la fila. -->
+              <ChevronRight class="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <DropdownMenu>
+                <DropdownMenuTrigger as-child>
+                  <Button variant="ghost" size="icon" :aria-label="`Opciones de ${account.name}`" @click.stop>
+                    <EllipsisVertical class="size-5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem @select="openEditSheet(account)">
+                    <Pencil class="size-4" />
+                    Editar
+                  </DropdownMenuItem>
+                  <AlertDialog>
+                    <AlertDialogTrigger as-child>
+                      <DropdownMenuItem
+                        variant="destructive"
+                        :disabled="!canDelete(account.id)"
+                        @select="(e: Event) => e.preventDefault()"
+                      >
+                        <Trash2 class="size-4" />
+                        Eliminar
+                      </DropdownMenuItem>
+                    </AlertDialogTrigger>
+                    <AlertDialogContent>
+                      <AlertDialogHeader>
+                        <AlertDialogTitle>¿Eliminar "{{ account.name }}"?</AlertDialogTitle>
+                        <AlertDialogDescription>
+                          Esta acción no se puede deshacer.
+                        </AlertDialogDescription>
+                      </AlertDialogHeader>
+                      <AlertDialogFooter>
+                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                        <AlertDialogAction @click="accountsStore.deleteAccount(account.id)">
+                          Eliminar
+                        </AlertDialogAction>
+                      </AlertDialogFooter>
+                    </AlertDialogContent>
+                  </AlertDialog>
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </div>
+          </Card>
+        </div>
+
+        <!-- Modo "Ordenar" (sección 13.3.3): mismo tratamiento de Cards
+             separadas, sin navegación, sin menú ⋮, sin saldo/subtítulo —
+             solo ícono + nombre + botones ↑/↓. -->
+        <div v-else class="flex flex-col gap-3">
+          <Card
+            v-for="(account, idx) in accountsStore.accounts"
+            :key="account.id"
+            class="p-0"
+            :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
+          >
+            <div class="flex items-center gap-3 px-4 py-3">
+              <span
+                class="flex size-10 shrink-0 items-center justify-center rounded-lg"
+                :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+              >
+                <component
+                  :is="resolveAccountIcon(account.icon)"
+                  class="size-4.5"
+                  :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
+                />
+              </span>
+              <div class="flex min-w-0 flex-1 flex-col">
+                <p class="truncate text-sm font-medium">
+                  {{ account.name }}
+                </p>
+              </div>
+
+              <div class="flex items-center gap-1">
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  :aria-label="`Subir ${account.name}`"
+                  :disabled="idx === 0 || accountsStore.isReordering"
+                  @click="moveAccount(idx, -1)"
+                >
+                  <ChevronUp class="size-4" />
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  :aria-label="`Bajar ${account.name}`"
+                  :disabled="idx === accountsStore.accounts.length - 1 || accountsStore.isReordering"
+                  @click="moveAccount(idx, 1)"
+                >
+                  <ChevronDown class="size-4" />
+                </Button>
+              </div>
+            </div>
+          </Card>
+        </div>
       </template>
     </main>
 
