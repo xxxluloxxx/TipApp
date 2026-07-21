@@ -422,50 +422,57 @@ function deleteTemplate(templateId: string) {
           <div class="flex flex-col">
             <template v-for="(item, idx) in fixedExpensesRows" :key="item.templateId">
               <Separator v-if="idx > 0" />
-              <div class="flex items-center gap-3 px-4 py-3" :class="{ 'opacity-60': !item.isActive }">
-                <span
-                  class="flex size-9 shrink-0 items-center justify-center rounded-full"
-                  :style="{ background: withAlpha(item.categoryColor, 0.15) ?? 'var(--color-muted)' }"
-                >
+              <div class="flex flex-col gap-2 px-4 py-3" :class="{ 'opacity-60': !item.isActive }">
+                <!-- Fila 1: ícono + nombre/categoría (con todo el ancho
+                     disponible, sin competir con "Pagar"/"⋮") + monto/estado. -->
+                <div class="flex items-center gap-3">
                   <span
-                    class="size-2.5 rounded-full"
-                    :style="{ background: item.categoryColor ?? 'var(--color-muted-foreground)' }"
-                  />
-                </span>
+                    class="flex size-9 shrink-0 items-center justify-center rounded-full"
+                    :style="{ background: withAlpha(item.categoryColor, 0.15) ?? 'var(--color-muted)' }"
+                  >
+                    <span
+                      class="size-2.5 rounded-full"
+                      :style="{ background: item.categoryColor ?? 'var(--color-muted-foreground)' }"
+                    />
+                  </span>
 
-                <div class="flex min-w-0 flex-1 flex-col">
-                  <p class="truncate text-sm font-medium">
-                    {{ item.name }}
-                  </p>
-                  <p class="truncate text-xs text-muted-foreground">
-                    {{ item.categoryName }} · Día {{ item.paymentDay }}
-                  </p>
+                  <div class="flex min-w-0 flex-1 flex-col">
+                    <p class="truncate text-sm font-medium">
+                      {{ item.name }}
+                    </p>
+                    <p class="truncate text-xs text-muted-foreground">
+                      {{ item.categoryName }} · Día {{ item.paymentDay }}
+                    </p>
+                  </div>
+
+                  <div class="flex shrink-0 flex-col items-end gap-1">
+                    <p class="text-sm font-semibold tabular-nums">
+                      ${{ formatAmount(item.amount) }}
+                    </p>
+                    <FixedExpenseStatusBadge :status="item.displayStatus" />
+                  </div>
                 </div>
 
-                <div class="flex flex-col items-end gap-1">
-                  <p class="text-sm font-semibold tabular-nums">
-                    ${{ formatAmount(item.amount) }}
-                  </p>
-                  <FixedExpenseStatusBadge :status="item.displayStatus" />
-                </div>
+                <!-- Fila 2: acciones, en su propia línea (evita truncar el
+                     nombre/categoría de arriba en pantallas angostas). -->
+                <div class="flex items-center justify-end gap-2">
+                  <Button
+                    v-if="item.isActive && item.status === 'pending'"
+                    size="sm"
+                    variant="outline"
+                    class="shrink-0"
+                    @click="openPaySheet(item)"
+                  >
+                    Pagar
+                  </Button>
 
-                <Button
-                  v-if="item.isActive && item.status === 'pending'"
-                  size="sm"
-                  variant="outline"
-                  class="shrink-0"
-                  @click="openPaySheet(item)"
-                >
-                  Pagar
-                </Button>
-
-                <DropdownMenu>
-                  <DropdownMenuTrigger as-child>
-                    <Button variant="ghost" size="icon" aria-label="Más acciones">
-                      <EllipsisVertical class="size-5" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                  <DropdownMenuContent align="end">
+                  <DropdownMenu>
+                    <DropdownMenuTrigger as-child>
+                      <Button variant="ghost" size="icon" aria-label="Más acciones">
+                        <EllipsisVertical class="size-5" />
+                      </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="end">
                     <DropdownMenuItem
                       v-if="item.isActive && (item.status === 'pending' || item.status === 'skipped')"
                       @select="toggleSkipped(item)"
@@ -504,6 +511,7 @@ function deleteTemplate(templateId: string) {
                     </AlertDialog>
                   </DropdownMenuContent>
                 </DropdownMenu>
+                </div>
               </div>
             </template>
           </div>
