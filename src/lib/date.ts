@@ -78,6 +78,26 @@ export function formatExpenseDateHeading(value: string, reference: Date = new Da
   return `${day} de ${month} de ${date.getFullYear()}`
 }
 
+/** Etiqueta corta de la píldora de fecha del alta tipo "calculadora"
+ * (accounts-income-ux.md sección 14.4.2): "Hoy"/"Ayer" igual que
+ * `formatExpenseDateHeading`, pero para el resto usa el formato corto sin año
+ * ("12 jul", mes abreviado a 3 letras) en vez de "12 de julio" — el espacio de
+ * la píldora es acotado. Se agrega como función nueva a propósito (decisión
+ * del Product Owner, riesgo 14.14.3) en vez de reusar `formatExpenseDateHeading`. */
+export function formatDateChip(value: string, reference: Date = new Date()): string {
+  const date = parseDateOnly(value)
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate())
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
+
+  if (isSameCalendarDay(date, today)) return 'Hoy'
+  if (isSameCalendarDay(date, yesterday)) return 'Ayer'
+
+  const day = date.getDate()
+  const month = MONTHS_ES[date.getMonth()]?.slice(0, 3) ?? ''
+  return `${day} ${month}`
+}
+
 /** Label del hero de "Total del mes" (sección 2.2): p. ej. "julio 2026". */
 export function currentMonthLabel(reference: Date = new Date()): string {
   return `${MONTHS_ES[reference.getMonth()]} ${reference.getFullYear()}`

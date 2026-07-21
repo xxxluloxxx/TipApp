@@ -903,6 +903,20 @@ fuera de alcance).
 
 ## 7. Flujo de alta de ingreso
 
+> **Actualizado por la sección 14** (rediseño "calculadora" del Sheet,
+> inspirado en una referencia visual de "Wallet by BudgetBakers"): el
+> layout de campos apilados descrito en 7.3 más abajo queda **reemplazado**
+> por el panel coloreado + teclado numérico + chips de cuenta/categoría de
+> la sección 14. Las decisiones de **contenido/datos** de esta sección 7
+> (qué es un ingreso, por qué no se categoriza — 7.2 —, el toggle Tipo
+> deshabilitado en edición, el orden de validación monto→cuenta→categoría→
+> fecha, el guardado 100% optimista, `incomesStore.ts` — 7.4 —, y el
+> indicador de signo en las listas — 7.5, ya no aplica solo a "no pintar de
+> rojo cada gasto": ver la corrección vigente en `design-system.md` sección
+> 1) siguen **100% vigentes sin cambios** — lo único que cambia es la
+> disposición visual/de interacción del formulario. Consultar la sección 14
+> antes de tocar `TransactionFormSheet.vue`.
+
 ### 7.1 Decisión: extender `ExpenseFormSheet.vue` (renombrado a `TransactionFormSheet.vue`), no un Sheet nuevo
 
 **Se extiende el Sheet existente con un selector de tipo Gasto/Ingreso, en
@@ -1098,6 +1112,16 @@ indicador de tipo — **no solo color** (regla de a11y de siempre):
 ---
 
 ## 8. Selector de cuenta en el formulario de gasto/ingreso
+
+> **Reemplazado por las secciones 14.4.4 y 14.9**: el `Select` desplegable
+> descrito en 8.1 se reemplaza por la fila de cuenta dentro del panel
+> coloreado (14.4.4, de solo lectura/contexto) más la fila de chips "Tus
+> cuentas" (14.9, la interacción real de cambio de cuenta). El *contenido*
+> de esta sección sigue vigente sin cambios: Cuenta sigue siendo **tan
+> obligatoria como Monto y Categoría** (8.1) y el default sigue siendo "la
+> cuenta del movimiento más reciente, si no `General`" (8.2, función
+> `defaultAccountId()` reusada tal cual, sin cambios de lógica). Ver 14.4.4/
+> 14.9 para la nueva interacción.
 
 ### 8.1 Campo nuevo, ubicado justo después de Monto
 
@@ -2152,3 +2176,758 @@ con lo específico de esta sección 13:
    decorativo del hero navegue a algún lado (13.1.4); corregir el caso
    borde de `initial_balance` en cuentas nuevas creadas dentro del mes en
    curso (13.1.3, aceptado tal cual).
+
+---
+
+## 14. Rediseño "calculadora" del alta de Gasto/Ingreso (reemplaza el layout de las secciones 7.3 y 8.1)
+
+Encargo del Product Owner: reemplazar el Sheet de campos apilados de
+`TransactionFormSheet.vue` por una pantalla de entrada tipo calculadora,
+inspirada en una captura de referencia de **"Wallet by BudgetBakers"**
+(localizada a español). Se replica **contenido/interacción**, no marca —
+mismo criterio ya aplicado a "GastoCard" (`credit-cards-ux.md`) y "Mis
+Gastos" (`dashboard-redesign-ux.md`). **Encargo puramente de diseño**: esta
+sección es la especificación completa; la implementación queda para
+`vue-frontend-expert` en una iteración separada.
+
+### 14.0 Por qué acá, y no en `expenses-mvp-ux.md` ni un doc nuevo
+
+Este documento ya es la fuente de verdad de `TransactionFormSheet.vue`
+(secciones 7-8, y la iteración de `/cuentas` de la sección 13 ya sigue el
+mismo patrón de "sección nueva inspirada en una referencia visual,
+agregada al final del doc existente"). `expenses-mvp-ux.md` describe una
+versión **anterior** del Sheet (antes de la extensión Gasto/Ingreso, ya
+superada por la sección 7 de este mismo documento) — extenderlo ahí hubiera
+significado documentar sobre una base ya obsoleta. Ningún dato/campo nuevo
+en esta sección: siguen siendo los mismos 5 campos de siempre (Tipo, Monto,
+Cuenta, Categoría — solo gasto —, Fecha, Descripción), **cero cambios de
+backend/schema**.
+
+### 14.1 Decisión de alcance (la más importante): Transferencias NO se toca en esta pasada
+
+**Opción (a) elegida: el rediseño se aplica únicamente a
+`TransactionFormSheet.vue` (2 tabs — Ingreso/Gasto, no 3).
+`AccountTransferFormSheet.vue` queda 100% intacto — mismo layout de campos
+apilados que tiene hoy.**
+
+Motivos:
+
+1. **No mezclar dos rediseños en una sola pasada** (recomendación explícita
+   del Product Owner, y criterio ya usado en el proyecto — p. ej. Deudas
+   Fase 2 no tocó `card_people` más de lo estrictamente necesario).
+   Transferencias tiene dos elementos que **no** encajan 1:1 en "un panel
+   coloreado por UNA cuenta con un teclado debajo" sin diseño propio: (a) el
+   campo **Comisión**, con su copy de advertencia ya vigente
+   (`account-transfers-ux.md` sección 4: "a diferencia del monto de arriba,
+   la comisión sí es un gasto real..."), que no tiene un lugar obvio en un
+   panel de "un solo monto gigante"; (b) **dos cuentas simultáneas**
+   (origen/destino) contra un panel diseñado para pintarse con el color de
+   **una** cuenta — extenderlo requeriría decidir de cero cómo se ve un
+   panel con dos colores, o una transición origen→destino, que no es un
+   problema resuelto por la referencia (la referencia sí muestra un tab
+   "TRANSFERENCIA" con dos filas de cuenta, pero sin panel coloreado por
+   ninguna de las dos, así que ni siquiera la referencia resuelve el
+   choque de "color único" contra "dos cuentas").
+2. **Frecuencia de uso dispar**: Gasto/Ingreso es la operación diaria;
+   Transferencia es de uso ocasional (mover plata entre cuentas propias) —
+   el rediseño rinde más donde más se usa.
+3. Riesgo acotado: si el rediseño de Gasto/Ingreso tiene algún problema en
+   producción, no arrastra a Transferencias con él.
+
+Si a futuro se decide extender el mismo lenguaje visual a Transferencias,
+es un encargo propio (probablemente: panel con **dos** filas de cuenta en
+vez de una — "De" / "A" —, reusando el mismo teclado + monto gigante de
+esta sección tal cual, y resolviendo aparte dónde vive Comisión) — no
+bloqueado por nada de esta decisión, solo diferido.
+
+**Confirmado, sin ningún cambio**: la ruta `/transferencias`
+(`name: 'account-transfers'`), y el punto de entrada ya existente desde
+`TransactionsView.vue` (el botón/link que hace
+`router.push({ name: 'account-transfers' })`, sección 6.4 de
+`account-transfers-ux.md`) siguen exactamente iguales. El usuario llega a
+Transferencias por el mismo camino de siempre; esta sección no le cambia
+nada a ese flujo.
+
+### 14.2 Estructura general (de arriba a abajo)
+
+```
+┌─────────────────────────────────────┐
+│  ✕                    Nuevo gasto    │  SheetHeader — sin cambios
+├─────────────────────────────────────┤
+│   [ INGRESO ]     [ GASTO ]          │  14.3 — tabs (2, no 3)
+├─────────────────────────────────────┤
+│                            Hoy ⌄     │  14.4.2 — fecha (pill)
+│                                       │
+│             $ 1.234,56               │  14.4.3 — monto gigante
+│                                       │  panel coloreado por
+│    🏦  Cuenta: Efectivo · $45.320    │  14.4.4 — fila de cuenta   la cuenta elegida
+└─────────────────────────────────────┘
+   Ingresá un monto mayor a 0.          14.5 — slot de error (condicional)
+┌─────────────────────────────────────┐
+│    7        8        9               │
+│    4        5        6               │  14.6 — teclado (solo dígitos)
+│    1        2        3               │
+│    ,        0        ⌫               │
+└─────────────────────────────────────┘
+  🍔 Comida  🚗 Transporte  🎬 Ocio →   14.7 — categoría (solo si Gasto)
+  + Agregar nota                        14.8 — nota (= Descripción)
+  💳 Efectivo  🏦 Banco  💰 Ahorros →   14.9 — "Tus cuentas"
+├─────────────────────────────────────┤
+│         [ Guardar movimiento ]       │  14.10 — footer, sin cambios
+└─────────────────────────────────────┘
+```
+
+Diagrama orientativo (no literal en proporciones) — cada bloque se detalla
+en su subsección con clases/markup concretos.
+
+### 14.3 Tabs Ingreso/Gasto (2, no 3)
+
+Reemplaza el `role="radiogroup"` compacto de la sección 7.3 (dos `<button>`
+chicos dentro de una píldora `bg-muted`) por dos tabs de ancho completo,
+más grandes, arriba de todo el Sheet — mismo rol/semántica
+(`radiogroup`/`radio`/`aria-checked`), look nuevo:
+
+```html
+<div id="tipo-transaccion-label" class="sr-only">Tipo de movimiento</div>
+<div role="radiogroup" aria-labelledby="tipo-transaccion-label" class="grid grid-cols-2 gap-2 px-4">
+  <button
+    type="button" role="radio" :aria-checked="form.type === 'income'"
+    :disabled="isEditing || isSaving"
+    class="flex min-h-11 items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+    :class="form.type === 'income' ? 'bg-success/10 text-success' : 'text-muted-foreground hover:bg-muted'"
+    @click="form.type = 'income'"
+  >
+    <CircleArrowDown class="size-4" /> Ingreso
+  </button>
+  <button
+    type="button" role="radio" :aria-checked="form.type === 'expense'"
+    :disabled="isEditing || isSaving"
+    class="flex min-h-11 items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+    :class="form.type === 'expense' ? 'bg-destructive/10 text-destructive' : 'text-muted-foreground hover:bg-muted'"
+    @click="form.type = 'expense'"
+  >
+    <CircleArrowUp class="size-4" /> Gasto
+  </button>
+</div>
+```
+
+- **Solo 2 tabs** (Ingreso/Gasto), no 3 — ver 14.1. El copy usa "Ingreso"/
+  "Gasto" en singular (no "INGRESOS" en plural mayúscula como la
+  referencia), consistente con el copy ya usado en toda la app
+  (`sheetTitle`, los labels de las listas).
+- **Íconos confirmados en el paquete instalado**
+  (`node_modules/@lucide/vue/dist/esm/icons/circle-arrow-down.mjs` /
+  `circle-arrow-up.mjs`): `CircleArrowDown` (Ingreso) / `CircleArrowUp`
+  (Gasto) — mapean 1:1 a "flecha abajo verde" / "flecha arriba roja" de la
+  referencia. Nota: en versiones más viejas de lucide estos mismos glifos se
+  llamaban `ArrowDownCircle`/`ArrowUpCircle`; en la versión instalada del
+  proyecto el nombre correcto es `CircleArrowDown`/`CircleArrowUp` —
+  confirmar el export exacto al implementar si se actualiza la dependencia.
+- **Indicador de tab activo: fondo + color, nunca solo color** — el tab
+  inactivo no lleva ningún fondo (`hover:bg-muted` solo en hover), así que
+  la presencia de `bg-success/10`/`bg-destructive/10` es un indicador
+  estructural (área rellena vs. vacía), no solo un cambio de tono de texto
+  — mismo mecanismo que ya usa el toggle actual (`bg-background
+  text-foreground shadow-xs` vs. `text-muted-foreground`), solo con los
+  tokens de tipo en vez de neutros. `aria-checked` para AT.
+- **Deshabilitado en edición**: `:disabled="isEditing || isSaving"` (sin
+  cambios de política respecto a 7.3) + `disabled:opacity-60
+  disabled:cursor-not-allowed` explícito, para que un tab no funcional no
+  "parezca" tocable (regla de a11y de `design-system.md` sección 5, punto
+  9 de la sección 11 de este doc).
+- **El panel de abajo (14.4) NO cambia de color al tocar un tab** — a
+  diferencia de la referencia original (donde todo el panel se re-pinta de
+  verde/rojo según el tab), acá el panel sigue coloreado por la **cuenta**
+  elegida (ver 14.4, decisión ya tomada explícitamente por el encargo:
+  "Panel superior grande, coloreado con el color de la cuenta actualmente
+  seleccionada"). Es una divergencia consciente respecto al mecanismo
+  literal de la referencia, resuelta a favor de la instrucción explícita
+  del encargo — se documenta acá para que quede resuelta la aparente
+  contradicción entre "los tabs cambian el color del panel" (descripción
+  general de la referencia) y "el panel se colorea por cuenta" (decisión
+  específica pedida): el segundo gana, los tabs solo cambian su propio
+  color (fondo del tab activo), no el del panel.
+
+### 14.4 Panel superior coloreado por cuenta
+
+Contenedor: `<div class="mx-4 rounded-xl p-5" :style="panelStyle">`, con
+`panelStyle` resolviendo `background: resolveAccountColor(selectedAccount.color, isDarkNow)` — **mismo mecanismo de color ya usado en toda la app**, sin
+inventar nada nuevo (`src/lib/colors.ts`). El texto dentro del panel resuelve
+su color con `readableTextColor(selectedAccount.color)` (ya existe en
+`colors.ts`, calcula blanco o `#111827` según contraste) — nunca un color de
+texto fijo, porque la paleta de 12 cuentas (`ACCOUNT_COLOR_SWATCHES`) no
+garantiza que "blanco" contraste bien contra todas (p. ej. "Amarillo"
+`#a16207`/`#ca8a04` es más claro que el resto).
+
+#### 14.4.1 Chip de moneda: se omite por completo (decisión 4 del encargo)
+
+**No se agrega ningún chip de moneda** ("USD ▾" ni "ARS" fijo). TipApp es
+mono-moneda (`src/lib/currency.ts`, formato `es-AR`, sin selector de moneda
+en ningún lado de la app) — agregar un elemento decorativo sin ninguna
+funcionalidad real detrás (ni siquiera texto fijo tipo "ARS") introduciría
+un patrón que no existe hoy en el resto de la app: en ningún otro lugar de
+TipApp se muestra un código de moneda de 3 letras (los montos van con `$`,
+punto, mismo criterio en absolutamente todas las pantallas). Mantener "ARS"
+fijo sin flecha se evaluó y se descarta por ser puramente redundante — no
+agrega información que el usuario no tenga ya. El espacio que ese chip
+ocupaba en la referencia (esquina superior del panel) se reutiliza para la
+píldora de fecha (14.4.2) — ver esa sección.
+
+#### 14.4.2 Fecha: píldora "Hoy ⌄" en la esquina superior del panel
+
+La referencia no muestra ningún control de fecha, pero **hoy sí se puede
+elegir una fecha pasada** (`isFutureDate`, caso de uso real: cargar un gasto
+de un día anterior) — no se puede perder esta capacidad.
+
+```html
+<div class="relative ml-auto w-fit">
+  <button
+    type="button" :disabled="isSaving"
+    class="flex min-h-9 items-center gap-1 rounded-full px-3 text-sm font-medium"
+    :style="{ background: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)', color: textColor }"
+  >
+    {{ dateChipLabel }} <ChevronDown class="size-3.5" />
+  </button>
+  <input
+    ref="dateInputRef" v-model="form.date" type="date" :max="todayValue" :disabled="isSaving"
+    :aria-invalid="!!errors.date" aria-label="Fecha del movimiento"
+    class="absolute inset-0 size-full cursor-pointer opacity-0"
+  >
+</div>
+```
+
+- **Mismo `<input type="date">` nativo de siempre** (`design-system.md`
+  sección 4, "Nota: campo fecha…" — usar el date picker nativo, nunca un
+  `Calendar` custom para este campo), solo que estilizado como una capa
+  invisible (`opacity-0 absolute inset-0`) **encima** de la píldora visible
+  — tocar la píldora abre el selector nativo del sistema operativo, mismo
+  mecanismo ya usado en el proyecto para la fecha (input real, look
+  custom). Sin JS de calendario nuevo.
+- `dateChipLabel`: reusa la misma lógica de encabezados ya existente en
+  `formatExpenseDateHeading` (`src/lib/date.ts`) — "Hoy" si `form.date` es
+  hoy, "Ayer" si es ayer, si no `"{día} de {mes}"` (p. ej. "12 jul" —
+  versión corta sin año, análoga a `monthNameOnly`). Si se prefiere no
+  tocar `formatExpenseDateHeading` (que devuelve "12 de julio", más largo),
+  `vue-frontend-expert` puede envolver su resultado en una versión
+  abreviada solo para este chip — detalle de implementación, no bloqueante.
+- Color de fondo semitransparente (`rgba(255,255,255,.18)` en panel oscuro
+  / `rgba(0,0,0,.12)` en panel claro) en vez de un color fijo, porque el
+  panel de fondo cambia según la cuenta — `panelIsDark` se resuelve con la
+  misma función `relativeLuminance`/lógica que ya usa `readableTextColor`
+  internamente (exponer un helper booleano, o derivarlo comparando
+  `textColor === '#ffffff'`, más simple sin tocar `colors.ts`).
+- Error de fecha (`errors.date`, ver 14.5): el input real sigue llevando
+  `aria-invalid`, aunque esté visualmente oculto — el error se anuncia por
+  el slot de 14.5, no hace falta un mensaje redundante acá.
+
+#### 14.4.3 Monto gigante — visual + accesible (sin regresión de a11y)
+
+**Doble capa, mismo dato**: la referencia muestra solo un número gigante no
+editable directamente (se arma con el teclado de 14.6), pero para no perder
+la accesibilidad que hoy tiene un `<Input>` real, el número visual convive
+con un input nativo accesible que sigue siendo la fuente de verdad:
+
+```html
+<div class="relative my-4 text-center">
+  <p aria-hidden="true" class="text-5xl font-bold tabular-nums tracking-tight" :style="{ color: textColor }">
+    ${{ liveFormattedAmount }}
+  </p>
+  <input
+    ref="amountInputRef" v-model="form.amount" inputmode="decimal" type="text"
+    :disabled="isSaving" :aria-invalid="!!errors.amount" aria-label="Monto"
+    class="absolute inset-0 size-full cursor-default opacity-0"
+  >
+  <span aria-live="polite" class="sr-only">{{ srAmountAnnouncement }}</span>
+</div>
+```
+
+- **`amountInputRef` es el mismo `<input>` de siempre** (`v-model="form.amount"`,
+  `inputmode="decimal"`, la validación/parseo de `parseAmount` **sin
+  ningún cambio**), superpuesto e invisible (`opacity-0`) sobre el número
+  grande. Esto resuelve de raíz la pregunta de a11y del encargo ("pensá en
+  cómo un usuario de lector de pantalla interactúa con esto"): un usuario
+  de teclado físico o lector de pantalla sigue teniendo un campo de texto
+  real, enfocable, con `aria-label`/`aria-invalid`, exactamente como hoy —
+  el teclado numérico visual (14.6) es una **capa adicional** de
+  interacción táctil que escribe sobre el mismo `form.amount`, nunca una
+  segunda fuente de verdad.
+- **`liveFormattedAmount`** (solo visual, `aria-hidden`): mientras se tipea,
+  se muestra la parte entera agrupada de a miles con el separador `es-AR`
+  (reusa `formatAmount` de `src/lib/currency.ts` sobre la parte entera) más
+  la parte decimal **tal cual la tipeó el usuario, sin reformatear** (para
+  no "corregir" un `,` final sin dígitos detrás mientras el usuario todavía
+  está escribiendo el decimal — p. ej. mostrar `1.234,` literal, no
+  `1.234`). `form.amount` (el string real que se valida/envía) no cambia de
+  formato, solo esta variable derivada de presentación.
+- **`srAmountAnnouncement`** (`aria-live="polite"`, oculto visualmente
+  `sr-only`): anuncia el monto ya formateado con moneda ("Monto: $1.234,56")
+  para lectores de pantalla, con un **debounce de ~300ms** tras el último
+  cambio — mismo criterio ya usado en el proyecto para no saturar con
+  anuncios constantes (precedente: debounce de 350ms del buscador de
+  partidos, `live-matches-ux.md` sección 5.1) — evita que un lector de
+  pantalla lea el monto completo en cada dígito tipeado.
+- Placeholder: si `form.amount` está vacío, `liveFormattedAmount` muestra
+  `"0"` (no vacío) — igual que cualquier calculadora, nunca un espacio en
+  blanco confuso.
+- `text-5xl` (por encima de la escala hero estándar `text-3xl sm:text-4xl`
+  de `design-system.md` sección 2): deliberado, porque en esta pantalla el
+  monto **es** el contenido, no un dato entre otros — mismo criterio ya
+  usado para extender la escala en casos de foco único (p. ej. el hero de
+  "Saldo total" de la sección 13.1).
+
+#### 14.4.4 Fila de cuenta (solo lectura/contexto — la interacción real está en 14.9)
+
+```html
+<div class="mt-3 flex items-center justify-center gap-2 text-sm font-medium" :style="{ color: textColor }">
+  <component :is="resolveAccountIcon(selectedAccount.icon)" class="size-4 shrink-0" />
+  <span>Cuenta: {{ selectedAccount.name }} · ${{ formatAmount(selectedAccountBalance) }}</span>
+</div>
+```
+
+- Copy literal del encargo: **"Cuenta: {nombre} ${saldo}"** — sin un
+  "Cambiar" explícito acá (la referencia lo sugiere con una flechita, pero
+  en TipApp el cambio de cuenta real ocurre en la fila de chips de 14.9,
+  siempre visible más abajo en el mismo Sheet — no hace falta un segundo
+  control redundante en el panel).
+- `selectedAccountBalance`: lee de `account_balances` ya cargado en
+  `accountsStore` (**nunca** recalculado sumando gastos/ingresos en
+  cliente — mismo principio ya establecido en la sección 1.2 de este
+  documento).
+- Ícono con `resolveAccountIcon(account.icon)` de `src/lib/accountIcons.ts`
+  (ya existe, sin cambios).
+
+### 14.5 Slot de error — un único mensaje visible a la vez
+
+```html
+<p v-if="activeError" role="alert" class="mt-3 px-4 text-center text-sm font-medium text-destructive">
+  {{ activeError }}
+</p>
+```
+
+- **`activeError`** es un computed que devuelve, en este orden fijo (mismo
+  orden de validación ya vigente en 7.3: monto → cuenta → categoría *si
+  aplica* → fecha), el primer `errors.*` truthy —
+  `errors.amount ?? errors.account ?? errors.category ?? errors.date`. Ya
+  hoy `validate()` solo deja un error seteado a la vez (retorna apenas
+  encuentra el primero), así que este computed no cambia ningún
+  comportamiento de validación, solo le da **un lugar visual fijo** donde
+  mostrarse (a diferencia de hoy, que muestra el error debajo de cada
+  campo individual — acá los campos ya no están apilados verticalmente, así
+  que un slot centralizado es más simple que reintroducir un
+  `<p class="text-destructive">` por cada control disperso).
+- Se ubica **fuera** del panel coloreado (fondo neutro `background` del
+  Sheet, no el color de la cuenta) — decisión deliberada de a11y: el color
+  de una cuenta puede ser cualquiera de los 12 tonos de
+  `ACCOUNT_COLOR_SWATCHES`, y no todos garantizan contraste ≥4.5:1 contra
+  `text-destructive` (rojo sobre rojo/granate, por ejemplo, sería
+  ilegible). Mostrar el error siempre sobre fondo neutro elimina ese riesgo
+  sin tener que validar contraste rojo-sobre-N-colores-de-cuenta.
+  fondo del Sheet.
+- `role="alert"` (implica `aria-live="assertive"`): se anuncia solo al
+  aparecer, sin necesitar `aria-describedby` disperso en 4 controles
+  distintos.
+- Foco: igual que hoy, `validate()` sigue llamando a `focusAmount()` /
+  `focusAccount()` / `focusCategory()` / `focusDate()` según cuál falló —
+  los cuatro se re-apuntan a los nuevos controles: `focusAmount()` enfoca
+  el `<input>` accesible de 14.4.3; `focusAccount()` enfoca el chip
+  actualmente seleccionado (o el primero) de la fila "Tus cuentas" (14.9);
+  `focusCategory()` enfoca el chip seleccionado (o el primero) de la fila
+  de categoría (14.7); `focusDate()` enfoca el `<input type=date>` oculto
+  de 14.4.2.
+
+### 14.6 Teclado numérico — solo dígitos, sin operadores (decisión 3)
+
+**Decisión: teclado de solo dígitos, sin operadores aritméticos (`+ − × ÷`),
+ni siquiera como elementos decorativos/deshabilitados.** Se sigue la
+recomendación del Product Owner (no ampliar alcance: evaluar expresiones
+reales requiere parseo/evaluación, trabajo adicional real no pedido) y se
+va un paso más allá de "incluirlos deshabilitados": se **omiten por
+completo**, porque un botón que se ve tocable pero no hace nada viola
+directamente la regla de a11y ya vigente en `design-system.md` sección 5,
+punto 9 ("nunca un elemento que parezca interactivo pero no haga nada al
+activarlo") y la sección 11 de este documento (punto 9, mismo criterio ya
+aplicado a los accesos rápidos "Pagos"/"Deudas" — ahí si se deshabilitan
+mostrando *explícitamente* "Próximamente"; acá no hay ningún copy honesto
+equivalente para "este botón de + nunca va a sumar nada", así que la opción
+correcta es no mostrarlo).
+
+```html
+<div class="grid grid-cols-3 gap-2 px-4">
+  <button v-for="key in ['7','8','9','4','5','6','1','2','3']" :key="key" type="button"
+    class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 active:bg-accent"
+    :disabled="isSaving" @click="appendDigit(key)"
+  >{{ key }}</button>
+
+  <button type="button" aria-label="Coma decimal" :disabled="isSaving" @click="appendDecimalSeparator"
+    class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+  >,</button>
+  <button type="button" :disabled="isSaving" @click="appendDigit('0')"
+    class="flex h-14 items-center justify-center rounded-lg bg-muted text-xl font-medium tabular-nums hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+  >0</button>
+  <button type="button" aria-label="Borrar el último dígito" :disabled="isSaving" @click="backspace"
+    class="flex h-14 items-center justify-center rounded-lg bg-muted hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+  ><Delete class="size-5" /></button>
+</div>
+```
+
+- **Orden telefónico/calculadora estándar**: `7 8 9 / 4 5 6 / 1 2 3 / , 0 ⌫`
+  (4 filas × 3 columnas = 12 botones), el mismo orden que cualquier
+  calculadora/teclado numérico ya conocido — no reinventar convención.
+- **Cada botón `h-14` (56px) de alto** — muy por encima del mínimo táctil
+  de 44px (`design-system.md` sección 5, punto 2), con `gap-2` (8px) entre
+  botones adyacentes.
+- **`Delete` confirmado en `@lucide/vue` instalado**
+  (`node_modules/@lucide/vue/dist/esm/icons/delete.mjs`) para el botón de
+  borrar — ícono + `aria-label` explícito (el ícono solo no basta para
+  lectores de pantalla).
+- **Reglas de armado del string** (mutan `form.amount`, el mismo string de
+  siempre, sin cambiar su formato de validación):
+  - Si `form.amount === '0'` o está vacío y se toca un dígito, **reemplaza**
+    (no concatena "00…") — comportamiento estándar de calculadora.
+  - Tocar `,` cuando ya hay una `,` en el string actual **no hace nada**
+    (no se permite una segunda coma) — sin necesidad de validación
+    adicional en `parseAmount`, se previene en el origen.
+  - Una vez que hay una `,` en el string, los dígitos que la siguen se
+    limitan a **2 decimales** (el tercer dígito después de la coma no se
+    agrega) — coherente con que todo el resto de la app muestra montos con
+    como mucho 2 decimales (`formatAmount`).
+  - `backspace` quita el último carácter; si el string queda vacío, vuelve
+    a mostrarse como `"0"` (placeholder, ver 14.4.3).
+- **El input accesible de 14.4.3 sigue siendo editable en paralelo** (por
+  ejemplo, un usuario con teclado físico puede simplemente tipear "1500,50"
+  ahí) — ambas vías escriben el mismo `form.amount`, nunca hay
+  desincronización porque no hay dos variables.
+- **Sin botón "C"/limpiar todo** en v1 (no pedido, mantener el set mínimo);
+  "borrar todo" queda cubierto tocando `⌫` repetidamente — anotar como
+  posible mejora futura, no bloqueante.
+
+### 14.7 Categoría — fila de chips debajo del teclado, solo si Gasto (decisión 1)
+
+**Ubicación elegida: fila de chips horizontal scrolleable, inmediatamente
+debajo del teclado numérico, antes de "Agregar nota".**
+
+```html
+<div v-if="form.type === 'expense'" class="mt-4">
+  <p id="categoria-chips-label" class="px-4 text-xs font-medium text-muted-foreground">Categoría</p>
+  <div role="listbox" aria-labelledby="categoria-chips-label" class="mt-1.5 flex gap-2 overflow-x-auto px-4 pb-1">
+    <button
+      v-for="category in allCategories" :key="category.id" type="button" role="option"
+      ref="categoryChipRefs" :aria-selected="form.categoryId === category.id" :disabled="isSaving"
+      class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      :class="form.categoryId === category.id ? 'border-transparent' : 'border-border text-muted-foreground'"
+      :style="form.categoryId === category.id ? { background: withAlpha(category.color, 0.18), color: category.color } : undefined"
+      @click="form.categoryId = category.id"
+    >
+      <span class="size-2 rounded-full" :style="{ background: category.color ?? 'var(--color-muted-foreground)' }" />
+      {{ category.name }}
+      <Check v-if="form.categoryId === category.id" class="size-3.5" />
+    </button>
+  </div>
+</div>
+```
+
+**Por qué acá y no otro lugar** (de las 3 opciones que planteaba el
+encargo — chips debajo del teclado, paso encadenado, o fila propia en el
+panel superior):
+
+- **No un paso encadenado** (pantalla 2 tipo wizard): el encargo excluye
+  explícitamente una "segunda pantalla" (la de Etiquetas/Beneficiario/etc.)
+  — aunque Categoría es un campo legítimo (a diferencia de esos), agregar
+  *cualquier* paso adicional reintroduce la fricción de navegación
+  secuencial que todo este rediseño busca evitar (la gracia de la
+  calculadora es que todo pasa en una sola pantalla continua).
+- **No una fila en el panel superior coloreado**: el panel ya tiene 3
+  elementos (fecha, monto, cuenta) — agregar un cuarto (categoría) lo
+  recargaría, y competiría visualmente con el monto (que debe seguir
+  siendo el elemento dominante de la pantalla, ver 14.4.3). Además, el
+  panel se pinta con el color de la **cuenta**; meter ahí un selector de
+  **categoría** (con su propia paleta de 8 colores, sección 1 de
+  `design-system.md`) mezclaría dos sistemas de color distintos en la
+  misma superficie, un choque visual innecesario.
+- **Sí, fila de chips debajo del teclado**: mismo patrón de interacción que
+  la fila "Tus cuentas" (14.9) que el propio encargo ya pide para Cuenta —
+  reusar el mismo mecanismo (chips horizontales, color + check) para dos
+  selectores relacionados de la misma pantalla es más consistente que
+  inventar una segunda técnica de selección. Se ubica **antes** de
+  "Agregar nota" (no después) porque Categoría es **obligatoria** para un
+  gasto y Nota es siempre opcional — el campo obligatorio va primero, en
+  la jerarquía visual natural de arriba hacia abajo.
+- **Solo visible si `form.type === 'expense'`** — mismo comportamiento
+  condicional ya vigente hoy (7.3): al cambiar a "Ingreso" la fila
+  desaparece y `form.categoryId` se descarta (mismo `watch` ya existente
+  sobre `form.type`, sin cambios de lógica).
+- **`allCategories`**: concatenación simple de
+  `categoriesStore.defaultCategories` + `categoriesStore.customCategories`,
+  en ese orden, **sin encabezados de grupo visibles** ("Categorías"/"Mis
+  categorías" que sí tiene el `Select` de hoy) — una fila horizontal no
+  tiene espacio natural para un label de grupo flotante a mitad de scroll.
+  Se acepta esta pequeña pérdida de agrupación visual (documentada, no un
+  olvido) porque el criterio de selección (nombre + color) sigue siendo
+  suficiente para distinguir una categoría propia de una default sin
+  necesitar el encabezado.
+- **Indicador de selección: fondo tintado + ícono `Check` + `aria-selected`**
+  — nunca solo el borde/color (regla de a11y de siempre). `role="listbox"`/
+  `role="option"`/`aria-selected` (selección única de una lista, semántica
+  más precisa que `radiogroup` para una fila con potencialmente muchos
+  ítems scrolleables).
+- Error (`errors.category`, "Seleccioná una categoría."): se muestra en el
+  slot único de 14.5, igual que los demás; `focusCategory()` enfoca el chip
+  seleccionado o, si no hay ninguno, el primero de `categoryChipRefs`.
+
+### 14.8 "Agregar nota" — mapea 1:1 al campo Descripción ya existente
+
+```html
+<div class="mt-4 px-4">
+  <button
+    v-if="!noteExpanded" type="button" :disabled="isSaving" @click="noteExpanded = true"
+    class="flex min-h-11 items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+  >
+    <StickyNote class="size-4" /> Agregar nota
+  </button>
+  <div v-else class="flex flex-col gap-1.5">
+    <Label for="descripcion">Nota <span class="font-normal text-muted-foreground">(opcional)</span></Label>
+    <Input id="descripcion" v-model="form.description" placeholder="Ej. Almuerzo con el equipo" maxlength="200" :disabled="isSaving" />
+  </div>
+</div>
+```
+
+- **Ningún campo nuevo**: `form.description` es exactamente el mismo dato
+  que hoy (Descripción). Solo cambia de "siempre visible" a "detrás de un
+  link colapsado por default", igual que en la referencia.
+- **Arranca expandido si ya hay una nota** (modo edición con
+  `description` no vacío) — mostrar el link "+ Agregar nota" cuando ya
+  existe una nota guardada sería confuso (parecería que se perdió el dato).
+  En alta, o en edición de una transacción sin descripción, arranca
+  colapsado.
+- Sin botón explícito de "quitar nota": si el usuario expande el campo y lo
+  deja vacío, se guarda como `null` (mismo comportamiento ya vigente hoy,
+  `description: form.description.trim() ? ... : null`) — no hace falta un
+  control adicional de "colapsar de nuevo", el campo simplemente puede
+  quedar vacío.
+
+### 14.9 "Tus cuentas" — fila de chips (renombrado de "Cuentas frecuentes")
+
+```html
+<div class="mt-4">
+  <p id="cuentas-chips-label" class="px-4 text-xs font-medium text-muted-foreground">Tus cuentas</p>
+  <div role="listbox" aria-labelledby="cuentas-chips-label" class="mt-1.5 flex gap-2 overflow-x-auto px-4 pb-1">
+    <button
+      v-for="account in accountsStore.accounts" :key="account.id" type="button" role="option"
+      ref="accountChipRefs" :aria-selected="form.accountId === account.id" :disabled="isSaving"
+      class="flex min-h-11 shrink-0 items-center gap-1.5 rounded-full border px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      :class="form.accountId === account.id ? 'border-transparent' : 'border-border text-muted-foreground'"
+      :style="form.accountId === account.id ? { background: withAlpha(resolveAccountColor(account.color, isDarkNow), 0.18), color: resolveAccountColor(account.color, isDarkNow) } : undefined"
+      @click="form.accountId = account.id"
+    >
+      <component :is="resolveAccountIcon(account.icon)" class="size-3.5" />
+      {{ account.name }} · ${{ formatAmount(accountsStore.balanceFor(account.id)) }}
+      <Check v-if="form.accountId === account.id" class="size-3.5" />
+    </button>
+  </div>
+</div>
+```
+
+- **Renombrado a "Tus cuentas"**, no "Cuentas frecuentes" como dice la
+  referencia — TipApp **no tiene** ningún cálculo de frecuencia de uso por
+  cuenta (a diferencia de, por ejemplo, la posición fija/`sort_order` de la
+  sección 13.3). Llamarla "frecuentes" prometería un ordenamiento inteligente
+  que no existe — mismo criterio de honestidad ya aplicado en todo el
+  proyecto (p. ej. "Reportes" nunca simula funcionalidad que no tiene,
+  `dashboard-redesign-ux.md` sección 8). La fila muestra **todas** las
+  cuentas del usuario, en el mismo orden que ya usa `accountsStore.accounts`
+  (`sort_order`/`created_at`, sección 13.3.6) — sin filtro de "las más
+  usadas".
+- Tocar un chip actualiza `form.accountId` **al instante**: el panel de
+  14.4 recalcula su color/ícono/nombre/saldo de inmediato (reactivo sobre
+  el mismo `form.accountId`, sin ningún paso de confirmación extra) — mismo
+  comportamiento que describe el encargo ("tap para cambiar la cuenta
+  seleccionada al instante").
+- Mismo componente de chip que 14.7 (categoría) — reuso de patrón visual,
+  no de componente Vue necesariamente (son dos `v-for` distintos sobre
+  datos distintos, pero mismas clases/mecanismo).
+- **Sin chip de "+ Nueva cuenta"** al final de la fila — no pedido por el
+  encargo, y navegar fuera del Sheet a mitad de una carga de gasto/ingreso
+  perdería el progreso ya tipeado (mismo trade-off ya aceptado para
+  "Agregar persona nueva" en Deudas, sección 4.1 de `debts-ux.md`, pero acá
+  ni siquiera hace falta resolverlo: crear una cuenta nueva desde cero
+  siendo tan poco frecuente no justifica el atajo, a diferencia de crear
+  una persona de deuda).
+- Error (`errors.account`): slot único de 14.5; `focusAccount()` enfoca el
+  chip seleccionado o el primero de `accountChipRefs`.
+
+### 14.10 Footer — botón Guardar, sin cambios de patrón
+
+```html
+<SheetFooter>
+  <Button type="submit" form="transaction-form" class="w-full" :disabled="isSaving">
+    <Loader2 v-if="isSaving" class="size-4 animate-spin" />
+    {{ isSaving ? 'Guardando…' : (isEditing ? 'Guardar cambios' : 'Guardar movimiento') }}
+  </Button>
+</SheetFooter>
+```
+
+Sin ningún cambio respecto al footer actual — mismo texto, mismo spinner,
+mismo `:disabled="isSaving"`. El contenido del Sheet (tabs + panel + error +
+teclado + categoría + nota + cuentas) queda dentro del área scrolleable
+normal de `SheetContent` (`side="bottom"`), el footer sigue fijo al pie —
+ningún cambio de estructura de `Sheet`/`SheetContent`/`SheetFooter`.
+
+### 14.11 Estados a cubrir
+
+1. **Alta nueva**: tab "Gasto" por default (mismo default ya vigente, 7.3),
+   `form.amount` vacío (muestra "0" per 14.4.3), cuenta = `defaultAccountId()`
+   sin cambios (8.2), categoría sin elegir, fecha = hoy, nota colapsada.
+2. **Edición**: tabs Ingreso/Gasto **deshabilitados** (sin cambios de
+   política respecto a 7.3 — "cambiar un gasto ya guardado a ingreso no es
+   una operación bien definida", mismo razonamiento vigente), todos los
+   valores precargados (`form.amount` ya con el monto guardado, chip de
+   cuenta/categoría ya marcados seleccionados, nota expandida si tenía
+   contenido — ver 14.8).
+3. **Error de validación**: slot único de 14.5 (`role="alert"`), un mensaje
+   a la vez, en el orden monto→cuenta→categoría→fecha, con foco movido al
+   control correspondiente (ver mapeo de `focus*()` en 14.5). Ninguna
+   validación cambia de regla, solo de **dónde se muestra el mensaje**.
+4. **Guardando**: `isSaving = true` — botón de footer con spinner
+   ("Guardando…"), Sheet no cerrable por Escape/tap fuera
+   (`preventCloseWhileSaving`, sin cambios), todos los controles
+   interactivos nuevos (tabs, teclado, chips de categoría/cuenta, píldora
+   de fecha, link de nota) llevan `:disabled="isSaving"` — mismo criterio
+   ya aplicado hoy a `Select`/`Input`/toggle.
+
+### 14.12 Accesibilidad — checklist específico de esta sección
+
+1. **Monto**: input de texto real y accesible detrás del número visual
+   (14.4.3), nunca solo botones táctiles — cubre lector de pantalla y
+   teclado físico sin regresión respecto al `<Input>` de hoy.
+2. **`aria-live="polite"` debounced** (~300ms) para el anuncio del monto
+   armado, separado del elemento visual (`aria-hidden="true"`) que se
+   actualiza sin debounce para el usuario vidente.
+3. **Teclado numérico**: cada tecla es un `<button>` real (operable por
+   Tab/Enter/Espacio nativamente), `h-14` (56px, sobre el mínimo de 44px),
+   `gap-2` entre teclas adyacentes, `aria-label` explícito en las dos
+   teclas sin texto autoexplicativo (",", `⌫`) — los dígitos no necesitan
+   `aria-label` adicional (su contenido de texto ya es "7", "8", etc.).
+4. **Chips de categoría/cuenta**: `role="listbox"`/`option`/`aria-selected`,
+   min-height 44px, indicador de selección con fondo tintado + ícono
+   `Check` (nunca solo el color de fondo).
+5. **Tabs Ingreso/Gasto**: `radiogroup`/`radio`/`aria-checked`, indicador de
+   activo con fondo (no solo texto de color), `disabled` + `aria-disabled`
+   implícito del atributo nativo en edición.
+6. **Foco visible en todo control nuevo**: mismo patrón
+   `focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2`
+   ya usado en el resto del proyecto, sin excepciones (teclado, chips,
+   píldora de fecha, link de nota).
+7. **Slot de error sobre fondo neutro** (14.5): garantiza contraste
+   ≥4.5:1 del texto `text-destructive` sin depender de qué color de cuenta
+   esté activo — evita tener que validar contraste rojo-sobre-N-colores.
+8. **`prefers-reduced-motion`**: las transiciones de color de los tabs/chips
+   (`transition-colors`) son sutiles y no dependen de una animación de
+   entrada — no interactúan con esta regla más allá de lo que ya cubre el
+   proyecto (Sheet/AlertDialog vía Reka UI).
+9. **Contraste texto/panel**: `readableTextColor(account.color)` ya existe
+   y ya se usa para este propósito exacto en otros lugares del proyecto —
+   se reusa tal cual, sin nueva lógica de contraste.
+
+### 14.13 Confirmación de exclusiones (nada de esto se coló en el diseño)
+
+- **Sin "Cantidad objetivo"**: no existe en ningún punto de esta sección.
+- **Sin segunda pantalla de detalle**: no hay Etiquetas, Beneficiario, Tipo
+  de pago, Garantía, Estado ni Lugar en ningún lado — la única nota es
+  `form.description`, el campo ya existente (14.8).
+- **Sin campo/dato nuevo de ningún tipo**: los 5 campos de siempre (Tipo,
+  Monto, Cuenta, Categoría, Fecha, Descripción) son exactamente los mismos
+  que hoy persiste `TransactionFormSheet.vue` — cero cambios de
+  `expensesStore`/`incomesStore`/schema.
+- **Sin tab "Transferencia"**: confirmado en 14.1, `AccountTransferFormSheet.vue`
+  intacto.
+- **Sin chip de moneda funcional ni decorativo**: confirmado en 14.4.1.
+- **Sin operadores aritméticos** (ni funcionales ni decorativos): confirmado
+  en 14.6.
+
+### 14.14 Riesgos/ambigüedades para revisión del Product Owner antes de implementar
+
+1. **El panel no cambia de color al tocar un tab** (14.3, último punto) es
+   una divergencia consciente respecto a la descripción general de la
+   referencia — se resolvió a favor de la instrucción explícita del
+   encargo ("coloreado con el color de la cuenta"), pero vale una
+   confirmación explícita del Product Owner antes de implementar, por si
+   la intención real era que el panel *sí* reaccionara al tipo (verde/rojo)
+   y la cuenta fuera secundaria.
+2. **Sin agrupación visual "Categorías"/"Mis categorías"** en la fila de
+   chips (14.7) — pérdida menor pero real respecto al `Select` de hoy;
+   aceptable a criterio de este documento, pero señalada por si el Product
+   Owner prefiere alguna marca visual (p. ej. un separador `|` entre
+   bloques) antes de dar luz verde a implementación.
+3. **Formato de `dateChipLabel`** (14.4.2): se propone una versión corta sin
+   año ("12 jul") distinta del `formatExpenseDateHeading` ya existente
+   ("12 de julio") — a confirmar si vale la pena la función nueva o si
+   reusar el formato largo tal cual es aceptable (el espacio de la píldora
+   es acotado, favorece la versión corta, pero es una decisión menor
+   delegable a `vue-frontend-expert` si el Product Owner no tiene
+   preferencia).
+
+### Resumen accionable para `vue-frontend-expert` (sección 14)
+
+1. **`TransactionFormSheet.vue`**: reescribir el template siguiendo 14.2-
+   14.10 tal cual (tabs → panel coloreado con fecha/monto/cuenta → slot de
+   error único → teclado → categoría (si gasto) → nota → chips de cuenta →
+   footer). El `<script setup>` conserva `form`/`errors`/`isSaving`/
+   `validate()`/`onSubmit()`/`resetForm()` **sin cambios de lógica** — solo
+   se agregan `appendDigit`/`appendDecimalSeparator`/`backspace`
+   (mutaciones de `form.amount`, 14.6), `activeError` (computed, 14.5),
+   `liveFormattedAmount`/`srAmountAnnouncement` (computed/watch con
+   debounce, 14.4.3), `dateChipLabel` (computed, 14.4.2), y refs de chip
+   (`categoryChipRefs`/`accountChipRefs`) para el nuevo mapeo de
+   `focusCategory()`/`focusAccount()`.
+2. **`src/lib/colors.ts`**: sin cambios de API — se reusan
+   `resolveAccountColor`, `readableTextColor`, `withAlpha` tal cual ya
+   existen. Si hace falta un booleano "el texto resuelto es blanco"
+   (`panelIsDark` de 14.4.2), resolverlo comparando el resultado de
+   `readableTextColor` en el componente, sin tocar el módulo.
+3. **`src/lib/date.ts`**: opcional, una función corta tipo
+   `formatDateChip(value): string` si se decide no reusar
+   `formatExpenseDateHeading` tal cual (ver riesgo 14.14.3).
+4. **Íconos nuevos a importar de `@lucide/vue`** (todos confirmados
+   existentes en el paquete instalado): `CircleArrowDown`, `CircleArrowUp`,
+   `ChevronDown`, `Delete`, `StickyNote`, `Check`.
+5. **`AccountTransferFormSheet.vue`**: **no tocar** en esta iteración (14.1).
+6. **Sin cambios de backend/schema/stores** más allá de lo ya mencionado —
+   ningún campo nuevo en `expenses`/`incomes`, ningún endpoint nuevo.
+
+### 14.15 Notas de implementación (`vue-frontend-expert`) — desviaciones menores respecto a la spec
+
+Al implementar la sección 14 se tomaron tres decisiones puntuales que se
+apartan de la letra del markup de arriba, ninguna que reabra una decisión de
+diseño (los 3 riesgos de 14.14 se resolvieron según lo indicado por el
+Product Owner: panel coloreado por cuenta, chips sin agrupación, `formatDateChip`
+corto). Se documentan igual que otras desviaciones del proyecto:
+
+1. **Contenedor scrolleable del Sheet**: el `<form>` lleva
+   `min-h-0 flex-1 overflow-y-auto` y el `SheetContent` un `max-h-[92dvh]`.
+   No estaba en la spec (14.10 dice "queda dentro del área scrolleable normal
+   de `SheetContent`"), pero el teclado numérico hace el Sheet bastante más
+   alto que el layout apilado anterior — sin esto, en pantallas chicas el
+   footer "Guardar" podía quedar empujado fuera del viewport. El header y el
+   footer quedan fijos; solo el cuerpo scrollea.
+2. **`readableTextColor` se calcula contra el color PINTADO del panel**
+   (`resolveAccountColor(...)`, que en modo oscuro usa la variante `darkHex`),
+   no contra el hex claro guardado en `accounts.color` como sugería 14.4 al
+   pie de la letra. Es una corrección de contraste: en modo oscuro el panel se
+   pinta con `darkHex` (más claro/saturado), así que el texto legible debe
+   evaluarse contra ese tono real, no contra el hex de modo claro. `panelIsDark`
+   se deriva de `textColor === '#ffffff'` (sin tocar `colors.ts`), tal cual
+   sugería 14.4.2.
+3. **Refs de chips por `id` (function ref + `Map`)** en vez de `ref="…Refs"`
+   como array de un `v-for`: Vue no garantiza que el array de refs de un
+   `v-for` respete el orden de la fuente, y `focusCategory()`/`focusAccount()`
+   necesitan enfocar el chip del `id` seleccionado (o el primero) de forma
+   confiable. Es un detalle de implementación, mismo comportamiento observable
+   que pide 14.5.
+
+**Verificación**: `npm run build` (`vue-tsc --build` + `vite build`) limpio y
+`npm run dev` sirviendo sin errores. **No se pudo** ejecutar el flujo real en
+un navegador en esta sesión (la extensión de automatización de Chrome no
+estaba conectada) — mismo caveat recurrente del proyecto; recomendado el
+smoke test manual (abrir el Sheet, tipear con el teclado, cambiar de cuenta y
+ver el panel recolorearse, guardar, y probar el modo edición con tabs
+deshabilitados) antes de dar la feature por cerrada en producción.
