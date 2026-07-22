@@ -63,9 +63,10 @@ const currentMonthExpenses = computed(() => {
   })
 })
 
-// Sección 4.1: dona completa. Mismo helper que Inicio (mismo tope visual de
-// 6 arcos), pero acá la leyenda incluye el `<details>` de "Ver detalle" para
-// la fila "Otros" (sección 10, punto 3: nativo, sin ARIA adicional).
+// Sección 4.1: dona completa. A diferencia de Inicio (que sí pliega en
+// "Otros" para el resumen rápido del dashboard), acá se listan TODAS las
+// categorías con gasto > 0 sin plegar, porque esta es la vista de detalle
+// dedicada a categorías.
 const donutSlices = computed(() => {
   const totals = new Map<string, CategoryTotal>()
   for (const expense of currentMonthExpenses.value) {
@@ -77,7 +78,7 @@ const donutSlices = computed(() => {
       totals.set(category.id, { id: category.id, name: category.name, color: category.color, amount: expense.amount })
     }
   }
-  return buildDonutSlices([...totals.values()], 5)
+  return buildDonutSlices([...totals.values()], Infinity)
 })
 
 // Sección 4.2: tendencia diaria, discreta (no acumulada), más grande y con
