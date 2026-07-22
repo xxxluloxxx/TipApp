@@ -27,6 +27,7 @@ import {
   buildAccountTransactionItems,
   buildTransactionItems,
   computeRunningBalances,
+  resolveAccountImpact,
   type TransactionItem,
 } from '@/lib/transactionItems'
 import { movementVerb } from '@/lib/debtDisplay'
@@ -413,10 +414,12 @@ function isTransfer(item: TransactionItem): boolean {
 // hilo (debts-ux.md sección 13.4, `amount > 0`). El resto (gasto real —sección
 // 6.6—, la cara de salida y un movimiento de deuda negativo) va en
 // `text-destructive`.
+// Impacto real en caja (`resolveAccountImpact`), no el signo crudo del dato:
+// para `debt-linked` esos dos signos difieren (sección de comentario en
+// `transactionItems.ts`) — un préstamo nuevo tiene `amount > 0` pero SACA
+// plata de la cuenta.
 function isPositive(item: TransactionItem): boolean {
-  return item.kind === 'income'
-    || item.kind === 'transfer-in'
-    || (item.kind === 'debt-linked' && item.data.amount > 0)
+  return resolveAccountImpact(item).signedAmount > 0
 }
 // El fondo `opacity-70` de "guardando…" solo aplica a gasto/ingreso optimistas
 // (`_pending`); una transferencia no es optimista y su `data` no lo modela.

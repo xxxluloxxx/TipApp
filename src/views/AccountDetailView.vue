@@ -19,7 +19,7 @@ import { formatAmount } from '@/lib/currency'
 import { readableTextColor } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { buildAccountBalanceEvolution, type AccountMovementInput, type TrendPoint } from '@/lib/charts'
-import { buildAccountTransactionItems, type TransactionItem } from '@/lib/transactionItems'
+import { buildAccountTransactionItems, resolveAccountImpact, type TransactionItem } from '@/lib/transactionItems'
 import { movementVerb } from '@/lib/debtDisplay'
 import { supabase } from '@/lib/supabase'
 import { useAccountsStore } from '@/stores/accounts'
@@ -267,10 +267,12 @@ function itemTitle(item: TransactionItem): string {
 function isTransfer(item: TransactionItem): boolean {
   return item.kind === 'transfer-out' || item.kind === 'transfer-in'
 }
+// Impacto real en caja (`resolveAccountImpact`), no el signo crudo del dato:
+// para `debt-linked` esos dos signos difieren (un préstamo nuevo tiene
+// `amount > 0` pero SACA plata de la cuenta, ver comentario en
+// `transactionItems.ts`).
 function isPositive(item: TransactionItem): boolean {
-  return item.kind === 'income'
-    || item.kind === 'transfer-in'
-    || (item.kind === 'debt-linked' && item.data.amount > 0)
+  return resolveAccountImpact(item).signedAmount > 0
 }
 // debts-ux.md sección 13.6: navegación al hilo dueño de este movimiento.
 function goToDebt(debtId: string) {
