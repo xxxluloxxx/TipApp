@@ -242,6 +242,45 @@ export function buildDebtBalanceEvolution(
   })
 }
 
+export interface MonthlyBarPoint {
+  /** Etiqueta corta de mes, ej. "Ene", "Feb" — ya formateada (mismo contrato
+   * que `DualTrendPoint.label`, el componente no conoce fechas). */
+  label: string
+  income: number
+  expense: number
+}
+
+/** Forma mínima de una fila de la vista `monthly_expense_income_totals`
+ * (reports-detail-ux.md sección 0 punto 2): siempre 6 filas, últimos 6 meses
+ * calendario terminando en el mes actual, ya ordenadas por `month_start` asc.
+ * Desacoplado del tipo generado de la BD (este archivo no depende de tipos de
+ * Supabase, mismo criterio que el resto de `charts.ts`). */
+export interface MonthlyTotalsRow {
+  month_start: string | null
+  expense_total: number | null
+  income_total: number | null
+}
+
+/**
+ * Mapea las 6 filas de `monthly_expense_income_totals` (reports-detail-ux.md
+ * sección 6.1) a los puntos que consume `MonthlyBarChart.vue`. `month_start`
+ * viene como `'YYYY-MM-DD'` (día 1 del mes); se deriva la etiqueta corta del
+ * mes con `MONTHS_ES_SHORT`. Se parsea el mes del string directamente (sin
+ * `parseDateOnly` + `getMonth`) para no arriesgar corrimientos de zona horaria
+ * — la posición 5..7 del ISO es el mes (1..12).
+ */
+export function buildMonthlyBarPoints(rows: MonthlyTotalsRow[]): MonthlyBarPoint[] {
+  return rows.map((row) => {
+    const monthNumber = row.month_start ? Number(row.month_start.slice(5, 7)) : 0
+    const label = MONTHS_ES_SHORT[monthNumber - 1] ?? ''
+    return {
+      label,
+      income: row.income_total ?? 0,
+      expense: row.expense_total ?? 0,
+    }
+  })
+}
+
 /**
  * Movimiento de UNA cuenta puntual ya acotado por rango de fecha (account-
  * detail-ux.md sección 6.1). `signedAmount` viene resuelto con signo DESDE EL

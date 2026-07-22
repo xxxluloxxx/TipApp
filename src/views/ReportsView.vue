@@ -6,8 +6,12 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarSync,
+  ChevronRight,
   FileText,
+  GitCompareArrows,
   Landmark,
+  Layers,
+  LayoutDashboard,
   Plus,
   RotateCcw,
   Wallet,
@@ -428,6 +432,14 @@ watch(selectedMonth, () => {
 })
 
 onMounted(loadReport)
+
+// reports-detail-ux.md sección 2: navegación hacia las 3 pantallas nuevas de
+// Reportes. Único agregado permitido a este archivo (restricción del PO).
+const moreReportsLinks = [
+  { to: { name: 'reports-summary' }, icon: LayoutDashboard, label: 'Resumen ampliado', description: 'Tiles, tendencia de 6 meses y hallazgos' },
+  { to: { name: 'reports-detail' }, icon: Layers, label: 'Detalle del mes', description: 'Por tarjeta, por persona y métodos de pago' },
+  { to: { name: 'reports-comparison' }, icon: GitCompareArrows, label: 'Comparación mensual', description: 'Compará dos meses cualquiera' },
+]
 </script>
 
 <template>
@@ -491,6 +503,36 @@ onMounted(loadReport)
             </Badge>
           </div>
         </div>
+      </section>
+
+      <!-- reports-detail-ux.md sección 2: navegación a las 3 pantallas nuevas
+           de Reportes. Siempre visible, fuera del v-if/v-else de estado, para
+           que no quede escondida detrás de un error o un mes vacío. -->
+      <section class="flex flex-col gap-3">
+        <Card>
+          <CardHeader>
+            <CardTitle class="text-base font-semibold">
+              Más reportes
+            </CardTitle>
+          </CardHeader>
+          <nav class="flex flex-col gap-1 px-3 pb-3">
+            <RouterLink
+              v-for="item in moreReportsLinks"
+              :key="item.to.name"
+              :to="item.to"
+              class="flex min-h-11 items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            >
+              <span class="flex size-9 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+                <component :is="item.icon" class="size-4.5" />
+              </span>
+              <span class="flex min-w-0 flex-1 flex-col">
+                <span class="truncate font-medium">{{ item.label }}</span>
+                <span class="truncate text-xs text-muted-foreground">{{ item.description }}</span>
+              </span>
+              <ChevronRight class="size-4 shrink-0 text-muted-foreground" />
+            </RouterLink>
+          </nav>
+        </Card>
       </section>
 
       <template v-if="isInitialLoading">

@@ -1531,6 +1531,15 @@ export type Database = {
         }
         Relationships: []
       }
+      monthly_expense_income_totals: {
+        Row: {
+          expense_total: number | null
+          income_total: number | null
+          month_start: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
     }
     Functions: {
       _account_transfer_delete: {

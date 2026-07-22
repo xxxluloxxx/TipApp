@@ -185,10 +185,31 @@ const router = createRouter({
       component: () => import('@/views/StatisticsView.vue'),
       meta: { requiresAuth: true },
     },
+    // reports-detail-ux.md sección 1: 3 pantallas nuevas de Reportes, rutas
+    // hijas de `/reportes`. Todos los segmentos son literales (sin `:id`
+    // dinámico bajo `/reportes`), no requiere orden especial.
     {
       path: '/reportes',
       name: 'reports',
       component: () => import('@/views/ReportsView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/reportes/resumen',
+      name: 'reports-summary',
+      component: () => import('@/views/ReportsSummaryView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/reportes/detalle-mes',
+      name: 'reports-detail',
+      component: () => import('@/views/ReportsMonthDetailView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/reportes/comparacion',
+      name: 'reports-comparison',
+      component: () => import('@/views/ReportsComparisonView.vue'),
       meta: { requiresAuth: true },
     },
     {
