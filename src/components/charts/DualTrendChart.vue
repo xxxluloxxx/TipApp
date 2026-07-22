@@ -5,6 +5,7 @@
 // completa en el doc). Presentacional puro: recibe los puntos ya calculados
 // (buildDebtBalanceEvolution de src/lib/charts.ts) y no llama a ningún store.
 import { computed, useId } from 'vue'
+import { formatAmount } from '@/lib/currency'
 
 export interface DualTrendPoint {
   /** Etiqueta corta de mes, ej. "Ene", "Feb" — ya formateada, el componente
@@ -104,10 +105,22 @@ const axisLabels = computed(() => {
     .map((point, idx) => ({ key: idx, label: point.label }))
     .filter((_, idx) => idx % 2 === 0)
 })
+
+// Pedido del usuario: mismo agregado que TrendAreaChart.vue — fila propia
+// arriba del SVG con el techo del eje Y compartido, para que quede claro que
+// ambas series están en la misma escala de plata.
+const maxAmountLabel = computed(() => `Hasta $${formatAmount(maxAmount.value)}`)
 </script>
 
 <template>
   <div class="flex flex-col gap-1">
+    <!-- Eje Y mínimo (pedido del usuario), mismo criterio que
+         TrendAreaChart.vue: techo del eje en fila propia, nunca superpuesto
+         al SVG. -->
+    <p class="text-[10px] text-muted-foreground">
+      {{ maxAmountLabel }}
+    </p>
+
     <svg
       role="img"
       :aria-label="ariaLabel"

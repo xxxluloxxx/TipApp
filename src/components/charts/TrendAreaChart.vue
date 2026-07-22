@@ -3,6 +3,7 @@
 // ya calculados (buildCumulativeDailySeries / buildDailySeries de
 // src/lib/charts.ts) y no llama a ningún store.
 import { computed, useId } from 'vue'
+import { formatAmount } from '@/lib/currency'
 
 export interface TrendPoint {
   date: string
@@ -111,10 +112,32 @@ function formatAxisLabel(dateStr: string): string {
   const day = dateStr.split('-')[2]
   return day ? String(Number(day)) : dateStr
 }
+
+// Pedido del usuario: ninguna de las gráficas de la app indicaba en el
+// propio eje qué unidad mide (acá, plata) — antes solo lo daba a entender el
+// título/hero de la Card que lo rodea. Se agrega, junto con `showAxis` (la
+// variante ya "detallada" de Estadísticas/Cuentas), una fila propia ARRIBA
+// del SVG con el techo del eje Y ("Hasta $X") — en fila propia, no
+// superpuesta sobre el gráfico, para no arriesgar que tape la línea/área en
+// alturas chicas. Es el mínimo indispensable para saber de qué se trata sin
+// agregar una grilla ni un número por punto (mismo criterio "sin tooltip,
+// nunca un número por punto" ya establecido) — el otro extremo del eje ($0)
+// ya lo comunica la línea base existente. La variante compacta de Inicio
+// (`showAxis` en `false`) no lo necesita: ya tiene el monto gigante del hero
+// justo arriba.
+const maxAmountLabel = computed(() => `Hasta $${formatAmount(maxAmount.value)}`)
 </script>
 
 <template>
   <div class="flex flex-col gap-1">
+    <!-- Eje Y mínimo (pedido del usuario): techo del eje en fila propia,
+         nunca superpuesto al SVG (mismo motivo de distorsión con
+         `preserveAspectRatio="none"` documentado más abajo, y para no
+         arriesgar tapar la línea/área en alturas chicas). -->
+    <p v-if="showAxis" class="text-[10px] text-muted-foreground">
+      {{ maxAmountLabel }}
+    </p>
+
     <svg
       role="img"
       :aria-label="ariaLabel"
