@@ -182,6 +182,17 @@ export const COLOR_SWATCHES = [
  * Tailwind (tono profundo, legible con `readableTextColor`), `darkHex` es
  * una variante a mano un poco más clara/saturada para seguir siendo nítida
  * sobre el fondo oscuro real de la app.
+ *
+ * **13ª entrada "Amarillo puro"** (pedido del usuario, ronda 2: ni "Dorado"
+ * ni el "Amarillo" de la ronda anterior leen como amarillo franco). Mismo
+ * `hex`/`darkHex` deliberadamente DISTINTOS de los usados en `COLOR_SWATCHES`
+ * (`#eab308`/`#facc15`) — mismo criterio ya documentado más arriba de evitar
+ * una asociación visual falsa entre el dominio de cuentas y el de
+ * categorías/tarjetas/personas. Validado con `validate_palette.js`
+ * (`--pairs all`, light y dark): sin ningún fallo NUEVO contra los 12
+ * existentes (las fallas preexistentes — `#a16207`↔`#b45309`,
+ * `#0f766e`↔`#047857`/`#4d7c0f`, piso de croma de `#0f766e`/`#475569` — ya
+ * estaban ahí antes de este agregado).
  */
 export const ACCOUNT_COLOR_SWATCHES = [
   { hex: '#b45309', darkHex: '#df670b', label: 'Dorado' },
@@ -193,6 +204,7 @@ export const ACCOUNT_COLOR_SWATCHES = [
   { hex: '#047857', darkHex: '#06a87a', label: 'Esmeralda' },
   { hex: '#4d7c0f', darkHex: '#609b13', label: 'Oliva' },
   { hex: '#a16207', darkHex: '#ca8a04', label: 'Amarillo' },
+  { hex: '#d1a10a', darkHex: '#f2c00a', label: 'Amarillo puro' },
   { hex: '#be185d', darkHex: '#e23a7c', label: 'Rosa' },
   { hex: '#0f766e', darkHex: '#15a394', label: 'Turquesa' },
   { hex: '#475569', darkHex: '#64748b', label: 'Pizarra' },
