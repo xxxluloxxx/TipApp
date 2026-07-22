@@ -39,7 +39,15 @@ const loadError = ref(false)
 const monthExpenses = ref<CardExpenseWithRelations[]>([])
 const prevMonthExpenses = ref<CardExpenseWithRelations[]>([])
 
-interface MonthOption { value: string, label: string, start: Date, end: Date }
+interface MonthOption {
+  value: string
+  label: string
+  month: string
+  year: string
+  isCurrent: boolean
+  start: Date
+  end: Date
+}
 
 // Mismo patrón que CardTransactionsView.vue: últimos 12 meses generados con
 // matemática de fechas pura, sin depender de ningún dato ya cargado.
@@ -48,9 +56,14 @@ const monthOptions = computed<MonthOption[]>(() => {
   return Array.from({ length: 12 }, (_, i) => {
     const start = new Date(now.getFullYear(), now.getMonth() - i, 1)
     const end = new Date(now.getFullYear(), now.getMonth() - i + 1, 1)
+    const label = currentMonthLabel(start)
+    const [month = label, year = ''] = label.split(' ')
     return {
       value: `${start.getFullYear()}-${String(start.getMonth() + 1).padStart(2, '0')}`,
-      label: currentMonthLabel(start),
+      label,
+      month,
+      year,
+      isCurrent: i === 0,
       start,
       end,
     }
@@ -247,13 +260,30 @@ const dashboardSyncTargets = [monthExpenses]
               <Select v-model="filters.month">
                 <SelectTrigger
                   aria-describedby="cards-dashboard-period-label"
-                  class="mt-1 !h-10 !w-full !justify-between !rounded-md !bg-background !px-3 text-base font-semibold"
+                  class="mt-1 !h-10 !w-full !justify-between !rounded-md !bg-background !px-3 text-base font-semibold transition-colors hover:!bg-accent hover:!text-accent-foreground"
                 >
                   <SelectValue class="truncate" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
+                <SelectContent class="min-w-64 p-1">
+                  <SelectItem
+                    v-for="option in monthOptions"
+                    :key="option.value"
+                    :value="option.value"
+                    :text-value="option.label"
+                    class="rounded-md py-2.5 pr-9 pl-3"
+                  >
+                    <div class="flex w-full items-center justify-between gap-3">
+                      <span class="flex min-w-0 flex-col">
+                        <span class="truncate font-medium capitalize">{{ option.month }}</span>
+                        <span class="text-xs tabular-nums text-muted-foreground">{{ option.year }}</span>
+                      </span>
+                      <span
+                        v-if="option.isCurrent"
+                        class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                      >
+                        Actual
+                      </span>
+                    </div>
                   </SelectItem>
                 </SelectContent>
               </Select>

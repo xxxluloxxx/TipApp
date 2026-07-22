@@ -123,9 +123,14 @@ const monthOptions = computed(() => {
   const now = startOfMonth(new Date())
   return Array.from({ length: 12 }, (_, index) => {
     const date = addMonths(now, -index)
+    const label = currentMonthLabel(date)
+    const [month = label, year = ''] = label.split(' ')
     return {
       value: monthKey(date),
-      label: currentMonthLabel(date),
+      label,
+      month,
+      year,
+      isCurrent: index === 0,
     }
   })
 })
@@ -459,13 +464,30 @@ onMounted(loadReport)
               <Select v-model="selectedMonth">
                 <SelectTrigger
                   aria-describedby="reports-period-label"
-                  class="mt-1 !h-10 !w-full !justify-between !rounded-md !bg-background !px-3 text-base font-semibold"
+                  class="mt-1 !h-10 !w-full !justify-between !rounded-md !bg-background !px-3 text-base font-semibold transition-colors hover:!bg-accent hover:!text-accent-foreground"
                 >
                   <SelectValue class="truncate" />
                 </SelectTrigger>
-                <SelectContent>
-                  <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
-                    {{ option.label }}
+                <SelectContent class="min-w-64 p-1">
+                  <SelectItem
+                    v-for="option in monthOptions"
+                    :key="option.value"
+                    :value="option.value"
+                    :text-value="option.label"
+                    class="rounded-md py-2.5 pr-9 pl-3"
+                  >
+                    <div class="flex w-full items-center justify-between gap-3">
+                      <span class="flex min-w-0 flex-col">
+                        <span class="truncate font-medium capitalize">{{ option.month }}</span>
+                        <span class="text-xs tabular-nums text-muted-foreground">{{ option.year }}</span>
+                      </span>
+                      <span
+                        v-if="option.isCurrent"
+                        class="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary"
+                      >
+                        Actual
+                      </span>
+                    </div>
                   </SelectItem>
                 </SelectContent>
               </Select>
