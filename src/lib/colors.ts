@@ -133,6 +133,20 @@ export function hexToHslTriple(hex: string, options?: { minLightness?: number })
  * `--pairs all`, sin fallos nuevos introducidos por los 5 agregados (las
  * únicas fallas reportadas ya eran preexistentes: `#eab308`/`#6b7280` fuera
  * de banda/piso de croma, y el par `#6366f1`↔`#8b5cf6` ya en producción).
+ *
+ * **`#facc15` "Amarillo puro" agregado después** (pedido del usuario: el
+ * único amarillo que había, `#eab308`, lee más dorado/mostaza que amarillo
+ * franco). Validado igual que los 5 anteriores — `--pairs all` no reporta
+ * ningún fallo NUEVO de separación CVD/visión normal contra ningún otro
+ * color del grid (incluido `#eab308`, son distinguibles entre sí): la única
+ * falla que introduce es la misma banda de luminosidad ("demasiado claro")
+ * que YA fallaban `#eab308`/`#f97316`/`#06b6d4`/`#14b8a6`/`#22c55e`/`#84cc16`
+ * en modo oscuro — no es una falla nueva de esta iteración, es una
+ * propiedad intrínseca del amarillo puro (es el matiz más claro posible a
+ * máximo croma), mismo tipo de trade-off ya aceptado en este proyecto para
+ * el hallazgo CVD Vivienda/Transporte (dashboard-redesign-ux.md): se
+ * documenta y se mitiga con el nombre siempre visible en texto junto al
+ * color, nunca solo el chip.
  */
 export const COLOR_SWATCHES = [
   { hex: '#f97316', label: 'Naranja' },
@@ -147,6 +161,7 @@ export const COLOR_SWATCHES = [
   { hex: '#6b7280', label: 'Gris' },
   { hex: '#84cc16', label: 'Lima' },
   { hex: '#a21caf', label: 'Fucsia' },
+  { hex: '#facc15', label: 'Amarillo puro' },
   { hex: '#0284c7', label: 'Azul cielo' },
   { hex: '#be123c', label: 'Granate' },
   { hex: '#4d7c0f', label: 'Oliva' },
