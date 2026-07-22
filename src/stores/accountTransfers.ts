@@ -24,7 +24,7 @@ export interface TransferPayload {
 // transferencias puede crecer sin techo con el tiempo (sección 1.4), a
 // diferencia de `debt_balances` (cardinalidad chica). Sin paginación en esta
 // iteración, mismo pendiente que `expenses.ts`.
-const MAX_TRANSFERS = 200
+export const MAX_TRANSFERS = 200
 
 function sortTransfersDesc(list: AccountTransfer[]): AccountTransfer[] {
   return [...list].sort((a, b) => {

@@ -67,7 +67,7 @@ const RECENT_MOVEMENTS_LIMIT = 30
 // 13.1): los movimientos de deuda con cuenta vinculada de TODOS los hilos
 // crecen sin techo con el tiempo (perfil `expenses`/`account_transfers`, no
 // `debt_balances`), por eso el mismo límite defensivo, nunca "traer todo".
-const ACCOUNT_LINKED_MOVEMENTS_LIMIT = 200
+export const ACCOUNT_LINKED_MOVEMENTS_LIMIT = 200
 // Red de seguridad defensiva (mismo criterio que SAFETY_LIMIT de
 // cardExpenses.ts), no el mecanismo real de corrección: las queries que la
 // usan ya van acotadas por rango de fecha (sección 1.3 de debts-ux.md).

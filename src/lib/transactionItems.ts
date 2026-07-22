@@ -105,3 +105,78 @@ export function buildAccountTransactionItems(
     return true
   })
 }
+
+/**
+ * Impacto real en caja de un ítem, desde el punto de vista de LA cuenta
+ * involucrada — mismo criterio de signo que `AccountDetailView.vue` usa para
+ * su gráfico de 30 días (`AccountMovementInput.signedAmount` en
+ * `charts.ts`), generalizado a los 5 kinds de la lista mezclada global
+ * (incluye `debt-linked`, que ese gráfico omite). El `!` en `debt-linked` es
+ * seguro por el mismo motivo que `primaryBadgeText`/`accountName` en
+ * `TransactionsView.vue`: un ítem `debt-linked` solo se genera para
+ * movimientos con `account_id` no nulo.
+ *
+ * `debt-linked` usa la MISMA fórmula que `accountDeltaFor` en `debts.ts`
+ * (no exportada desde ahí — este archivo no depende de stores, mismo
+ * criterio que el resto de `transactionItems.ts`/`charts.ts`): el signo de
+ * `item.data.amount` es el signo de LA DEUDA (sube/baja el saldo del hilo),
+ * no el de la caja — un préstamo nuevo (`direction: 'lent'`, `amount > 0`)
+ * SACA plata de la cuenta, así que su impacto de caja es negativo.
+ */
+export function resolveAccountImpact(item: TransactionItem): { accountId: string, signedAmount: number } {
+  switch (item.kind) {
+    case 'expense':
+      return { accountId: item.data.account_id, signedAmount: -item.data.amount }
+    case 'income':
+      return { accountId: item.data.account_id, signedAmount: item.data.amount }
+    case 'transfer-out':
+      return { accountId: item.data.from_account_id, signedAmount: -item.data.amount }
+    case 'transfer-in':
+      return { accountId: item.data.to_account_id, signedAmount: item.data.amount }
+    case 'debt-linked':
+      return {
+        accountId: item.data.account_id!,
+        signedAmount: item.data.debt.direction === 'lent' ? -item.data.amount : item.data.amount,
+      }
+  }
+}
+
+/**
+ * Saldo de la cuenta INMEDIATAMENTE DESPUÉS de cada ítem (pedido del
+ * usuario, estilo "estado de cuenta bancario"): arranca en el saldo actual
+ * de cada cuenta (`currentBalanceFor`, siempre `account_balances`
+ * server-side, nunca resumido en cliente) y camina `items` — YA ordenados
+ * `date desc` por `buildTransactionItems` — de arriba hacia abajo, con un
+ * acumulador POR CUENTA (esta lista mezcla todas las cuentas del usuario en
+ * un solo feed cronológico). Para cada ítem: el acumulador actual de su
+ * cuenta ES el saldo después de ese ítem; después se le resta el impacto de
+ * ese ítem para que el próximo (más viejo) de la misma cuenta arranque desde
+ * ahí.
+ *
+ * Clave del mapa devuelto: `${item.kind}-${item.id}` (misma que la `:key` de
+ * `v-for` en las vistas que renderizan `TransactionItem`). El llamador es
+ * responsable de no confiar en este resultado para ítems más viejos que el
+ * límite seguro de sus fetches (ver comentario de `MAX_EXPENSES`/
+ * `MAX_INCOMES`/`MAX_TRANSFERS`/`ACCOUNT_LINKED_MOVEMENTS_LIMIT` en cada
+ * store): los 4 fetches que alimentan `items` están topados de forma
+ * independiente y global (todas las cuentas, sin paginación), así que un
+ * ítem más viejo que el más restrictivo de esos topes podría tener
+ * movimientos de ESA tabla sin cargar para su cuenta.
+ */
+export function computeRunningBalances(
+  items: TransactionItem[],
+  currentBalanceFor: (accountId: string) => number,
+): Map<string, number> {
+  const running = new Map<string, number>()
+  const result = new Map<string, number>()
+
+  for (const item of items) {
+    const { accountId, signedAmount } = resolveAccountImpact(item)
+    if (!running.has(accountId)) running.set(accountId, currentBalanceFor(accountId))
+    const balanceAfter = running.get(accountId)!
+    result.set(`${item.kind}-${item.id}`, balanceAfter)
+    running.set(accountId, balanceAfter - signedAmount)
+  }
+
+  return result
+}

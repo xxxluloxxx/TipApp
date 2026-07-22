@@ -28,7 +28,7 @@ export interface IncomePayload {
 // (eso viene de `account_balances` en `accounts.ts`, sección 1) — el límite
 // acá es solo para no traer un historial ilimitado a memoria para el listado
 // de "Transacciones"/"recientes", igual que `expenses.ts`.
-const MAX_INCOMES = 200
+export const MAX_INCOMES = 200
 
 /** income_date desc, created_at desc — mismo criterio que `sortExpenses`. */
 function sortIncomes(list: IncomeWithAccount[]): IncomeWithAccount[] {

@@ -14,13 +14,13 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { useAccountsStore } from '@/stores/accounts'
-import { useAccountTransfersStore } from '@/stores/accountTransfers'
+import { useAccountTransfersStore, MAX_TRANSFERS } from '@/stores/accountTransfers'
 import { useCategoriesStore } from '@/stores/categories'
-import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
+import { useDebtsStore, ACCOUNT_LINKED_MOVEMENTS_LIMIT, type DebtMovementWithDebt } from '@/stores/debts'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
-import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
-import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
-import { buildTransactionItems, type TransactionItem } from '@/lib/transactionItems'
+import { useExpensesStore, MAX_EXPENSES, type ExpenseWithCategory } from '@/stores/expenses'
+import { useIncomesStore, MAX_INCOMES, type IncomeWithAccount } from '@/stores/incomes'
+import { buildTransactionItems, computeRunningBalances, type TransactionItem } from '@/lib/transactionItems'
 import { movementVerb } from '@/lib/debtDisplay'
 import { formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
@@ -141,6 +141,43 @@ const mergedItems = computed<TransactionItem[]>(() =>
 )
 
 const isEmpty = computed(() => mergedItems.value.length === 0)
+
+// Pedido del usuario ("saldo con el que queda la cuenta" en cada fila, estilo
+// estado de cuenta bancario): saldo por fila vía `computeRunningBalances`
+// (siempre parte del saldo actual server-side de cada cuenta, nunca resumido
+// en cliente). Solo es confiable si NINGUNO de los 4 fetches que alimentan
+// `mergedItems` alcanzó su tope (sin paginación, ver cada store) — si alguno
+// lo alcanzó, cualquier ítem más viejo que la fecha de corte de ESE fetch
+// podría estar mostrando un saldo parcial disfrazado de exacto (mismo
+// criterio que `isMonthSafeToShow` en `charts.ts`). `null` = sin
+// restricción, se muestra en todas las filas.
+const balanceSafeBoundaryDate = computed<string | null>(() => {
+  const cutoffs: string[] = []
+  if (expensesStore.expenses.length >= MAX_EXPENSES) {
+    const oldest = expensesStore.expenses.at(-1)?.expense_date
+    if (oldest) cutoffs.push(oldest)
+  }
+  if (incomesStore.incomes.length >= MAX_INCOMES) {
+    const oldest = incomesStore.incomes.at(-1)?.income_date
+    if (oldest) cutoffs.push(oldest)
+  }
+  if (accountTransfersStore.transfers.length >= MAX_TRANSFERS) {
+    const oldest = accountTransfersStore.transfers.at(-1)?.transfer_date
+    if (oldest) cutoffs.push(oldest)
+  }
+  if (debtLinkedMovements.value.length >= ACCOUNT_LINKED_MOVEMENTS_LIMIT) {
+    const oldest = debtLinkedMovements.value.at(-1)?.movement_date
+    if (oldest) cutoffs.push(oldest)
+  }
+  return cutoffs.length === 0 ? null : cutoffs.reduce((latest, d) => (d > latest ? d : latest))
+})
+
+const runningBalances = computed(() => computeRunningBalances(mergedItems.value, id => accountsStore.balanceFor(id)))
+
+function balanceAfter(item: TransactionItem): number | null {
+  if (balanceSafeBoundaryDate.value !== null && item.date <= balanceSafeBoundaryDate.value) return null
+  return runningBalances.value.get(`${item.kind}-${item.id}`) ?? null
+}
 
 // Agrupación visual por encabezado de fecha (sección 3.1), ahora sobre la
 // lista mezclada.
@@ -405,12 +442,26 @@ function goToDebt(debtId: string) {
                 </div>
 
                 <div class="flex items-center gap-2">
-                  <p
-                    class="text-right text-base font-semibold tabular-nums"
-                    :class="isPositive(item) ? 'text-success' : 'text-destructive'"
-                  >
-                    <span class="text-sm font-normal text-muted-foreground">{{ isPositive(item) ? '+$' : '$' }}</span>{{ formatAmount(Math.abs(item.data.amount)) }}
-                  </p>
+                  <div class="flex flex-col items-end gap-0.5">
+                    <p
+                      class="text-right text-base font-semibold tabular-nums"
+                      :class="isPositive(item) ? 'text-success' : 'text-destructive'"
+                    >
+                      <span class="text-sm font-normal text-muted-foreground">{{ isPositive(item) ? '+$' : '$' }}</span>{{ formatAmount(Math.abs(item.data.amount)) }}
+                    </p>
+                    <!-- Saldo de la cuenta después de este movimiento (pedido
+                         del usuario, estilo estado de cuenta bancario). Se
+                         omite si `balanceAfter` no puede garantizar el
+                         número completo (ver comentario de
+                         `balanceSafeBoundaryDate`). -->
+                    <p
+                      v-if="balanceAfter(item) !== null"
+                      class="text-right text-xs tabular-nums"
+                      :class="balanceAfter(item)! < 0 ? 'text-destructive' : 'text-success'"
+                    >
+                      ({{ balanceAfter(item)! < 0 ? '-' : '' }}${{ formatAmount(Math.abs(balanceAfter(item)!)) }})
+                    </p>
+                  </div>
 
                   <DropdownMenu>
                     <DropdownMenuTrigger as-child>

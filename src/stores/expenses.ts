@@ -31,7 +31,7 @@ export interface ExpensePayload {
 
 // Límite defensivo (sección 2.3 de expenses-mvp-ux.md): sin paginación en
 // esta iteración.
-const MAX_EXPENSES = 200
+export const MAX_EXPENSES = 200
 
 /** expense_date desc, created_at desc (sección 2.3). */
 function sortExpenses(list: ExpenseWithCategory[]): ExpenseWithCategory[] {
