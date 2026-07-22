@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { useRouter } from 'vue-router'
-import { Ban, BellOff, BellRing, Check, ChevronRight, Goal, Monitor, Moon, Palette, Smartphone, Sun, SunMoon } from '@lucide/vue'
+import { Ban, BellOff, BellRing, Check, ChevronRight, Cigarette, Goal, Monitor, Moon, Palette, Smartphone, Sun, SunMoon } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { COLOR_SWATCHES, readableTextColor } from '@/lib/colors'
 import { useAuthStore } from '@/stores/auth'
@@ -194,6 +194,27 @@ async function onToggleNotifications(value: boolean) {
             Tu navegador no admite notificaciones. Probá desde Chrome o Safari actualizados.
           </span>
         </p>
+      </Card>
+
+      <!-- Iron (control de consumo de tabaco, iron-ux.md): feature de utilidad
+           NO financiera, se quitó del drawer a propósito y queda accesible solo
+           desde acá, en su propia card. La ruta `iron` sigue intacta. -->
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Más
+          </CardTitle>
+        </CardHeader>
+
+        <button
+          type="button"
+          class="flex min-h-11 w-full items-center gap-3 border-t border-border px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          @click="router.push({ name: 'iron' })"
+        >
+          <Cigarette class="size-5 shrink-0 text-muted-foreground" />
+          <span class="flex-1 text-sm font-medium">Iron</span>
+          <ChevronRight class="size-4 shrink-0 text-muted-foreground" />
+        </button>
       </Card>
     </main>
   </div>

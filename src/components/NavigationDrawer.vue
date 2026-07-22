@@ -6,7 +6,6 @@ import {
   ArrowRightLeft,
   CalendarSync,
   ChartPie,
-  Cigarette,
   CreditCard,
   FileText,
   HandCoins,
@@ -26,11 +25,12 @@ import { Sheet, SheetContent, SheetFooter, SheetTitle, SheetTrigger } from '@/co
 // Drawer de navegación principal, autocontenido y reusable desde cualquier
 // pantalla autenticada (dashboard-redesign-ux.md, sección 6.1 + patrón de
 // header único documentado en design-system.md): botón `Menu` que abre el
-// Sheet lateral con perfil + nav de 12 ítems (highlight de ruta activa) +
+// Sheet lateral con perfil + nav de 11 ítems (highlight de ruta activa) +
 // "Cerrar sesión". Antes vivía solo dentro de HomeView.vue; se extrajo para
 // que todas las vistas lo compartan sin duplicar el markup.
-// "Partidos en vivo" NO está en el drawer a propósito (feature de utilidad no
-// financiera, se mantiene descubrible solo desde Ajustes → Notificaciones).
+// Las features de utilidad NO financiera ("Partidos en vivo" e "Iron") NO
+// están en el drawer a propósito: se mantienen descubribles solo desde Ajustes
+// (Partidos en la card de Notificaciones; Iron en su propia card).
 
 const router = useRouter()
 const route = useRoute()
@@ -51,19 +51,12 @@ type NavRouteName =
   | 'debts'
   | 'fixed-expenses'
   | 'loans'
-  | 'iron'
   | 'categories'
   | 'statistics'
   | 'reports'
   | 'settings'
 
-// iron-ux.md sección 3.2: las 3 rutas de Iron (`iron`/`iron-history`/
-// `iron-trends`) resaltan el mismo ítem del drawer, igual que cualquier
-// sub-ruta de una sección (p. ej. `debt-detail` resalta `debts`).
-const IRON_ROUTE_NAMES = new Set(['iron', 'iron-history', 'iron-trends'])
-
 function isActive(name: NavRouteName): boolean {
-  if (name === 'iron') return IRON_ROUTE_NAMES.has(String(route.name))
   return route.name === name
 }
 
@@ -191,21 +184,6 @@ function logoutFromDrawer() {
         >
           <Landmark class="size-5 shrink-0" />
           Préstamos
-        </button>
-        <!-- iron-ux.md sección 3.2: bloque "utilidad, no financiero". Va justo
-             después del bloque de dinero/deudas y antes de Categorías. "Partidos
-             en vivo" todavía no está wireado en este drawer (ver comentario de
-             cabecera), así que Iron queda como único ítem de este bloque, en la
-             posición prevista (inmediatamente antes de Categorías). -->
-        <button
-          type="button"
-          class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          :class="isActive('iron') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
-          :aria-current="isActive('iron') ? 'page' : undefined"
-          @click="navigateFromDrawer('iron')"
-        >
-          <Cigarette class="size-5 shrink-0" />
-          Iron
         </button>
         <button
           type="button"
