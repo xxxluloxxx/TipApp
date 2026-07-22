@@ -454,6 +454,8 @@ export type Database = {
           id: string
           last_four_digits: string | null
           name: string
+          payment_due_day: number | null
+          statement_cutoff_day: number | null
           suggested_monthly_limit: number | null
           updated_at: string
           user_id: string
@@ -464,6 +466,8 @@ export type Database = {
           id?: string
           last_four_digits?: string | null
           name: string
+          payment_due_day?: number | null
+          statement_cutoff_day?: number | null
           suggested_monthly_limit?: number | null
           updated_at?: string
           user_id: string
@@ -474,6 +478,8 @@ export type Database = {
           id?: string
           last_four_digits?: string | null
           name?: string
+          payment_due_day?: number | null
+          statement_cutoff_day?: number | null
           suggested_monthly_limit?: number | null
           updated_at?: string
           user_id?: string

@@ -1425,6 +1425,439 @@ Explícitamente descartado, no se construye nada de esto:
 
 ---
 
+## 12. Fechas de corte y pago (`statement_cutoff_day` / `payment_due_day`)
+
+Sección nueva, pedido explícito del Product Owner (sin captura de referencia
+esta vez, texto literal): "Las tarjetas de crédito tienen una fecha de corte
+y una de pago, eso también quiero que se guarde por cada tarjeta y que se
+muestre en las vistas, los lugares más importantes o donde sí debería ir."
+Dato de modelo ya fijado por `supabase-backend-expert` en paralelo:
+`credit_cards.statement_cutoff_day`/`payment_due_day`, ambas `int` 1-31,
+**nullable**, **puramente informativas** (sin cálculo server-side ni cron).
+Este documento no rediscute ese modelo, solo especifica UX/frontend sobre él.
+
+### 12.0 Por qué esto NO es un segundo `fixed_expenses.payment_day`
+
+El precedente de estilo más cercano en el proyecto es
+`fixed_expenses.payment_day` (`FixedExpenseStatusBadge.vue`/
+`fixedExpenses.ts`), que también deriva un estado "Vencido" 100%
+client-side comparando un día del mes contra hoy. **Se descarta reusar esa
+semántica de "Vencido" acá, a propósito**: `fixed_expenses` tiene una
+instancia mensual real con estado `pending`/`paid` — "Vencido" ahí significa
+"pendiente Y ya pasó el día", un hecho verificable porque el sistema sabe si
+se pagó o no. `statement_cutoff_day`/`payment_due_day` de una tarjeta **no
+tienen ningún instance/ledger asociado** (son solo dos enteros sueltos en
+`credit_cards`, sin tabla hija) — el sistema no tiene forma de saber si el
+usuario ya pagó su resumen este mes o no. Mostrar "Vencido" acá sería
+**inventar un estado que no se puede verificar**, el mismo tipo de riesgo
+que ya evitó este documento al no reproducir el fondo sólido pleno sin
+contraste garantizado (sección 4.1.1) o el `%` del total sin query real
+(sección 4.1.3): no se afirma un dato que no se puede respaldar.
+
+**En su lugar**, ambas fechas se tratan siempre como "próxima ocurrencia"
+(la próxima vez que ese día del mes ocurre, incluyendo hoy mismo, nunca una
+fecha pasada) — un dato que sí es 100% derivable sin necesitar tracking de
+pago. Se agrega un tono de urgencia (no "vencido") únicamente sobre el **día
+de pago** cuando falta muy poco (hoy/mañana/≤3 días) — ver 12.4 — porque es
+el dato con consecuencia real si se ignora (mora/intereses), a diferencia
+del día de corte, que es un hecho de calendario neutro (cuándo cierra el
+resumen), no algo que el usuario pueda "llegar tarde" a cumplir.
+
+### 12.1 Decisión 1 — dato crudo vs. calculado: **híbrido, según el contexto**
+
+No alcanza con elegir uno solo — cada contexto de la app le hace una
+pregunta distinta al usuario:
+
+- **Listas de gestión/comparación** (gestión de tarjetas, ranking del
+  dashboard): la pregunta es "¿qué tarjeta es cuál/cómo la configuré?" — ahí
+  el dato **crudo** ("Corte: día 15") es más rápido de escanear en una fila
+  entre varias, y no exige hacer ningún cálculo mental de fecha.
+- **Detalle de una tarjeta puntual** (`CardDetailView`): la pregunta es "¿qué
+  tengo que hacer con *esta* tarjeta y cuándo?" — ahí sí vale la pena la
+  fecha **calculada** ("15 de agosto · en 12 días"), porque es exactamente el
+  tipo de dato accionable que le importa a alguien mirando una tarjeta en
+  particular (el propio encargo lo remarca: "cuánto falta" es relevante para
+  un usuario de tarjetas de crédito).
+
+Se crean **4 funciones puras nuevas en `src/lib/date.ts`** (sin cambios a
+las ya existentes) para soportar el cálculo, siguiendo el mismo criterio de
+"función pura, sin dependencias de Pinia" que ya usa todo ese archivo:
+
+```ts
+/** Último día del mes calendario de `reference` (para clampear un día de mes
+ * en meses cortos, ej. día 31 en febrero). Mismo criterio ya usado por
+ * `lastDayOfMonth`/`effectiveDueDay` de `src/stores/fixedExpenses.ts` —
+ * **duplicada acá a propósito, no importada desde ese store**: `date.ts` es
+ * una capa compartida sin dependencias de Pinia, y esas dos funciones son
+ * privadas del módulo `fixedExpenses.ts` (no exportadas), así que no hay
+ * nada que importar sin tocar ese store ya shippeado. Si a futuro un tercer
+ * consumidor necesita esto mismo, ahí sí vale la pena que `fixedExpenses.ts`
+ * pase a importar esta versión de `date.ts` en vez de mantener la suya — no
+ * se hace ahora, fuera de alcance de este encargo. */
+export function lastDayOfMonth(reference: Date): number {
+  return new Date(reference.getFullYear(), reference.getMonth() + 1, 0).getDate()
+}
+
+/**
+ * Próxima ocurrencia real de un "día del mes" (1-31) a partir de `reference`
+ * — **siempre hoy o en el futuro, nunca una fecha pasada**.
+ *
+ * Casos borde (todos verificados a mano con fechas de calendario reales):
+ * - **El día ya pasó este mes** (ej. hoy 20, día pedido 15): devuelve el 15
+ *   del **mes siguiente**.
+ * - **El día es HOY**: devuelve HOY, no salta al mes que viene — a
+ *   propósito, para poder mostrar "Hoy" en vez de saltarse de largo un
+ *   vencimiento real de hoy mismo (ver 12.4, el caso más urgente posible).
+ * - **Mes más corto que el día pedido** (ej. día 31 en un febrero de 28/29
+ *   días): se clampea a `lastDayOfMonth` tanto para decidir si "ya pasó" en
+ *   el mes actual como para el resultado del mes siguiente — mismo criterio
+ *   exacto que `effectiveDueDay` de `fixedExpenses.ts`.
+ */
+export function nextMonthlyOccurrence(day: number, reference: Date = new Date()): Date {
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate())
+  const thisMonthDay = Math.min(day, lastDayOfMonth(today))
+  const thisMonthOccurrence = new Date(today.getFullYear(), today.getMonth(), thisMonthDay)
+  if (thisMonthOccurrence.getTime() >= today.getTime()) return thisMonthOccurrence
+
+  const nextMonthRef = new Date(today.getFullYear(), today.getMonth() + 1, 1)
+  const nextMonthDay = Math.min(day, lastDayOfMonth(nextMonthRef))
+  return new Date(nextMonthRef.getFullYear(), nextMonthRef.getMonth(), nextMonthDay)
+}
+
+/** Días de diferencia (siempre `>= 0` cuando `date` viene de
+ * `nextMonthlyOccurrence`), ambos normalizados a medianoche local. */
+export function daysUntil(date: Date, reference: Date = new Date()): number {
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate())
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const MS_PER_DAY = 24 * 60 * 60 * 1000
+  return Math.round((target.getTime() - today.getTime()) / MS_PER_DAY)
+}
+
+/** Etiqueta corta de "cuánto falta": `0` → `"Hoy"`, `1` → `"Mañana"`, resto
+ * → `"En N días"`. Asume `days >= 0` (siempre cierto viniendo de
+ * `nextMonthlyOccurrence` + `daysUntil`, nunca se le pasa un negativo). */
+export function formatDaysUntilLabel(days: number): string {
+  if (days === 0) return 'Hoy'
+  if (days === 1) return 'Mañana'
+  return `En ${days} días`
+}
+
+/** Fecha corta con mes abreviado, sin año (ej. `"15 ago"`). **No reusa**
+ * `formatDateChip` (que ya existe en este archivo) porque esa función recibe
+ * un `date` crudo de Postgres (`string` `"YYYY-MM-DD"`), mientras que acá el
+ * insumo ya es un `Date` calculado por `nextMonthlyOccurrence` — mismo
+ * array `MONTHS_ES` reusado, sin duplicar la lista de meses. */
+export function formatShortDate(date: Date): string {
+  return `${date.getDate()} ${MONTHS_ES[date.getMonth()]?.slice(0, 3) ?? ''}`
+}
+```
+
+### 12.2 Decisión 2 — dónde mostrarlo
+
+**A. `ManageCardsView.vue` (sección 6.2, fila de "Tus tarjetas") — dato
+crudo, mismo patrón exacto que "Límite: $X" ya shippeado.** Es la pantalla
+de metadata/gestión de la tarjeta (ya muestra color, últimos 4 dígitos y
+límite sugerido en esa misma línea), el lugar más natural para un dato de
+configuración crudo. Extensión trivial del `<p>` ya existente
+(`src/views/ManageCardsView.vue`, la línea que ya compone `•••• {digits} ·
+Límite: $X`):
+
+```html
+<p class="truncate text-xs text-muted-foreground">
+  •••• {{ card.last_four_digits }}
+  <span v-if="card.suggested_monthly_limit"> · Límite: ${{ formatAmount(card.suggested_monthly_limit) }}</span>
+  <span v-if="card.statement_cutoff_day"> · Corte: día {{ card.statement_cutoff_day }}</span>
+  <span v-if="card.payment_due_day"> · Pago: día {{ card.payment_due_day }}</span>
+</p>
+```
+
+Cada segmento es independiente (`v-if` propio) — con solo uno de los dos
+cargado, se muestra únicamente ese; con ninguno, no se agrega nada a la
+línea (mismo criterio ya usado para `suggested_monthly_limit` en esa misma
+línea, sección 12.3 de este documento vuelve sobre el caso "nada cargado").
+
+**B. `CardsDashboardView.vue` (sección 2.3, ranking "Tus tarjetas") — sin
+dato crudo, solo un badge de urgencia condicional.** Se decide **no**
+agregar "Corte: día X / Pago: día Y" a esta lista: es una vista de
+*comparación de gasto entre tarjetas* (swatch + nombre + total + % del
+total), agregar dos datos de calendario más la volvería más difícil de
+escanear de un vistazo sin aportar a la pregunta que esa fila ya responde
+bien. En cambio, **si el pago está a 3 días o menos**, se agrega un `Badge`
+chico (mismo componente ya instalado, mismo patrón `variant="outline"` +
+ícono que `FixedExpenseStatusBadge.vue`) debajo del nombre/últimos 4 dígitos
+— justificado porque el dashboard es la puerta de entrada de la sección, y
+"tu tarjeta X vence mañana" es exactamente el tipo de alerta que amerita
+aparecer en el primer vistazo, no solo si el usuario entra al detalle de esa
+tarjeta puntual. Si faltan más de 3 días (o no hay `payment_due_day`
+cargado), no se muestra nada — no se fuerza el dato cuando no es urgente.
+
+```html
+<div class="flex min-w-0 flex-1 flex-col gap-0.5">
+  <p class="truncate text-sm font-medium">{{ card.name }}</p>
+  <p class="text-xs text-muted-foreground">•••• {{ card.lastFourDigits }}</p>
+  <Badge
+    v-if="card.paymentUrgency"
+    variant="outline"
+    class="w-fit gap-1 text-[10px]"
+    :class="card.paymentUrgency.colorClass"
+  >
+    <component :is="card.paymentUrgency.icon" class="size-3" />
+    {{ card.paymentUrgency.label }}
+  </Badge>
+</div>
+```
+
+`cardsRanking` (computed ya existente en `CardsDashboardView.vue`, sección
+2.3) agrega un campo nuevo `paymentUrgency` por tarjeta:
+
+```ts
+import { AlertCircle, Clock } from '@lucide/vue'
+import { daysUntil, formatDaysUntilLabel, nextMonthlyOccurrence } from '@/lib/date'
+
+// Distinto de `formatDaysUntilLabel` (12.1): esa función da "Hoy"/"Mañana"/
+// "En N días" a secas, pensada para un contexto que YA tiene un título
+// ("Próximo pago") encima (sección 12.2.C). Acá el badge vive solo, sin
+// ningún encabezado que le dé contexto de "esto es sobre el pago" — por
+// eso arma su propio label autodescriptivo ("Pago vence hoy"), a propósito
+// no delegado a `formatDaysUntilLabel`.
+function buildPaymentUrgency(paymentDueDay: number) {
+  const days = daysUntil(nextMonthlyOccurrence(paymentDueDay))
+  if (days > 3) return null
+  const label = days === 0 ? 'Pago vence hoy' : days === 1 ? 'Pago vence mañana' : `Pago vence en ${days} días`
+  return {
+    label,
+    colorClass: days === 0 ? 'text-destructive' : 'text-warning',
+    icon: days === 0 ? AlertCircle : Clock,
+  }
+}
+
+// dentro del `.map()` ya existente de `cardsRanking`:
+paymentUrgency: card.payment_due_day ? buildPaymentUrgency(card.payment_due_day) : null,
+```
+
+`AlertCircle`/`Clock` ya se usan en el proyecto (`FixedExpenseStatusBadge.vue`,
+`MatchFormSheet.vue`) — mismo paquete `@lucide/vue`, nada que instalar.
+`text-warning`/`text-destructive` son tokens ya vigentes (`CouponCard.vue`,
+`LoanDebtorFormSheet.vue`, `limitBarColorClass` de esta misma feature) — sin
+inventar color nuevo.
+
+**C. `CardDetailView.vue` — fecha calculada, `Card` nueva propia (sección
+4.1.5, entre el hero de 4.1 y la dona de personas de 4.2).** Se descarta
+meterlo dentro del hero (ya carga chip+nombre+total+barra de límite, sección
+4.1 completa) o dentro de la grilla "Resumen del mes" (sección 4.4: esa
+grilla es sobre estadísticas de gasto del mes —transacciones/promedio/mayor
+gasto—, corte y pago son metadata de la tarjeta en sí, un eje de información
+distinto que no debería mezclarse ahí). En cambio, una `Card` nueva y chica,
+inmediatamente después del hero, con el mismo tratamiento de tinte de color
+ya usado en "Resumen del mes" (sección 4.4: `withAlpha(card.color, 0.08)`,
+la opacidad "secundaria" de la escala ya establecida en 4.1.1/4.4) — refuerza
+que sigue siendo información de *esta* tarjeta sin competir visualmente con
+el hero:
+
+```html
+<!-- Sección 12.2.C (nueva): entre el hero (4.1) y la dona de personas (4.2) -->
+<Card v-if="card.statement_cutoff_day || card.payment_due_day" :style="{ backgroundColor: withAlpha(card.color, 0.08) }">
+  <CardHeader>
+    <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+      Fechas de corte y pago
+    </CardTitle>
+  </CardHeader>
+  <div class="grid gap-3 px-6 pb-6" :class="card.statement_cutoff_day && card.payment_due_day ? 'grid-cols-2' : 'grid-cols-1'">
+    <div v-if="card.statement_cutoff_day" class="flex flex-col gap-0.5">
+      <p class="text-xs text-muted-foreground">Próximo corte</p>
+      <p class="text-sm font-semibold tabular-nums">{{ nextCutoffLabel }}</p>
+      <p class="text-xs text-muted-foreground">{{ nextCutoffDaysLabel }}</p>
+    </div>
+    <div v-if="card.payment_due_day" class="flex flex-col gap-0.5">
+      <p class="text-xs text-muted-foreground">Próximo pago</p>
+      <p class="text-sm font-semibold tabular-nums">{{ nextPaymentLabel }}</p>
+      <p class="flex items-center gap-1 text-xs font-medium" :class="paymentUrgencyClass">
+        <component :is="paymentUrgencyIcon" v-if="paymentUrgencyIcon" class="size-3" />
+        {{ nextPaymentDaysLabel }}
+      </p>
+    </div>
+  </div>
+</Card>
+<p v-else class="text-xs text-muted-foreground">
+  No definiste las fechas de corte ni de pago de esta tarjeta.
+  <button type="button" class="font-medium text-primary underline-offset-2 hover:underline" @click="openEditCard">
+    Definirlas
+  </button>
+</p>
+```
+
+Computeds nuevos en `CardDetailView.vue` (sin queries nuevas — 100% derivado
+de `card.statement_cutoff_day`/`card.payment_due_day`, ya en memoria vía
+`creditCardsStore`):
+
+```ts
+import { AlertCircle, Clock } from '@lucide/vue'
+import { daysUntil, formatDaysUntilLabel, formatShortDate, nextMonthlyOccurrence } from '@/lib/date'
+
+const nextCutoffDate = computed(() => (card.value.statement_cutoff_day ? nextMonthlyOccurrence(card.value.statement_cutoff_day) : null))
+const nextCutoffLabel = computed(() => (nextCutoffDate.value ? formatShortDate(nextCutoffDate.value) : ''))
+const nextCutoffDaysLabel = computed(() => (nextCutoffDate.value ? formatDaysUntilLabel(daysUntil(nextCutoffDate.value)) : ''))
+
+const nextPaymentDate = computed(() => (card.value.payment_due_day ? nextMonthlyOccurrence(card.value.payment_due_day) : null))
+const nextPaymentLabel = computed(() => (nextPaymentDate.value ? formatShortDate(nextPaymentDate.value) : ''))
+const nextPaymentDays = computed(() => (nextPaymentDate.value ? daysUntil(nextPaymentDate.value) : null))
+const nextPaymentDaysLabel = computed(() => (nextPaymentDays.value !== null ? formatDaysUntilLabel(nextPaymentDays.value) : ''))
+
+// Sección 12.4: urgencia SOLO sobre el pago, nunca sobre el corte (12.0).
+const paymentUrgencyClass = computed(() => {
+  if (nextPaymentDays.value === 0) return 'text-destructive'
+  if (nextPaymentDays.value !== null && nextPaymentDays.value <= 3) return 'text-warning'
+  return 'text-muted-foreground'
+})
+const paymentUrgencyIcon = computed(() => {
+  if (nextPaymentDays.value === 0) return AlertCircle
+  if (nextPaymentDays.value !== null && nextPaymentDays.value <= 3) return Clock
+  return null
+})
+```
+
+`openEditCard` ya existe en `CardDetailView.vue` (abre `CardFormSheet` en
+modo edición, sección 4.5) — se reusa tal cual para el link "Definirlas",
+mismo mecanismo que "Definir uno" del límite mensual (sección 4.1).
+
+### 12.3 Decisión 4 — caso "no cargado" (ambos campos opcionales)
+
+Regla única, aplicada consistente en los 3 lugares de 12.2: **se omite el
+dato específico que falta, nunca un placeholder tipo "Sin definir" suelto**
+— mismo criterio ya usado para `suggested_monthly_limit` en la fila de
+gestión (sección 6.2, "(si tiene) Límite: $X").
+
+- **Gestión (A)**: cada segmento (`Corte`/`Pago`) tiene su propio `v-if`
+  independiente — con uno solo cargado, se muestra únicamente ese; con
+  ninguno, la línea de metadata simplemente no crece.
+- **Dashboard (B)**: sin `payment_due_day`, o con `payment_due_day` a más de
+  3 días, no se renderiza ningún badge — silencio total, no hay "próximo
+  pago: sin definir" en una lista pensada para comparar gasto, no para
+  invitar a completar datos.
+- **Detalle (C)**: acá sí se agrega una única excepción con affordance
+  explícita, mismo criterio que la barra de límite mensual (sección 4.1,
+  `v-else` con "Definir uno"): si **ninguno de los dos** campos está
+  cargado, la `Card` entera no se renderiza y se reemplaza por una línea
+  invitando a completarlos ("No definiste las fechas... Definirlas" →
+  abre `CardFormSheet`). Si se cargó **solo uno** de los dos, la `Card` sí se
+  renderiza pero con una sola columna (`grid-cols-1` en vez de `grid-cols-2`,
+  ver el `:class` condicional del snippet de 12.2.C) — no es equivalente a
+  "nada cargado" (hay un dato real que mostrar), así que no amerita la
+  invitación a completar, solo se omite la columna vacía.
+
+### 12.4 Decisión 5 — codificación redundante en la urgencia del pago
+
+Mismo criterio CVD del resto del proyecto (nunca color solo): tanto el badge
+del dashboard (12.2.B) como la línea del detalle (12.2.C) combinan **ícono +
+texto + color**, nunca color aislado — el texto (`"Pago vence hoy"`/`"Hoy"`)
+ya es autosuficiente por sí solo sin necesitar leer el color, el ícono
+(`AlertCircle` a 0 días, `Clock` a 1-3 días) y el color (`text-destructive`/
+`text-warning`) son refuerzo visual adicional, no la única señal. Se usan
+los 2 tokens semánticos que ya tiene la barra de límite de esta misma
+feature (`limitBarColorClass`, sección 4.1.4: `bg-primary`/`bg-warning`/
+`bg-destructive`) en vez de inventar una escala nueva — coherencia con el
+resto de la pantalla de detalle.
+
+**Umbral elegido: `<= 3` días para el tono de advertencia, `0` días para el
+tono crítico.** Ningún umbral intermedio adicional (ej. "esta semana" a 7
+días) — se prioriza simplicidad: un usuario de tarjeta de crédito ya sabe en
+qué día del mes vence su pago (es información que definió él mismo al crear
+la tarjeta), la urgencia visual es un recordatorio de último momento, no un
+calendario completo. El **día de corte nunca lleva urgencia** (12.0): es un
+hecho de calendario, no una obligación que se pueda "atrasar".
+
+### 12.5 Decisión 3 — formulario (`CardFormSheet.vue`, sección 6.2): input numérico libre, no `Select`
+
+Los 2 campos van **inmediatamente después de "Límite mensual sugerido"**
+(sección 6.2), mismo patrón visual `Label` + `Input` + texto de ayuda que el
+resto del Sheet:
+
+```html
+<!-- Día de corte -->
+<div class="flex flex-col gap-1.5">
+  <Label for="tarjeta-corte">Día de corte (opcional)</Label>
+  <Input
+    id="tarjeta-corte"
+    v-model="form.statementCutoffDay"
+    inputmode="numeric"
+    type="text"
+    placeholder="Ej. 15"
+    class="text-base tabular-nums"
+    :disabled="isSaving"
+    :aria-invalid="!!errors.statementCutoffDay"
+  />
+  <p v-if="errors.statementCutoffDay" class="text-xs text-destructive">{{ errors.statementCutoffDay }}</p>
+  <p class="text-xs text-muted-foreground">Día del mes en que cierra el resumen de esta tarjeta.</p>
+</div>
+
+<!-- Día de pago -->
+<div class="flex flex-col gap-1.5">
+  <Label for="tarjeta-pago">Día de pago (opcional)</Label>
+  <Input
+    id="tarjeta-pago"
+    v-model="form.paymentDueDay"
+    inputmode="numeric"
+    type="text"
+    placeholder="Ej. 25"
+    class="text-base tabular-nums"
+    :disabled="isSaving"
+    :aria-invalid="!!errors.paymentDueDay"
+  />
+  <p v-if="errors.paymentDueDay" class="text-xs text-destructive">{{ errors.paymentDueDay }}</p>
+  <p class="text-xs text-muted-foreground">Día límite para pagar el resumen antes del vencimiento.</p>
+</div>
+```
+
+**Por qué `Input` numérico libre y no un `Select` de 1 a 31**: precedente
+directo ya shippeado para el mismo tipo de dato exacto ("día del mes, sin
+fecha calculada") — `fixed_expenses.payment_day` en
+`FixedExpenseFormSheet.vue` usa exactamente este patrón (`Input
+inputmode="numeric" type="text"` + validación inline), no un `Select`. Un
+`Select` de 31 ítems exigiría scrollear una lista larga en mobile por un
+dato que se tipea más rápido con el teclado numérico (`inputmode="numeric"`
+ya invoca el teclado numérico en iOS/Android) sin ninguna ganancia real de
+guía — a diferencia de un campo con opciones ambiguas o de texto libre
+propenso a error de formato (ahí sí un `Select` reduce error), acá el rango
+válido es obvio (1-31) y la validación inline ya cubre el caso de error.
+Reusar el patrón exacto de un componente hermano en el mismo proyecto pesa
+más que introducir una variante nueva sin motivo funcional.
+
+**Validación** (mismo criterio que `parsePaymentDay` de
+`FixedExpenseFormSheet.vue`, adaptado a "opcional" — la única diferencia
+real con ese precedente es que acá un campo vacío es válido, no un error):
+
+```ts
+type OptionalDayResult = { value: number | null } | { error: true }
+
+function parseOptionalDayOfMonth(raw: string): OptionalDayResult {
+  const trimmed = raw.trim()
+  if (trimmed === '') return { value: null }
+  if (!/^\d+$/.test(trimmed)) return { error: true }
+  const value = Number(trimmed)
+  if (!Number.isInteger(value) || value < 1 || value > 31) return { error: true }
+  return { value }
+}
+```
+
+- Error inline (`errors.statementCutoffDay`/`errors.paymentDueDay`, mismo
+  copy que `FixedExpenseFormSheet.vue`): `"Ingresá un día entre 1 y 31."` —
+  solo se muestra si el campo **no** está vacío y falla el parseo; un campo
+  vacío nunca dispara error (es el estado válido "no cargado").
+- **Sin validación cruzada entre los dos campos** (ej. "el pago debe ser
+  después del corte") — decisión explícita, no un olvido: en la práctica
+  real de una tarjeta de crédito el día de pago casi siempre cae en el *mes
+  siguiente* al corte (ej. corte día 20, pago día 5 del mes que viene), así
+  que "pago > corte" como número crudo de 1-31 sería una regla **incorrecta**
+  la mayoría de las veces, no solo innecesaria. No hay ninguna relación
+  válida y verificable entre ambos números sueltos sin saber además cuántos
+  días de gracia da el banco (dato que esta feature no captura ni necesita).
+- **Guardado: 100% optimista**, mismo criterio ya establecido para el resto
+  de `CardFormSheet` (sección 6.2: sin índice único server-only conocido
+  sobre estos 2 campos) — no cambia el veredicto ya fijado ahí, estos 2
+  campos no introducen ningún caso de conflicto server-only nuevo.
+
+---
+
 ## Resumen accionable para `vue-frontend-expert`
 
 1. **Componentes shadcn-vue nuevos a instalar** (ninguno existía en
@@ -1502,3 +1935,32 @@ Explícitamente descartado, no se construye nada de esto:
     4.1.1, con los números de contraste documentados ahí) — a favor de un
     tinte del 16%/8% de opacidad (hero/resumen) sobre la superficie neutra,
     sin overrides de color de texto.
+11. **Fechas de corte y pago, sección 12 (nueva)**: `credit_cards` suma
+    `statement_cutoff_day`/`payment_due_day` (nullable, 1-31, sin cálculo
+    server-side). **4 funciones nuevas en `src/lib/date.ts`**
+    (`lastDayOfMonth`, `nextMonthlyOccurrence`, `daysUntil`,
+    `formatDaysUntilLabel`, más `formatShortDate` — 5 en total, ver 12.1) para
+    calcular "próxima ocurrencia" de un día del mes, sin depender de ninguna
+    tabla de instancias (a diferencia de `fixed_expenses.payment_day`, este
+    dato nunca deriva un estado "Vencido" — ver 12.0, no hay forma de
+    verificar si el usuario ya pagó su resumen). Tres puntos de
+    implementación: (a) `ManageCardsView.vue` sección 6.2 — 2 `<span v-if>`
+    nuevos con el dato crudo, mismo patrón que `Límite: $X`; (b)
+    `CardsDashboardView.vue` sección 2.3 — campo `paymentUrgency` nuevo en el
+    computed `cardsRanking` ya existente + `Badge` condicional (solo si el
+    pago vence en ≤3 días); (c) `CardDetailView.vue` — `Card` nueva entera
+    (sección 12.2.C, entre el hero de 4.1 y la dona de 4.2) con fecha
+    calculada + "en N días", más el estado "nada cargado" con affordance
+    "Definirlas" (mismo criterio que "Definir uno" del límite, sección 4.1).
+    `CardFormSheet.vue` (sección 6.2/12.5): 2 campos nuevos `Input` numéricos
+    libres (no `Select`, mismo patrón que `fixed_expenses.payment_day` en
+    `FixedExpenseFormSheet.vue`) inmediatamente después de "Límite mensual
+    sugerido", validación opcional (vacío = válido), sin validación cruzada
+    entre ambos campos (12.5 explica por qué esa regla sería incorrecta, no
+    solo innecesaria), guardado 100% optimista (sin cambio de veredicto sobre
+    `CardFormSheet`). Sin componente `ui/` nuevo — reusa `Input`/`Label`/
+    `Badge` ya instalados. `AlertCircle`/`Clock` de `@lucide/vue` (ya
+    confirmados en el paquete, usados en `FixedExpenseStatusBadge.vue`/
+    `MatchFormSheet.vue`) y los tokens `text-warning`/`text-destructive` (ya
+    vigentes) cubren la codificación redundante ícono+texto+color de la
+    urgencia (12.4) — nada nuevo que instalar ni definir en el tema.

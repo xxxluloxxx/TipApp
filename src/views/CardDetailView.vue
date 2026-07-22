@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertCircle, CalendarSync, CreditCard as CreditCardIcon, Plus, RotateCcw, User } from '@lucide/vue'
-import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
+import { AlertCircle, CalendarSync, Clock, CreditCard as CreditCardIcon, Plus, RotateCcw, User } from '@lucide/vue'
+import { currentMonthLabel, daysUntil, formatDateOnly, formatDaysUntilLabel, formatExpenseDateHeading, formatShortDate, nextMonthlyOccurrence } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, withAlpha } from '@/lib/colors'
 import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
@@ -161,6 +161,29 @@ const limitBarColorClass = computed(() => {
   if (limitProgress.value > 100) return 'bg-destructive'
   if (limitProgress.value >= 80) return 'bg-warning'
   return 'bg-primary'
+})
+
+// Sección 12.2.C: fechas de corte y pago calculadas (próxima ocurrencia).
+// 100% derivado de `card.statement_cutoff_day`/`payment_due_day`, sin queries.
+const nextCutoffDate = computed(() => (card.value?.statement_cutoff_day ? nextMonthlyOccurrence(card.value.statement_cutoff_day) : null))
+const nextCutoffLabel = computed(() => (nextCutoffDate.value ? formatShortDate(nextCutoffDate.value) : ''))
+const nextCutoffDaysLabel = computed(() => (nextCutoffDate.value ? formatDaysUntilLabel(daysUntil(nextCutoffDate.value)) : ''))
+
+const nextPaymentDate = computed(() => (card.value?.payment_due_day ? nextMonthlyOccurrence(card.value.payment_due_day) : null))
+const nextPaymentLabel = computed(() => (nextPaymentDate.value ? formatShortDate(nextPaymentDate.value) : ''))
+const nextPaymentDays = computed(() => (nextPaymentDate.value ? daysUntil(nextPaymentDate.value) : null))
+const nextPaymentDaysLabel = computed(() => (nextPaymentDays.value !== null ? formatDaysUntilLabel(nextPaymentDays.value) : ''))
+
+// Sección 12.4: urgencia SOLO sobre el pago, nunca sobre el corte (12.0).
+const paymentUrgencyClass = computed(() => {
+  if (nextPaymentDays.value === 0) return 'text-destructive'
+  if (nextPaymentDays.value !== null && nextPaymentDays.value <= 3) return 'text-warning'
+  return 'text-muted-foreground'
+})
+const paymentUrgencyIcon = computed(() => {
+  if (nextPaymentDays.value === 0) return AlertCircle
+  if (nextPaymentDays.value !== null && nextPaymentDays.value <= 3) return Clock
+  return null
 })
 
 // Sección 4.2: dona de gasto por persona dentro de esta tarjeta.
@@ -390,6 +413,49 @@ function goToTransactions() {
             </button>
           </p>
         </Card>
+
+        <!-- Sección 12.2.C: fechas de corte y pago (entre el hero y la dona) -->
+        <Card v-if="card.statement_cutoff_day || card.payment_due_day" :style="{ backgroundColor: withAlpha(card.color, 0.08) }">
+          <CardHeader>
+            <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+              Fechas de corte y pago
+            </CardTitle>
+          </CardHeader>
+          <div
+            class="grid gap-3 px-6 pb-6"
+            :class="card.statement_cutoff_day && card.payment_due_day ? 'grid-cols-2' : 'grid-cols-1'"
+          >
+            <div v-if="card.statement_cutoff_day" class="flex flex-col gap-0.5">
+              <p class="text-xs text-muted-foreground">
+                Próximo corte
+              </p>
+              <p class="text-sm font-semibold tabular-nums">
+                {{ nextCutoffLabel }}
+              </p>
+              <p class="text-xs text-muted-foreground">
+                {{ nextCutoffDaysLabel }}
+              </p>
+            </div>
+            <div v-if="card.payment_due_day" class="flex flex-col gap-0.5">
+              <p class="text-xs text-muted-foreground">
+                Próximo pago
+              </p>
+              <p class="text-sm font-semibold tabular-nums">
+                {{ nextPaymentLabel }}
+              </p>
+              <p class="flex items-center gap-1 text-xs font-medium" :class="paymentUrgencyClass">
+                <component :is="paymentUrgencyIcon" v-if="paymentUrgencyIcon" class="size-3" />
+                {{ nextPaymentDaysLabel }}
+              </p>
+            </div>
+          </div>
+        </Card>
+        <p v-else class="px-1 text-xs text-muted-foreground">
+          No definiste las fechas de corte ni de pago de esta tarjeta.
+          <button type="button" class="font-medium text-primary underline-offset-2 hover:underline" @click="openEditCard">
+            Definirlas
+          </button>
+        </p>
 
         <!-- Sección 4.2: dona por persona -->
         <Card v-if="personDonutSlices.length">

@@ -144,3 +144,71 @@ export function startOfMonth(date: Date): Date {
 export function addMonths(date: Date, delta: number): Date {
   return new Date(date.getFullYear(), date.getMonth() + delta, date.getDate())
 }
+
+/** Último día del mes calendario de `reference` (para clampear un día de mes
+ * en meses cortos, ej. día 31 en febrero). Mismo criterio ya usado por
+ * `lastDayOfMonth`/`effectiveDueDay` de `src/stores/fixedExpenses.ts` —
+ * **duplicada acá a propósito, no importada desde ese store**: `date.ts` es
+ * una capa compartida sin dependencias de Pinia, y esas dos funciones son
+ * privadas del módulo `fixedExpenses.ts` (no exportadas), así que no hay nada
+ * que importar sin tocar ese store ya shippeado (credit-cards-ux.md sección
+ * 12.1). */
+export function lastDayOfMonth(reference: Date): number {
+  return new Date(reference.getFullYear(), reference.getMonth() + 1, 0).getDate()
+}
+
+/**
+ * Próxima ocurrencia real de un "día del mes" (1-31) a partir de `reference`
+ * — **siempre hoy o en el futuro, nunca una fecha pasada** (credit-cards-ux.md
+ * sección 12.1).
+ *
+ * Casos borde:
+ * - **El día ya pasó este mes** (ej. hoy 20, día pedido 15): devuelve el 15
+ *   del **mes siguiente**.
+ * - **El día es HOY**: devuelve HOY, no salta al mes que viene — a propósito,
+ *   para poder mostrar "Hoy" en vez de saltarse de largo un vencimiento real
+ *   de hoy mismo (sección 12.4, el caso más urgente posible).
+ * - **Mes más corto que el día pedido** (ej. día 31 en un febrero de 28/29
+ *   días): se clampea a `lastDayOfMonth` tanto para decidir si "ya pasó" en el
+ *   mes actual como para el resultado del mes siguiente.
+ */
+export function nextMonthlyOccurrence(day: number, reference: Date = new Date()): Date {
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate())
+  const thisMonthDay = Math.min(day, lastDayOfMonth(today))
+  const thisMonthOccurrence = new Date(today.getFullYear(), today.getMonth(), thisMonthDay)
+  if (thisMonthOccurrence.getTime() >= today.getTime()) return thisMonthOccurrence
+
+  const nextMonthRef = new Date(today.getFullYear(), today.getMonth() + 1, 1)
+  const nextMonthDay = Math.min(day, lastDayOfMonth(nextMonthRef))
+  return new Date(nextMonthRef.getFullYear(), nextMonthRef.getMonth(), nextMonthDay)
+}
+
+/** Días de diferencia (siempre `>= 0` cuando `date` viene de
+ * `nextMonthlyOccurrence`), ambos normalizados a medianoche local
+ * (credit-cards-ux.md sección 12.1). */
+export function daysUntil(date: Date, reference: Date = new Date()): number {
+  const today = new Date(reference.getFullYear(), reference.getMonth(), reference.getDate())
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate())
+  const MS_PER_DAY = 24 * 60 * 60 * 1000
+  return Math.round((target.getTime() - today.getTime()) / MS_PER_DAY)
+}
+
+/** Etiqueta corta de "cuánto falta": `0` → `"Hoy"`, `1` → `"Mañana"`, resto →
+ * `"En N días"`. Asume `days >= 0` (siempre cierto viniendo de
+ * `nextMonthlyOccurrence` + `daysUntil`, nunca se le pasa un negativo)
+ * (credit-cards-ux.md sección 12.1). */
+export function formatDaysUntilLabel(days: number): string {
+  if (days === 0) return 'Hoy'
+  if (days === 1) return 'Mañana'
+  return `En ${days} días`
+}
+
+/** Fecha corta con mes abreviado, sin año (ej. `"15 ago"`). **No reusa**
+ * `formatDateChip` (que ya existe en este archivo) porque esa función recibe
+ * un `date` crudo de Postgres (`string` `"YYYY-MM-DD"`), mientras que acá el
+ * insumo ya es un `Date` calculado por `nextMonthlyOccurrence` — mismo array
+ * `MONTHS_ES` reusado, sin duplicar la lista de meses (credit-cards-ux.md
+ * sección 12.1). */
+export function formatShortDate(date: Date): string {
+  return `${date.getDate()} ${MONTHS_ES[date.getMonth()]?.slice(0, 3) ?? ''}`
+}

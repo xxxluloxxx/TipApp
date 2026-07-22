@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { AlertCircle, ArrowDown, ArrowUp, CalendarSync, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
-import { currentMonthLabel, formatDateOnly } from '@/lib/date'
+import { AlertCircle, ArrowDown, ArrowUp, CalendarSync, ChevronRight, Clock, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
+import { currentMonthLabel, daysUntil, formatDateOnly, nextMonthlyOccurrence } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, withAlpha } from '@/lib/colors'
 import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
@@ -12,6 +12,7 @@ import { useCardExpensesStore, type CardExpenseWithRelations } from '@/stores/ca
 import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
 import CardExpenseFormSheet from '@/components/CardExpenseFormSheet.vue'
 import AppHeader from '@/components/AppHeader.vue'
+import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Card, CardHeader, CardDescription, CardTitle } from '@/components/ui/card'
 import { Skeleton } from '@/components/ui/skeleton'
@@ -152,6 +153,21 @@ const monthDelta = computed(() => {
   return { direction, percentLabel: `${Math.abs(Math.round(diffPercent))}%` }
 })
 
+// Sección 12.2.B: badge de urgencia del pago, solo si vence en ≤3 días.
+// Distinto de `formatDaysUntilLabel` (12.1): acá el badge vive solo, sin
+// ningún encabezado que le dé contexto de "esto es sobre el pago" — por eso
+// arma su propio label autodescriptivo ("Pago vence hoy").
+function buildPaymentUrgency(paymentDueDay: number) {
+  const days = daysUntil(nextMonthlyOccurrence(paymentDueDay))
+  if (days > 3) return null
+  const label = days === 0 ? 'Pago vence hoy' : days === 1 ? 'Pago vence mañana' : `Pago vence en ${days} días`
+  return {
+    label,
+    colorClass: days === 0 ? 'text-destructive' : 'text-warning',
+    icon: days === 0 ? AlertCircle : Clock,
+  }
+}
+
 // Sección 2.3: todas las tarjetas del usuario, con total/porcentaje del mes
 // vigente (0 si no tuvieron movimiento), ordenadas desc.
 const cardsRanking = computed(() => {
@@ -169,6 +185,9 @@ const cardsRanking = computed(() => {
         lastFourDigits: card.last_four_digits,
         monthTotal: total,
         percentLabel: monthTotal.value === 0 ? '0%' : `${Math.round((total / monthTotal.value) * 100)}%`,
+        // Sección 12.2.B: silencio total si no hay `payment_due_day` o si el
+        // pago vence a más de 3 días.
+        paymentUrgency: card.payment_due_day ? buildPaymentUrgency(card.payment_due_day) : null,
       }
     })
     .sort((a, b) => b.monthTotal - a.monthTotal)
@@ -454,13 +473,22 @@ const dashboardSyncTargets = [monthExpenses]
               >
                 <CreditCardIcon class="size-4.5" :style="{ color: readableTextColor(card.color) }" />
               </span>
-              <div class="flex min-w-0 flex-1 flex-col">
+              <div class="flex min-w-0 flex-1 flex-col gap-0.5">
                 <p class="truncate text-sm font-semibold">
                   {{ card.name }}
                 </p>
                 <p class="truncate text-xs text-muted-foreground">
                   •••• {{ card.lastFourDigits }}
                 </p>
+                <Badge
+                  v-if="card.paymentUrgency"
+                  variant="outline"
+                  class="w-fit gap-1 text-[10px]"
+                  :class="card.paymentUrgency.colorClass"
+                >
+                  <component :is="card.paymentUrgency.icon" class="size-3" />
+                  {{ card.paymentUrgency.label }}
+                </Badge>
               </div>
               <div class="flex flex-col items-end gap-0.5">
                 <p class="text-sm font-semibold tabular-nums">

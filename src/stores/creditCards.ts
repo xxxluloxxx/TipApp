@@ -12,6 +12,10 @@ export interface CreditCardPayload {
   lastFourDigits: string
   color: string
   suggestedMonthlyLimit: number | null
+  /** Día de corte del resumen (1-31, opcional) — credit-cards-ux.md sección 12. */
+  statementCutoffDay: number | null
+  /** Día de pago del resumen (1-31, opcional) — credit-cards-ux.md sección 12. */
+  paymentDueDay: number | null
 }
 
 /**
@@ -110,6 +114,8 @@ export const useCreditCardsStore = defineStore('creditCards', () => {
       last_four_digits: payload.lastFourDigits,
       color: payload.color,
       suggested_monthly_limit: payload.suggestedMonthlyLimit,
+      statement_cutoff_day: payload.statementCutoffDay,
+      payment_due_day: payload.paymentDueDay,
       created_at: nowIso,
       updated_at: nowIso,
     }
@@ -124,6 +130,8 @@ export const useCreditCardsStore = defineStore('creditCards', () => {
           last_four_digits: payload.lastFourDigits,
           color: payload.color,
           suggested_monthly_limit: payload.suggestedMonthlyLimit,
+          statement_cutoff_day: payload.statementCutoffDay,
+          payment_due_day: payload.paymentDueDay,
           user_id: userId,
         })
         .select('*')
@@ -162,6 +170,8 @@ export const useCreditCardsStore = defineStore('creditCards', () => {
       last_four_digits: payload.lastFourDigits,
       color: payload.color,
       suggested_monthly_limit: payload.suggestedMonthlyLimit,
+      statement_cutoff_day: payload.statementCutoffDay,
+      payment_due_day: payload.paymentDueDay,
     }
 
     replaceById(id, optimistic)
@@ -174,6 +184,8 @@ export const useCreditCardsStore = defineStore('creditCards', () => {
           last_four_digits: payload.lastFourDigits,
           color: payload.color,
           suggested_monthly_limit: payload.suggestedMonthlyLimit,
+          statement_cutoff_day: payload.statementCutoffDay,
+          payment_due_day: payload.paymentDueDay,
         })
         .eq('id', id)
         .select('*')

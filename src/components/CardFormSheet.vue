@@ -38,9 +38,18 @@ const form = reactive({
   lastFourDigits: '',
   color: null as string | null,
   monthlyLimit: '',
+  statementCutoffDay: '',
+  paymentDueDay: '',
 })
 
-const errors = reactive<{ name?: string, lastFourDigits?: string, color?: string, monthlyLimit?: string }>({})
+const errors = reactive<{
+  name?: string
+  lastFourDigits?: string
+  color?: string
+  monthlyLimit?: string
+  statementCutoffDay?: string
+  paymentDueDay?: string
+}>({})
 const isSaving = ref(false)
 
 const nameInputRef = ref<{ $el?: HTMLElement } | null>(null)
@@ -50,17 +59,23 @@ function resetForm() {
   errors.lastFourDigits = undefined
   errors.color = undefined
   errors.monthlyLimit = undefined
+  errors.statementCutoffDay = undefined
+  errors.paymentDueDay = undefined
 
   if (props.card) {
     form.name = props.card.name
     form.lastFourDigits = props.card.last_four_digits ?? ''
     form.color = COLOR_SWATCHES.some(swatch => swatch.hex === props.card?.color) ? props.card.color : null
     form.monthlyLimit = props.card.suggested_monthly_limit !== null ? String(props.card.suggested_monthly_limit) : ''
+    form.statementCutoffDay = props.card.statement_cutoff_day !== null ? String(props.card.statement_cutoff_day) : ''
+    form.paymentDueDay = props.card.payment_due_day !== null ? String(props.card.payment_due_day) : ''
   } else {
     form.name = ''
     form.lastFourDigits = ''
     form.color = null
     form.monthlyLimit = ''
+    form.statementCutoffDay = ''
+    form.paymentDueDay = ''
   }
 }
 
@@ -87,11 +102,27 @@ function parseMonthlyLimit(raw: string): number | null | undefined {
   return Number.isFinite(value) && value > 0 ? value : undefined
 }
 
+// Sección 12.5: día del mes opcional (1-31). Mismo criterio que
+// `parsePaymentDay` de FixedExpenseFormSheet, adaptado a "opcional" — la única
+// diferencia real es que acá un campo vacío es válido, no un error.
+type OptionalDayResult = { value: number | null } | { error: true }
+
+function parseOptionalDayOfMonth(raw: string): OptionalDayResult {
+  const trimmed = raw.trim()
+  if (trimmed === '') return { value: null }
+  if (!/^\d+$/.test(trimmed)) return { error: true }
+  const value = Number(trimmed)
+  if (!Number.isInteger(value) || value < 1 || value > 31) return { error: true }
+  return { value }
+}
+
 function validate(): boolean {
   errors.name = undefined
   errors.lastFourDigits = undefined
   errors.color = undefined
   errors.monthlyLimit = undefined
+  errors.statementCutoffDay = undefined
+  errors.paymentDueDay = undefined
   let ok = true
 
   if (!form.name.trim()) {
@@ -115,6 +146,16 @@ function validate(): boolean {
     ok = false
   }
 
+  if ('error' in parseOptionalDayOfMonth(form.statementCutoffDay)) {
+    errors.statementCutoffDay = 'Ingresá un día entre 1 y 31.'
+    ok = false
+  }
+
+  if ('error' in parseOptionalDayOfMonth(form.paymentDueDay)) {
+    errors.paymentDueDay = 'Ingresá un día entre 1 y 31.'
+    ok = false
+  }
+
   return ok
 }
 
@@ -130,11 +171,18 @@ function onSubmit() {
 
   isSaving.value = true
   try {
+    // `validate()` ya garantizó que ambos parseos no son `{ error }`, así que
+    // acá el fallback `null` solo cubre el estrechamiento de tipo.
+    const cutoffResult = parseOptionalDayOfMonth(form.statementCutoffDay)
+    const paymentResult = parseOptionalDayOfMonth(form.paymentDueDay)
+
     const payload = {
       name: form.name.trim(),
       lastFourDigits: form.lastFourDigits,
       color: form.color!,
       suggestedMonthlyLimit: parseMonthlyLimit(form.monthlyLimit) ?? null,
+      statementCutoffDay: 'value' in cutoffResult ? cutoffResult.value : null,
+      paymentDueDay: 'value' in paymentResult ? paymentResult.value : null,
     }
 
     // El store ya se encarga del toast de éxito/error (optimista, sección
@@ -245,6 +293,48 @@ function onSubmit() {
           </p>
           <p v-if="errors.monthlyLimit" class="text-xs text-destructive">
             {{ errors.monthlyLimit }}
+          </p>
+        </div>
+
+        <!-- Sección 12.5: día de corte (opcional) -->
+        <div class="flex flex-col gap-1.5">
+          <Label for="tarjeta-corte">Día de corte <span class="font-normal text-muted-foreground">(opcional)</span></Label>
+          <Input
+            id="tarjeta-corte"
+            v-model="form.statementCutoffDay"
+            inputmode="numeric"
+            type="text"
+            placeholder="Ej. 15"
+            class="text-base tabular-nums"
+            :disabled="isSaving"
+            :aria-invalid="!!errors.statementCutoffDay"
+          />
+          <p v-if="errors.statementCutoffDay" class="text-xs text-destructive">
+            {{ errors.statementCutoffDay }}
+          </p>
+          <p class="text-xs text-muted-foreground">
+            Día del mes en que cierra el resumen de esta tarjeta.
+          </p>
+        </div>
+
+        <!-- Sección 12.5: día de pago (opcional) -->
+        <div class="flex flex-col gap-1.5">
+          <Label for="tarjeta-pago">Día de pago <span class="font-normal text-muted-foreground">(opcional)</span></Label>
+          <Input
+            id="tarjeta-pago"
+            v-model="form.paymentDueDay"
+            inputmode="numeric"
+            type="text"
+            placeholder="Ej. 25"
+            class="text-base tabular-nums"
+            :disabled="isSaving"
+            :aria-invalid="!!errors.paymentDueDay"
+          />
+          <p v-if="errors.paymentDueDay" class="text-xs text-destructive">
+            {{ errors.paymentDueDay }}
+          </p>
+          <p class="text-xs text-muted-foreground">
+            Día límite para pagar el resumen antes del vencimiento.
           </p>
         </div>
       </form>

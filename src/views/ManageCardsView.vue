@@ -194,6 +194,8 @@ function openEditPerson(person: CardPerson) {
                   <p class="truncate text-xs text-muted-foreground">
                     •••• {{ card.last_four_digits }}
                     <span v-if="card.suggested_monthly_limit"> · Límite: ${{ formatAmount(card.suggested_monthly_limit) }}</span>
+                    <span v-if="card.statement_cutoff_day"> · Corte: día {{ card.statement_cutoff_day }}</span>
+                    <span v-if="card.payment_due_day"> · Pago: día {{ card.payment_due_day }}</span>
                   </p>
                 </div>
                 <span class="text-xs text-muted-foreground">{{ cardUsageLabel(card.id) }}</span>
