@@ -123,18 +123,18 @@ async function onToggleNotifications(value: boolean) {
           <div
             role="radiogroup"
             aria-labelledby="theme-label"
-            class="flex gap-1 rounded-md bg-muted p-1"
+            class="flex gap-1.5 rounded-lg bg-muted p-1.5"
           >
             <button
               type="button"
               role="radio"
               :aria-checked="authStore.themePreference === 'light'"
               aria-label="Claro"
-              class="flex min-h-11 flex-1 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              class="flex size-11 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               :class="authStore.themePreference === 'light' ? 'bg-background text-foreground shadow-[var(--shadow-card)]' : 'text-muted-foreground hover:text-foreground'"
               @click="authStore.selectTheme('light')"
             >
-              <Sun class="size-4 shrink-0" />
+              <Sun class="size-5 shrink-0" />
             </button>
 
             <button
@@ -142,11 +142,11 @@ async function onToggleNotifications(value: boolean) {
               role="radio"
               :aria-checked="authStore.themePreference === 'dark'"
               aria-label="Oscuro"
-              class="flex min-h-11 flex-1 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              class="flex size-11 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               :class="authStore.themePreference === 'dark' ? 'bg-background text-foreground shadow-[var(--shadow-card)]' : 'text-muted-foreground hover:text-foreground'"
               @click="authStore.selectTheme('dark')"
             >
-              <Moon class="size-4 shrink-0" />
+              <Moon class="size-5 shrink-0" />
             </button>
 
             <button
@@ -154,11 +154,11 @@ async function onToggleNotifications(value: boolean) {
               role="radio"
               :aria-checked="authStore.themePreference === 'system'"
               aria-label="Sistema"
-              class="flex min-h-11 flex-1 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              class="flex size-11 items-center justify-center rounded-md transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               :class="authStore.themePreference === 'system' ? 'bg-background text-foreground shadow-[var(--shadow-card)]' : 'text-muted-foreground hover:text-foreground'"
               @click="authStore.selectTheme('system')"
             >
-              <Monitor class="size-4 shrink-0" />
+              <Monitor class="size-5 shrink-0" />
             </button>
           </div>
         </div>
