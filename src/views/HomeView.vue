@@ -96,6 +96,13 @@ onMounted(loadAll)
 
 const monthLabel = computed(() => currentMonthLabel())
 
+// FAB "Agregar movimiento": solo visible en el estado dashboard-con-datos
+// (mismo guard que la rama <template v-else> del dashboard), nunca durante la
+// carga inicial, en error, ni en el estado vacío (que ya tiene su propio CTA).
+const showFab = computed(
+  () => !isInitialLoading.value && !loadError.value && expensesStore.expenses.length > 0,
+)
+
 // Sección 2.1: saludo con el primer nombre (o el usuario del email), nunca
 // el nombre/email completo.
 const greetingName = computed(() => {
@@ -578,5 +585,16 @@ function goAddFirstExpense() {
         </Card>
       </template>
     </main>
+
+    <Button
+      v-if="showFab"
+      size="icon"
+      class="fixed right-4 h-14 w-14 rounded-full shadow-[var(--shadow-elevated)] sm:right-6"
+      style="bottom: calc(1.5rem + env(safe-area-inset-bottom))"
+      aria-label="Agregar movimiento"
+      @click="goAddFirstExpense"
+    >
+      <Plus class="size-6" />
+    </Button>
   </div>
 </template>
