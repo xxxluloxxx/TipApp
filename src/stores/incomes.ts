@@ -22,6 +22,9 @@ export interface IncomePayload {
   accountId: string
   description: string | null
   incomeDate: string
+  /** transaction-time-ux.md: hora opcional `"HH:MM"` (o `null` si el usuario
+   * la vació). Puramente informativa, no afecta orden ni ningún agregado. */
+  incomeTime: string | null
 }
 
 // Mismo límite defensivo que `expenses.ts` (sección 7.4 de
@@ -167,6 +170,7 @@ export const useIncomesStore = defineStore('incomes', () => {
       account_id: payload.accountId,
       description: payload.description,
       income_date: payload.incomeDate,
+      income_time: payload.incomeTime,
       user_id: userId,
       created_at: nowIso,
       updated_at: nowIso,
@@ -190,6 +194,7 @@ export const useIncomesStore = defineStore('incomes', () => {
           account_id: payload.accountId,
           description: payload.description,
           income_date: payload.incomeDate,
+          income_time: payload.incomeTime,
           user_id: userId,
         })
         .select('*, account:accounts(*)')
@@ -238,6 +243,7 @@ export const useIncomesStore = defineStore('incomes', () => {
       account_id: payload.accountId,
       description: payload.description,
       income_date: payload.incomeDate,
+      income_time: payload.incomeTime,
       account,
       _pending: true,
     }
@@ -259,6 +265,7 @@ export const useIncomesStore = defineStore('incomes', () => {
           account_id: payload.accountId,
           description: payload.description,
           income_date: payload.incomeDate,
+          income_time: payload.incomeTime,
         })
         .eq('id', id)
         .select('*, account:accounts(*)')

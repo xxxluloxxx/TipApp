@@ -51,6 +51,25 @@ export function todayDateInputValue(reference: Date = new Date()): string {
   return formatDateOnly(reference)
 }
 
+/** Valor por defecto del campo `<input type="time">` (hora actual del
+ * dispositivo, `"HH:MM"` en 24h, horario local) — mismo criterio que
+ * `todayDateInputValue()`. Usado por `resetForm()` de `TransactionFormSheet`
+ * en modo alta (transaction-time-ux.md sección 3). */
+export function nowTimeInputValue(reference: Date = new Date()): string {
+  const hours = String(reference.getHours()).padStart(2, '0')
+  const minutes = String(reference.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
+/** Formatea una hora cruda de Postgres (`"HH:MM:SS"`) a `"HH:MM"` (24h) para
+ * los listados (transaction-time-ux.md sección 5). Slice directo a 5
+ * caracteres, sin pasar por `Date`/locale: el dato ya es un string sin
+ * componente de zona horaria. Mismo criterio defensivo que usa el resto del
+ * proyecto al consumir columnas `time`/`date` crudas. */
+export function formatTimeShort(value: string): string {
+  return value.slice(0, 5)
+}
+
 /** Sección 3.4 de expenses-mvp-ux.md: valida que la fecha no sea futura. */
 export function isFutureDate(value: string, reference: Date = new Date()): boolean {
   const date = parseDateOnly(value)

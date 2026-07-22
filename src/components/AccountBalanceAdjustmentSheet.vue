@@ -134,6 +134,9 @@ function submitRecordMode(currentDiff: number) {
       accountId: props.account.id,
       description: null,
       expenseDate: todayDateInputValue(),
+      // transaction-time-ux.md: el ajuste de saldo no es un evento con hora que
+      // el usuario elija — sin campo de hora en este Sheet, se guarda `null`.
+      expenseTime: null,
     })
   } else {
     incomesStore.addIncome({
@@ -141,6 +144,7 @@ function submitRecordMode(currentDiff: number) {
       accountId: props.account.id,
       description: null,
       incomeDate: todayDateInputValue(),
+      incomeTime: null,
     })
   }
   return true

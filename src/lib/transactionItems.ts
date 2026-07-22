@@ -29,12 +29,21 @@ import type { DebtMovementWithDebt } from '@/stores/debts'
  * `data.amount` (sección 13.2), igual que `income`/`expense` no se subdividen
  * por signo.
  */
+/**
+ * `time` (transaction-time-ux.md sección 5/6): hora cruda `"HH:MM:SS"` de
+ * Postgres, **solo** poblada para `expense`/`income` (las únicas 2 tablas con
+ * columna de hora — `expense_time`/`income_time`). `null`/`undefined` en el
+ * resto de los kinds y en filas viejas sin hora; los listados solo la muestran
+ * cuando está presente, nunca inventan un placeholder. Es puramente visual: no
+ * participa del orden (sección 7, `date desc, created_at desc` sin cambios) ni
+ * de ningún agregado.
+ */
 export type TransactionItem =
-  | { kind: 'expense', id: string, date: string, data: ExpenseWithCategory }
-  | { kind: 'income', id: string, date: string, data: IncomeWithAccount }
-  | { kind: 'transfer-out', id: string, date: string, data: AccountTransfer }
-  | { kind: 'transfer-in', id: string, date: string, data: AccountTransfer }
-  | { kind: 'debt-linked', id: string, date: string, data: DebtMovementWithDebt }
+  | { kind: 'expense', id: string, date: string, time: string | null, data: ExpenseWithCategory }
+  | { kind: 'income', id: string, date: string, time: string | null, data: IncomeWithAccount }
+  | { kind: 'transfer-out', id: string, date: string, time?: null, data: AccountTransfer }
+  | { kind: 'transfer-in', id: string, date: string, time?: null, data: AccountTransfer }
+  | { kind: 'debt-linked', id: string, date: string, time?: null, data: DebtMovementWithDebt }
 
 /**
  * Mezcla gastos + ingresos + transferencias en una única lista ordenada por
@@ -60,10 +69,10 @@ export function buildTransactionItems(
   const items: TransactionItem[] = []
 
   for (const expense of expenses) {
-    items.push({ kind: 'expense', id: expense.id, date: expense.expense_date, data: expense })
+    items.push({ kind: 'expense', id: expense.id, date: expense.expense_date, time: expense.expense_time, data: expense })
   }
   for (const income of incomes) {
-    items.push({ kind: 'income', id: income.id, date: income.income_date, data: income })
+    items.push({ kind: 'income', id: income.id, date: income.income_date, time: income.income_time, data: income })
   }
   for (const transfer of transfers) {
     items.push({ kind: 'transfer-out', id: transfer.id, date: transfer.transfer_date, data: transfer })

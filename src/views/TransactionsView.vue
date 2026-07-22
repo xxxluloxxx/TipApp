@@ -30,7 +30,7 @@ import {
   type TransactionItem,
 } from '@/lib/transactionItems'
 import { movementVerb } from '@/lib/debtDisplay'
-import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
+import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading, formatTimeShort } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, resolveAccountColor } from '@/lib/colors'
 import { normalizeSearchText } from '@/lib/text'
@@ -713,7 +713,8 @@ function goToDebt(debtId: string) {
                   <div class="flex items-center gap-1.5">
                     <ArrowDownCircle v-if="isPositive(item)" class="size-4 shrink-0 text-success" />
                     <p class="font-medium">
-                      {{ itemTitle(item) }}
+                      {{ itemTitle(item) }}<!-- transaction-time-ux.md sección 6: hora junto al título, solo si la fila la tiene (solo expense/income). -->
+                      <span v-if="item.time" class="text-xs font-normal text-muted-foreground">· {{ formatTimeShort(item.time) }}</span>
                     </p>
                   </div>
                   <div class="flex flex-wrap items-center gap-1.5">

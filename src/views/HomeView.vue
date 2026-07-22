@@ -24,7 +24,7 @@ import { useExpensesStore } from '@/stores/expenses'
 import { useIncomesStore } from '@/stores/incomes'
 import { buildTransactionItems, type TransactionItem } from '@/lib/transactionItems'
 import { movementVerb } from '@/lib/debtDisplay'
-import { currentMonthLabel, formatExpenseDateHeading, parseDateOnly } from '@/lib/date'
+import { currentMonthLabel, formatExpenseDateHeading, formatTimeShort, parseDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
@@ -568,7 +568,8 @@ function goAddFirstExpense() {
                     {{ isPositive(item) ? '+' : '' }}${{ formatAmount(Math.abs(item.data.amount)) }}
                   </p>
                   <p class="text-xs text-muted-foreground">
-                    {{ formatExpenseDateHeading(item.date) }}
+                    <!-- transaction-time-ux.md sección 6: "Hoy · 14:32" cuando hay hora. -->
+                    {{ formatExpenseDateHeading(item.date) }}{{ item.time ? ` · ${formatTimeShort(item.time)}` : '' }}
                   </p>
                 </div>
               </div>

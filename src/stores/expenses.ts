@@ -40,6 +40,9 @@ export interface ExpensePayload {
   accountId: string
   description: string | null
   expenseDate: string
+  /** transaction-time-ux.md: hora opcional `"HH:MM"` (o `null` si el usuario
+   * la vació). Puramente informativa, no afecta orden ni ningún agregado. */
+  expenseTime: string | null
 }
 
 // Límite defensivo (sección 2.3 de expenses-mvp-ux.md): sin paginación en
@@ -199,6 +202,7 @@ export const useExpensesStore = defineStore('expenses', () => {
       account_id: payload.accountId,
       description: payload.description,
       expense_date: payload.expenseDate,
+      expense_time: payload.expenseTime,
       user_id: userId,
       created_at: nowIso,
       updated_at: nowIso,
@@ -222,6 +226,7 @@ export const useExpensesStore = defineStore('expenses', () => {
           account_id: payload.accountId,
           description: payload.description,
           expense_date: payload.expenseDate,
+          expense_time: payload.expenseTime,
           user_id: userId,
         })
         .select('*, category:categories(*)')
@@ -273,6 +278,7 @@ export const useExpensesStore = defineStore('expenses', () => {
       account_id: payload.accountId,
       description: payload.description,
       expense_date: payload.expenseDate,
+      expense_time: payload.expenseTime,
       category,
       _pending: true,
     }
@@ -294,6 +300,7 @@ export const useExpensesStore = defineStore('expenses', () => {
           account_id: payload.accountId,
           description: payload.description,
           expense_date: payload.expenseDate,
+          expense_time: payload.expenseTime,
         })
         .eq('id', id)
         .select('*, category:categories(*)')

@@ -618,6 +618,7 @@ export type Database = {
           created_at: string
           description: string | null
           expense_date: string
+          expense_time: string | null
           id: string
           updated_at: string
           user_id: string
@@ -629,6 +630,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           expense_date?: string
+          expense_time?: string | null
           id?: string
           updated_at?: string
           user_id: string
@@ -640,6 +642,7 @@ export type Database = {
           created_at?: string
           description?: string | null
           expense_date?: string
+          expense_time?: string | null
           id?: string
           updated_at?: string
           user_id?: string
@@ -784,6 +787,7 @@ export type Database = {
           description: string | null
           id: string
           income_date: string
+          income_time: string | null
           updated_at: string
           user_id: string
         }
@@ -794,6 +798,7 @@ export type Database = {
           description?: string | null
           id?: string
           income_date?: string
+          income_time?: string | null
           updated_at?: string
           user_id: string
         }
@@ -804,6 +809,7 @@ export type Database = {
           description?: string | null
           id?: string
           income_date?: string
+          income_time?: string | null
           updated_at?: string
           user_id?: string
         }

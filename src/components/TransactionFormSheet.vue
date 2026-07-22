@@ -5,11 +5,13 @@ import {
   ChevronDown,
   CircleArrowDown,
   CircleArrowUp,
+  Clock,
   Delete,
   Loader2,
   StickyNote,
+  X,
 } from '@lucide/vue'
-import { formatDateChip, isFutureDate, todayDateInputValue } from '@/lib/date'
+import { formatDateChip, formatTimeShort, isFutureDate, nowTimeInputValue, todayDateInputValue } from '@/lib/date'
 import { readableTextColor, resolveAccountColor } from '@/lib/colors'
 import { formatAmount } from '@/lib/currency'
 import { resolveAccountIcon } from '@/lib/accountIcons'
@@ -95,6 +97,8 @@ const form = reactive({
   accountId: '',
   categoryId: '',
   date: todayDateInputValue(),
+  /** transaction-time-ux.md: hora opcional `"HH:MM"`. Vacía = se guarda `null`. */
+  time: nowTimeInputValue(),
   description: '',
 })
 
@@ -204,6 +208,9 @@ function resetForm() {
     form.accountId = expense.account_id
     form.categoryId = expense.category_id
     form.date = expense.expense_date
+    // Sección 4: precarga los primeros 5 caracteres del "HH:MM:SS" de Postgres;
+    // vacío si la fila no tiene hora (nunca inventa "00:00").
+    form.time = expense.expense_time ? formatTimeShort(expense.expense_time) : ''
     form.description = expense.description ?? ''
   } else if (props.transaction?.kind === 'income') {
     const income = props.transaction.income
@@ -212,6 +219,7 @@ function resetForm() {
     form.accountId = income.account_id
     form.categoryId = ''
     form.date = income.income_date
+    form.time = income.income_time ? formatTimeShort(income.income_time) : ''
     form.description = income.description ?? ''
   } else {
     // Modo alta (sección 7.3): "Gasto" es siempre el default del toggle, sin
@@ -221,6 +229,8 @@ function resetForm() {
     form.accountId = props.presetAccountId ?? defaultAccountId()
     form.categoryId = ''
     form.date = todayDateInputValue()
+    // Sección 3: default = hora real del dispositivo al abrir el Sheet.
+    form.time = nowTimeInputValue()
     form.description = ''
   }
 
@@ -367,6 +377,8 @@ function onSubmit() {
   try {
     const amount = parseAmount(form.amount)!
     const description = form.description.trim() ? form.description.trim() : null
+    // Sección 4/5: campo opcional — vacío se persiste como `null`, nunca "00:00".
+    const time = form.time ? form.time : null
 
     if (form.type === 'expense') {
       const payload = {
@@ -375,6 +387,7 @@ function onSubmit() {
         accountId: form.accountId,
         description,
         expenseDate: form.date,
+        expenseTime: time,
       }
       const expenseTargets = props.expenseSyncTargets ?? []
       if (props.transaction?.kind === 'expense') {
@@ -388,6 +401,7 @@ function onSubmit() {
         accountId: form.accountId,
         description,
         incomeDate: form.date,
+        incomeTime: time,
       }
       const incomeTargets = props.incomeSyncTargets ?? []
       if (props.transaction?.kind === 'income') {
@@ -465,26 +479,62 @@ function onSubmit() {
 
         <!-- 14.4 — Panel superior coloreado por la cuenta seleccionada -->
         <div class="mx-4 rounded-xl p-4" :style="panelStyle">
-          <!-- 14.4.2 — Píldora de fecha (input date nativo invisible encima) -->
-          <div class="relative ml-auto w-fit">
-            <button
-              type="button"
-              :disabled="isSaving"
-              class="flex min-h-9 items-center gap-1 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+          <!-- transaction-time-ux.md sección 1: fila de 2 píldoras (Fecha + Hora),
+               mismo tratamiento visual, alineadas a la derecha. -->
+          <div class="ml-auto flex w-fit items-center gap-2">
+            <!-- 14.4.2 — Píldora de fecha (input date nativo invisible encima) -->
+            <div class="relative">
+              <button
+                type="button"
+                :disabled="isSaving"
+                class="flex min-h-9 items-center gap-1 rounded-full px-3 text-sm font-medium disabled:cursor-not-allowed disabled:opacity-60"
+                :style="{ background: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)', color: textColor }"
+              >
+                {{ dateChipLabel }} <ChevronDown class="size-3.5" />
+              </button>
+              <input
+                ref="dateInputRef"
+                v-model="form.date"
+                type="date"
+                :max="todayValue"
+                :disabled="isSaving"
+                :aria-invalid="!!errors.date"
+                aria-label="Fecha del movimiento"
+                class="absolute inset-0 size-full cursor-pointer text-base opacity-0 disabled:cursor-not-allowed"
+              >
+            </div>
+
+            <!-- transaction-time-ux.md sección 1: píldora de hora (opcional).
+                 Con valor: Clock + "HH:MM" + botón × para vaciar. Sin valor:
+                 Clock + "Agregar hora" atenuado. El input time invisible captura
+                 el tap para abrir el picker nativo; el × queda por encima (z-10)
+                 y con @click.stop para no abrir el picker al limpiar. -->
+            <div
+              class="relative flex min-h-9 items-center gap-1 rounded-full px-3 text-sm font-medium"
               :style="{ background: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)', color: textColor }"
             >
-              {{ dateChipLabel }} <ChevronDown class="size-3.5" />
-            </button>
-            <input
-              ref="dateInputRef"
-              v-model="form.date"
-              type="date"
-              :max="todayValue"
-              :disabled="isSaving"
-              :aria-invalid="!!errors.date"
-              aria-label="Fecha del movimiento"
-              class="absolute inset-0 size-full cursor-pointer opacity-0 disabled:cursor-not-allowed"
-            >
+              <Clock class="size-3.5 shrink-0" />
+              <span v-if="form.time">{{ formatTimeShort(form.time) }}</span>
+              <span v-else class="opacity-70">Agregar hora</span>
+              <input
+                v-model="form.time"
+                type="time"
+                :disabled="isSaving"
+                aria-label="Hora del movimiento"
+                class="absolute inset-0 size-full cursor-pointer text-base opacity-0 disabled:cursor-not-allowed"
+              >
+              <button
+                v-if="form.time"
+                type="button"
+                :disabled="isSaving"
+                aria-label="Quitar hora"
+                class="relative z-10 -mr-1 flex size-5 shrink-0 items-center justify-center rounded-full transition-opacity hover:opacity-100 disabled:cursor-not-allowed disabled:opacity-60"
+                :style="{ background: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }"
+                @click.stop="form.time = ''"
+              >
+                <X class="size-3" />
+              </button>
+            </div>
           </div>
 
           <!-- 14.4.3 — Monto gigante (número visual + input accesible oculto) -->
