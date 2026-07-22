@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { AlertCircle, CreditCard as CreditCardIcon, Plus, RotateCcw, User } from '@lucide/vue'
+import { AlertCircle, CalendarSync, CreditCard as CreditCardIcon, Plus, RotateCcw, User } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, withAlpha } from '@/lib/colors'
@@ -203,35 +203,7 @@ function goToTransactions() {
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <!-- Header con selector de mes integrado (mismo patrón que
-    CardsDashboardView.vue): el nombre de la tarjeta baja a eyebrow chico y el
-    mes elegido pasa a ser el texto grande, sin caja/borde de campo. El bloque
-    central queda centrado entre el botón de menú y un spacer del mismo tamaño. -->
-    <AppHeader>
-      <div class="min-w-0 flex-1">
-        <p id="card-detail-eyebrow" class="truncate text-center text-xs font-medium text-muted-foreground">
-          {{ card?.name }}
-        </p>
-
-        <Select v-model="filters.month">
-          <SelectTrigger
-            aria-describedby="card-detail-eyebrow"
-            class="!h-11 !w-fit !max-w-full !gap-1.5 !border-0 !bg-transparent !px-2 !py-0 !shadow-none mx-auto rounded-md text-xl font-semibold tracking-tight text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
-          >
-            <SelectValue class="truncate" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
-      <template #actions>
-        <div class="size-11" aria-hidden="true" />
-      </template>
-    </AppHeader>
+    <AppHeader title="Tarjeta" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <!-- Estado de carga -->
@@ -290,6 +262,53 @@ function goToTransactions() {
       </template>
 
       <template v-else-if="card">
+        <section class="flex flex-col gap-3">
+          <div class="flex items-start justify-between gap-3 px-1">
+            <div class="min-w-0">
+              <p class="text-sm font-medium text-muted-foreground">
+                Detalle de tarjeta
+              </p>
+              <h2 class="truncate text-2xl font-semibold tracking-tight">
+                {{ card.name }}
+              </h2>
+            </div>
+
+            <Badge variant="secondary" class="mt-1 shrink-0">
+              •••• {{ card.last_four_digits }}
+            </Badge>
+          </div>
+
+          <div class="rounded-lg border border-border bg-card p-3 shadow-card">
+            <div class="flex items-center gap-3">
+              <div
+                class="flex size-10 shrink-0 items-center justify-center rounded-md"
+                :style="{ backgroundColor: withAlpha(card.color, 0.2) }"
+              >
+                <CalendarSync class="size-5" :style="{ color: card.color ?? 'hsl(var(--primary))' }" />
+              </div>
+
+              <div class="min-w-0 flex-1">
+                <p id="card-detail-period-label" class="text-xs font-medium text-muted-foreground">
+                  Periodo de la tarjeta
+                </p>
+                <Select v-model="filters.month">
+                  <SelectTrigger
+                    aria-describedby="card-detail-period-label"
+                    class="mt-1 !h-10 !w-full !justify-between !rounded-md !bg-background !px-3 text-base font-semibold"
+                  >
+                    <SelectValue class="truncate" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
+                      {{ option.label }}
+                    </SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </div>
+        </section>
+
         <!-- Sección 4.1: hero + progreso contra límite sugerido -->
         <Card size="sm" :style="{ backgroundColor: withAlpha(card.color, 0.16) }">
           <CardHeader class="gap-2">
