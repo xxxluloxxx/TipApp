@@ -383,6 +383,7 @@ function goAddFirstExpense() {
             :points="cumulativeDailyPoints"
             class="px-6 pb-4"
             :height="72"
+            show-axis
             :ariaLabel="`Gasto acumulado de ${monthLabel}, día a día`"
           />
         </Card>
