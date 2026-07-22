@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Check, Loader2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
-import { readableTextColor, withAlpha } from '@/lib/colors'
+import { COLOR_SWATCHES, readableTextColor, withAlpha } from '@/lib/colors'
 import { CATEGORY_ICON_OPTIONS } from '@/lib/categoryIcons'
 import { useCategoriesStore, type Category } from '@/stores/categories'
 import { Button } from '@/components/ui/button'
@@ -16,22 +16,6 @@ import {
   SheetHeader,
   SheetTitle,
 } from '@/components/ui/sheet'
-
-// Sección 3.3 de categories-mvp-ux.md: los 10 hex ya sembrados en las
-// categorías default, con su nombre en español para el `aria-label` de cada
-// swatch (un lector de pantalla anunciando el hex crudo no comunica nada).
-const COLOR_SWATCHES = [
-  { hex: '#f97316', label: 'Naranja' },
-  { hex: '#3b82f6', label: 'Azul' },
-  { hex: '#8b5cf6', label: 'Violeta' },
-  { hex: '#eab308', label: 'Amarillo' },
-  { hex: '#ef4444', label: 'Rojo' },
-  { hex: '#06b6d4', label: 'Celeste' },
-  { hex: '#ec4899', label: 'Rosa' },
-  { hex: '#14b8a6', label: 'Verde azulado' },
-  { hex: '#22c55e', label: 'Verde' },
-  { hex: '#6b7280', label: 'Gris' },
-] as const
 
 const props = defineProps<{
   open: boolean

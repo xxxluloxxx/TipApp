@@ -118,12 +118,21 @@ export function hexToHslTriple(hex: string, options?: { minLightness?: number })
 }
 
 /**
- * Grid fijo de 10 swatches (sección 3.3 de categories-mvp-ux.md): mismos hex
- * ya sembrados en `categories.color`. `CategoryFormSheet.vue` mantiene su
- * propia copia local (no se tocó ese archivo, fuera de alcance de esta
- * iteración); esta exportación es la reusada tal cual por `CardFormSheet.vue`
- * y `CardPersonFormSheet.vue` (credit-cards-ux.md sección 6.2/6.3, "reusar
- * literalmente los mismos hex/patrón") para no triplicar el literal.
+ * Grid de swatches (sección 3.3 de categories-mvp-ux.md): los primeros 10 son
+ * los mismos hex ya sembrados en `categories.color`. `CategoryFormSheet.vue`
+ * antes mantenía su propia copia local duplicada — ahora importa este array
+ * directo, sin duplicar el literal. Reusado tal cual también por
+ * `CardFormSheet.vue` y `CardPersonFormSheet.vue` (credit-cards-ux.md
+ * sección 6.2/6.3, "reusar literalmente los mismos hex/patrón").
+ *
+ * Ampliado con 5 colores más (pedido del usuario): validados con
+ * `validate_palette.js` de la skill de dataviz en `--mode light` y
+ * `--mode dark` (superficies `#FFFFFF`/`#0B111E`) contra los 10 existentes +
+ * los 2 hex ya usados por categorías default fuera de este grid
+ * (`#6366f1` "Comisiones bancarias", `#a3520a` "Ajuste de saldo") —
+ * `--pairs all`, sin fallos nuevos introducidos por los 5 agregados (las
+ * únicas fallas reportadas ya eran preexistentes: `#eab308`/`#6b7280` fuera
+ * de banda/piso de croma, y el par `#6366f1`↔`#8b5cf6` ya en producción).
  */
 export const COLOR_SWATCHES = [
   { hex: '#f97316', label: 'Naranja' },
@@ -136,6 +145,11 @@ export const COLOR_SWATCHES = [
   { hex: '#14b8a6', label: 'Verde azulado' },
   { hex: '#22c55e', label: 'Verde' },
   { hex: '#6b7280', label: 'Gris' },
+  { hex: '#84cc16', label: 'Lima' },
+  { hex: '#a21caf', label: 'Fucsia' },
+  { hex: '#0284c7', label: 'Azul cielo' },
+  { hex: '#be123c', label: 'Granate' },
+  { hex: '#4d7c0f', label: 'Oliva' },
 ] as const
 
 /**
