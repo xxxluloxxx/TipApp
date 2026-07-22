@@ -143,9 +143,15 @@ export function resolveAccountImpact(item: TransactionItem): { accountId: string
     case 'transfer-in':
       return { accountId: item.data.to_account_id, signedAmount: item.data.amount }
     case 'debt-linked':
+      // `debt` es una relación embebida de Supabase (`debt:debts(*)`) — puede
+      // venir nula para una fila puntual (RLS/dato huérfano). Si falta, se
+      // degrada al signo crudo de `amount` en vez de tirar un TypeError: la
+      // app no tiene error boundary, así que una excepción acá tumba TODA la
+      // pantalla, no solo esta fila (incidente real, ver commit que revirtió
+      // este mismo cambio antes de este guard).
       return {
         accountId: item.data.account_id!,
-        signedAmount: item.data.debt.direction === 'lent' ? -item.data.amount : item.data.amount,
+        signedAmount: item.data.debt?.direction === 'lent' ? -item.data.amount : item.data.amount,
       }
   }
 }
