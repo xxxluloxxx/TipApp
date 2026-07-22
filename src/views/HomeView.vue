@@ -26,7 +26,7 @@ import { buildTransactionItems, type TransactionItem } from '@/lib/transactionIt
 import { movementVerb } from '@/lib/debtDisplay'
 import { currentMonthLabel, formatExpenseDateHeading, formatTimeShort, parseDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
+import { readableTextColor, withAlpha } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { buildCumulativeDailySeries, buildDonutSlices, isMonthSafeToShow, type CategoryTotal } from '@/lib/charts'
 import TrendAreaChart from '@/components/charts/TrendAreaChart.vue'
@@ -52,7 +52,6 @@ const accountTransfersStore = useAccountTransfersStore()
 const debtsStore = useDebtsStore()
 const debtPeopleStore = useDebtPeopleStore()
 
-const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
@@ -250,15 +249,15 @@ function itemSubtitle(item: TransactionItem): string {
 // Color del círculo del ícono de una transferencia (6.4.2): origen para la
 // salida, destino para la entrada.
 function transferCircleColor(item: TransactionItem): string {
-  if (item.kind === 'transfer-out') return resolveAccountColor(accountColor(item.data.from_account_id), isDarkNow.value)
-  if (item.kind === 'transfer-in') return resolveAccountColor(accountColor(item.data.to_account_id), isDarkNow.value)
-  return resolveAccountColor('#6b7280', isDarkNow.value)
+  if (item.kind === 'transfer-out') return accountColor(item.data.from_account_id)
+  if (item.kind === 'transfer-in') return accountColor(item.data.to_account_id)
+  return '#6b7280'
 }
 // Color del círculo del ícono de una deuda con cuenta vinculada (sección
 // 13.4): siempre el de su única cuenta (no hay origen/destino que elegir).
 function debtLinkedCircleColor(item: TransactionItem): string {
-  if (item.kind !== 'debt-linked' || !item.data.account_id) return resolveAccountColor('#6b7280', isDarkNow.value)
-  return resolveAccountColor(accountColor(item.data.account_id), isDarkNow.value)
+  if (item.kind !== 'debt-linked' || !item.data.account_id) return '#6b7280'
+  return accountColor(item.data.account_id)
 }
 
 // Sección 2.6: desde el estado vacío, "Agregar tu primer gasto" navega a
@@ -414,17 +413,17 @@ function goAddFirstExpense() {
               :key="account.id"
               type="button"
               class="flex flex-col gap-2 rounded-lg border border-border p-3 text-left transition hover:brightness-95 active:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
+              :style="{ backgroundColor: withAlpha(account.color ?? '#6b7280', 0.16) }"
               @click="router.push({ name: 'account-detail', params: { id: account.id } })"
             >
               <span
                 class="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                :style="{ backgroundColor: account.color ?? '#6b7280' }"
               >
                 <component
                   :is="resolveAccountIcon(account.icon)"
                   class="size-5"
-                  :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
+                  :style="{ color: readableTextColor(account.color ?? '#6b7280') }"
                 />
               </span>
               <div class="flex flex-col gap-0.5">
@@ -527,9 +526,9 @@ function goAddFirstExpense() {
                 <span
                   v-else-if="item.kind === 'income'"
                   class="flex size-9 shrink-0 items-center justify-center rounded-full border"
-                  :style="{ backgroundColor: withAlpha(resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow), 0.12), borderColor: resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow) }"
+                  :style="{ backgroundColor: withAlpha(item.data.account.color ?? '#6b7280', 0.12), borderColor: item.data.account.color ?? '#6b7280' }"
                 >
-                  <ArrowDownCircle class="size-4" :style="{ color: resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow) }" />
+                  <ArrowDownCircle class="size-4" :style="{ color: item.data.account.color ?? '#6b7280' }" />
                 </span>
                 <!-- Deuda con cuenta vinculada (debts-ux.md sección 13.4):
                      círculo con color de la cuenta + HandCoins (nunca

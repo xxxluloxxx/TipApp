@@ -18,7 +18,7 @@ import {
   Trash2,
   Wallet,
 } from '@lucide/vue'
-import { readableTextColor, resolveAccountColor, withAlpha } from '@/lib/colors'
+import { readableTextColor, withAlpha } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { formatAmount } from '@/lib/currency'
 import { addMonths, formatDateOnly, monthNameOnly, startOfMonth } from '@/lib/date'
@@ -56,7 +56,6 @@ const route = useRoute()
 const router = useRouter()
 const accountsStore = useAccountsStore()
 
-const isDarkNow = ref(document.documentElement.classList.contains('dark'))
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
@@ -151,7 +150,7 @@ function canDelete(accountId: string): boolean {
 function balanceColorStyle(account: Account): string | undefined {
   const balance = accountsStore.balanceFor(account.id)
   if (balance < 0) return undefined
-  return resolveAccountColor(account.color ?? '#6b7280', isDarkNow.value)
+  return account.color ?? '#6b7280'
 }
 
 // Sección 13.3.2: "Ordenar" es un modo dentro de la misma vista, no una ruta
@@ -313,7 +312,7 @@ function openEditSheet(account: Account) {
             v-for="account in accountsStore.accounts"
             :key="account.id"
             class="cursor-pointer p-0 transition-colors hover:brightness-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
+            :style="{ backgroundColor: withAlpha(account.color ?? '#6b7280', 0.16) }"
             role="button"
             tabindex="0"
             :aria-label="`Ver detalle de ${account.name}`"
@@ -323,12 +322,12 @@ function openEditSheet(account: Account) {
             <div class="flex items-center gap-3 px-4 py-3">
               <span
                 class="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                :style="{ backgroundColor: account.color ?? '#6b7280' }"
               >
                 <component
                   :is="resolveAccountIcon(account.icon)"
                   class="size-4.5"
-                  :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
+                  :style="{ color: readableTextColor(account.color ?? '#6b7280') }"
                 />
               </span>
               <div class="flex min-w-0 flex-1 flex-col">
@@ -403,17 +402,17 @@ function openEditSheet(account: Account) {
             v-for="(account, idx) in accountsStore.accounts"
             :key="account.id"
             class="p-0"
-            :style="{ backgroundColor: withAlpha(resolveAccountColor(account.color ?? '#6b7280', isDarkNow), 0.16) }"
+            :style="{ backgroundColor: withAlpha(account.color ?? '#6b7280', 0.16) }"
           >
             <div class="flex items-center gap-3 px-4 py-3">
               <span
                 class="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                :style="{ backgroundColor: account.color ?? '#6b7280' }"
               >
                 <component
                   :is="resolveAccountIcon(account.icon)"
                   class="size-4.5"
-                  :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
+                  :style="{ color: readableTextColor(account.color ?? '#6b7280') }"
                 />
               </span>
               <div class="flex min-w-0 flex-1 flex-col">

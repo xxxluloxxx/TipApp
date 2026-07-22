@@ -16,7 +16,7 @@ import {
 } from '@lucide/vue'
 import { formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { readableTextColor, resolveAccountColor } from '@/lib/colors'
+import { readableTextColor } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { buildAccountBalanceEvolution, type AccountMovementInput, type TrendPoint } from '@/lib/charts'
 import { buildAccountTransactionItems, type TransactionItem } from '@/lib/transactionItems'
@@ -78,7 +78,6 @@ const account = computed(() => accountsStore.accountById(accountId.value))
 // HomeView (account_balances), nunca recalculado a mano acá.
 const currentBalance = computed(() => accountsStore.balanceFor(accountId.value))
 
-const isDarkNow = ref(document.documentElement.classList.contains('dark'))
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
@@ -370,12 +369,12 @@ const showChart = computed(() => balanceEvolutionPoints.value.length > 1)
         <div v-if="account" class="flex min-w-0 flex-1 items-center gap-3">
           <span
             class="flex size-10 shrink-0 items-center justify-center rounded-lg"
-            :style="{ backgroundColor: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+            :style="{ backgroundColor: account.color ?? '#6b7280' }"
           >
             <component
               :is="resolveAccountIcon(account.icon)"
               class="size-5"
-              :style="{ color: readableTextColor(resolveAccountColor(account.color ?? '#6b7280', isDarkNow)) }"
+              :style="{ color: readableTextColor(account.color ?? '#6b7280') }"
             />
           </span>
           <h1 class="truncate text-xl font-semibold">{{ account.name }}</h1>
@@ -494,8 +493,8 @@ const showChart = computed(() => balanceEvolutionPoints.value.length > 1)
                     <Badge
                       class="w-fit border-transparent"
                       :style="{
-                        backgroundColor: resolveAccountColor(accountColor(item.data.account_id!), isDarkNow),
-                        color: readableTextColor(resolveAccountColor(accountColor(item.data.account_id!), isDarkNow)),
+                        backgroundColor: accountColor(item.data.account_id!),
+                        color: readableTextColor(accountColor(item.data.account_id!)),
                       }"
                     >
                       {{ accountName(item.data.account_id!) }}

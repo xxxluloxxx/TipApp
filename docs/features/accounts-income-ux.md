@@ -449,136 +449,132 @@ anotado para cuando exista esa pantalla.
 
 ## 4. Paleta de color de cuentas
 
-### 4.1 Criterio pedido y por qué `COLOR_SWATCHES` no sirve tal cual
+> **Nota de cambio de decisión** (reversión de esta sección): la versión
+> original de esta sección (ver historial de git) documentaba una paleta
+> **separada** para cuentas, `ACCOUNT_COLOR_SWATCHES` — 13 tonos "jewel tone"
+> (escala ~700 de Tailwind, oscuros/apagados), cada uno con un `hex` (claro)
+> y un `darkHex` (variante de presentación para modo oscuro), resueltos en
+> runtime vía `resolveAccountColor(hex, isDark)`. El Product Owner comparó
+> "Editar cuenta" contra "Editar categoría" lado a lado y pidió
+> explícitamente que ambos selectores de color se vean **iguales** — mismos
+> colores, misma cantidad, mismo nivel de saturación. Eso invalida el
+> criterio original (un tono "serio", deliberadamente distinto del vívido de
+> categorías) y el trade-off que lo sostenía. Se prioriza el pedido explícito
+> y más reciente del Product Owner por sobre la calibración anterior. Toda
+> esta sección queda reescrita para reflejar la reversión.
 
-El Product Owner pidió un tono "acorde a la aplicación, no muy llamativo
-pero tampoco muy bajo" — ni el pastel/vívido de la referencia visual externa,
-ni los 10 tonos ya usados por `COLOR_SWATCHES` (`src/lib/colors.ts`,
-compartidos hoy por categorías/tarjetas/personas). Se calibró una paleta
-**nueva**, de 8 colores, en un registro más profundo/"jewel tone" —
-suficientemente saturada para tener presencia propia (a diferencia de un
-pastel lavado), pero sin llegar a los tonos casi neón de
-`COLOR_SWATCHES` (que son, literalmente, la escala 500 de Tailwind:
-`#f97316`, `#3b82f6`, `#ef4444`, etc. — vívidos por diseño, pensados para un
-wash de 12% de opacidad detrás de un badge de texto, no para leerse como
-color "serio" de una cuenta bancaria).
+### 4.1 Decisión: paleta compartida con categorías/tarjetas/personas
 
-### 4.2 Validación con la skill de dataviz (`validate_palette.js`)
+"Editar cuenta" pasa a usar **`COLOR_SWATCHES`** (`src/lib/colors.ts`,
+línea ~151) tal cual — el mismo array de 16 colores vívidos tono ~500 de
+Tailwind que ya usan `CategoryFormSheet.vue`, `CardFormSheet.vue` y
+`CardPersonFormSheet.vue`. Se elimina `ACCOUNT_COLOR_SWATCHES` como concepto
+(13 tonos jewel-tone, `{ hex, darkHex, label }`) y la función
+`resolveAccountColor` que elegía entre `hex`/`darkHex` según el tema activo.
+No se crea ningún array nuevo: cuentas se convierte en un cuarto consumidor
+de `COLOR_SWATCHES`, sin modificar ese array ni sus 3 consumidores actuales.
 
-Mismo criterio de rigor que ya usó `dashboard-redesign-ux.md` sección 0.4
-para auditar la paleta de categorías existente (que, dicho sea de paso, hoy
-**falla** ese chequeo en un par de pares — deuda anotada, no de esta
-sesión). Para la paleta nueva de cuentas se corrió el validador contra los
-8 hex elegidos, en el orden final (el orden importa: el chequeo de
-separación CVD solo compara pares **adyacentes** del array, así que el orden
-se ajustó para separar los dos pares que resultaban más parecidos entre sí
-para daltonismo protán):
+| | Antes de esta reversión | Ahora |
+|---|---|---|
+| Array de swatches | `ACCOUNT_COLOR_SWATCHES` (13 tonos, propio de cuentas) | `COLOR_SWATCHES` (16 tonos, compartido) |
+| Forma del dato por swatch | `{ hex, darkHex, label }` | `{ hex, label }` (sin variante) |
+| Resolución en runtime | `resolveAccountColor(hex, isDark)` | ninguna — se pinta `swatch.hex` tal cual en los dos temas |
+| Look de "Editar cuenta" vs. "Editar categoría" | Deliberadamente distinto (más oscuro/apagado) | Idéntico: mismos colores, misma cantidad, misma saturación |
+
+### 4.2 Re-verificación de light/dark antes de asumir "no hace falta variante"
+
+El comentario existente encima de `COLOR_SWATCHES` en `colors.ts` (líneas
+~128-150) afirma que el array fue validado con `validate_palette.js` de la
+skill `dataviz` en `--mode light` y `--mode dark`. Antes de dar eso por
+bueno para este cambio, se re-corrió el validador contra los 16 hex
+completos, en orden, contra las superficies reales de TipApp
+(`#FFFFFF` claro / `#0B111E` oscuro), con `--pairs all`:
 
 ```
-node validate_palette.js "#b45309,#1d4ed8,#be123c,#7e22ce,#86198f,#0891b2,#047857,#4d7c0f" --mode light
-→ ALL CHECKS PASS (lightness band, chroma floor, CVD separation, contraste vs. superficie)
+node validate_palette.js "#f97316,#3b82f6,#8b5cf6,#eab308,#ef4444,#06b6d4,#ec4899,#14b8a6,#22c55e,#6b7280,#84cc16,#a21caf,#facc15,#0284c7,#be123c,#4d7c0f" --mode light --surface "#FFFFFF" --pairs all
+→ FAIL banda de luminosidad (#eab308, #facc15 muy claros) · FAIL piso de
+  croma (#6b7280 "Gris", intencional — es un gris) · FAIL separación CVD
+  (#8b5cf6↔#3b82f6, ΔE 1.3 deutan) · FAIL piso normal-vision (#facc15↔#eab308,
+  ΔE 6.9 — los dos amarillos) · WARN contraste <3:1 en 7 tonos claros
 
-node validate_palette.js "#df670b,#426de6,#ea1f51,#9947e1,#b321bf,#099fc3,#06a87a,#609b13" --mode dark --surface "#0b111e"
-→ ALL CHECKS PASS (un WARN en el par ciruela↔violeta, ΔE 11.4 — dentro de la
-  banda 8–12 que el propio validador considera legal siempre que haya
-  codificación secundaria, y acá siempre la hay: nombre de cuenta en texto
-  real al lado del swatch, nunca solo color, regla ya vigente en todo el
-  proyecto)
+node validate_palette.js "...mismos 16 hex..." --mode dark --surface "#0B111E" --pairs all
+→ mismos FAIL de banda/croma/CVD/normal-vision (son intrínsecos al hex, no
+  cambian con el tema) · contraste: solo 1 WARN (#a21caf "Fucsia", 2.98 —
+  justo debajo de 3:1)
 ```
 
-Nota honesta: esto deja a la paleta de cuentas en **mejor estado
-documentado** que la paleta de categorías actual (que sí falla checks reales
-sin variante por tema, sección 0.4 de `dashboard-redesign-ux.md`) — no
-porque cuentas sea más importante, sino porque se calibra desde cero
-ahora, con la herramienta ya disponible en el repo, y tiene sentido usarla.
+**Lectura honesta del resultado** (para no repetir el mismo exceso de
+confianza que motivó esta re-verificación): el comentario original de
+`colors.ts` **no** dice "pasa todos los checks" — dice que los colores
+agregados en rondas sucesivas no introdujeron **fallas nuevas** respecto de
+los ya en producción, y nombra explícitamente fallas preexistentes
+(`#eab308`/`#6b7280` fuera de banda/piso de croma, par
+`#6366f1`↔`#8b5cf6`). Esta re-verificación confirma exactamente eso: las
+fallas de banda de luminosidad, piso de croma (el gris) y separación CVD
+(violeta↔azul) ya existen **hoy, en producción**, en categorías/tarjetas/
+personas, en ambos temas, sin ningún `darkHex` — mitigadas por la regla ya
+vigente en todo el proyecto ("nunca solo color: nombre en texto siempre
+visible junto al swatch", mismo criterio que el hallazgo CVD Vivienda/
+Transporte de `dashboard-redesign-ux.md`). No son fallas nuevas que
+introduzca reusar este array para cuentas.
 
-### 4.3 Por qué hacen falta variantes light/dark (a diferencia de `COLOR_SWATCHES`)
+**El punto que sí importa para esta decisión es el contraste en modo
+oscuro**, porque fue el motivo concreto de `darkHex` en la versión anterior:
+la paleta jewel-tone retirada tenía **3 de sus 8 tonos originales por debajo
+de 3:1 de contraste** contra el fondo oscuro real, más uno fuera de banda de
+luminosidad (`#86198f`, ciruela). Contra ese mismo fondo, `COLOR_SWATCHES`
+deja solo **1 WARN** (`#a21caf`, 2.98 — a centésimas del piso, mismo tipo de
+WARN ya aceptado hoy en categorías). Es decir: el problema concreto que
+justificó `darkHex` **no reaparece** al reusar `COLOR_SWATCHES` — el perfil
+de contraste en modo oscuro resulta, si acaso, mejor que el de la paleta que
+se retira.
 
-`COLOR_SWATCHES` es un único array de hex, sin variante por tema — funciona
-porque, en la práctica, sus 10 tonos (escala 500 de Tailwind, ya bastante
-claros/saturados) se leen razonablemente bien tanto en fondo claro como en
-fondo oscuro cuando se usan como wash de 12% + borde. La paleta nueva de
-cuentas, al ser deliberadamente **más profunda** (jewel tone, no escala 500),
-no tiene esa suerte: probado el mismo set de 8 hex "modo claro" contra el
-fondo oscuro real de TipApp, **3 de los 8 caen por debajo de contraste 3:1**
-y uno queda fuera de la banda de luminosidad aceptable para modo oscuro
-(`#86198f`, ciruela, demasiado oscuro) — un problema real si esos colores se
-usan para el ícono/swatch sólido de una cuenta en dark mode, no un
-tecnicismo del validador.
+**Conclusión de diseño**: no se reintroduce ningún mecanismo de variante por
+tema para el picker de cuentas. `COLOR_SWATCHES` se pinta tal cual
+(`swatch.hex`) en los dos temas, igual que ya hacen `CategoryFormSheet.vue`,
+`CardFormSheet.vue` y `CardPersonFormSheet.vue`.
 
-**Decisión: cada swatch de cuenta tiene un hex "claro" (el que se guarda en
-la base) y un hex "oscuro" (solo de presentación, nunca se persiste), y el
-frontend elige cuál pintar según el tema activo.** Esto no es un patrón
-inventado de cero para esta feature: `src/lib/colors.ts` ya tiene
-`hexToHslTriple(hex, { minLightness })`, usado por el selector de color de
-acento (en curso en otra sesión, **no tocar esa lógica**) para el mismo
-problema — un color elegido en runtime necesita una variante más clara en
-modo oscuro para seguir siendo legible contra un fondo casi negro. La
-paleta de cuentas es un caso más simple (son 8 valores fijos de un grid, no
-un color libre), así que no hace falta repetir la conversión HSL en
-runtime — alcanza con una **tabla estática** `{ hex, darkHex, label }`.
+### 4.3 Impacto más allá del picker (nota para implementación)
 
-```ts
-// src/lib/colors.ts — nueva exportación, NO modifica ninguna función
-// existente (hexToRgb/withAlpha/readableTextColor/hexToHslTriple siguen
-// intactas; esta paleta es de cuentas, separada de COLOR_SWATCHES).
-export const ACCOUNT_COLOR_SWATCHES = [
-  { hex: '#b45309', darkHex: '#df670b', label: 'Dorado' },
-  { hex: '#1d4ed8', darkHex: '#426de6', label: 'Azul' },
-  { hex: '#be123c', darkHex: '#ea1f51', label: 'Granate' },
-  { hex: '#7e22ce', darkHex: '#9947e1', label: 'Violeta' },
-  { hex: '#86198f', darkHex: '#b321bf', label: 'Ciruela' },
-  { hex: '#0891b2', darkHex: '#099fc3', label: 'Cian' },
-  { hex: '#047857', darkHex: '#06a87a', label: 'Esmeralda' },
-  { hex: '#4d7c0f', darkHex: '#609b13', label: 'Oliva' },
-] as const
+`resolveAccountColor`/`ACCOUNT_COLOR_SWATCHES` no solo alimentaban el grid de
+"Editar cuenta": son el mecanismo que resuelve el color de cuenta en **toda**
+la app (íconos de cuenta, wash de fondo, texto de transacciones vinculadas a
+una cuenta). Al eliminarlos, hay que revisar todos los consumidores actuales
+de `resolveAccountColor`, no solo el formulario:
 
-/** Resuelve el hex a pintar según el tema activo. `hex` es siempre el valor
- * guardado en `accounts.color` (el "claro"); si no matchea ningún swatch
- * conocido (dato legado/manual), se devuelve tal cual sin intentar oscurecer
- * nada — mismo criterio defensivo que el resto de este archivo. */
-export function resolveAccountColor(hex: string, isDark: boolean): string {
-  if (!isDark) return hex
-  const swatch = ACCOUNT_COLOR_SWATCHES.find(s => s.hex === hex)
-  return swatch?.darkHex ?? hex
-}
-```
+`AccountFormSheet.vue`, `AccountsView.vue`, `AccountDetailView.vue`,
+`AccountTransfersView.vue`, `HomeView.vue`, `TransactionsView.vue`,
+`TransactionFormSheet.vue`, `MarkFixedExpensePaidSheet.vue`,
+`IronPackFormSheet.vue`.
 
-`isDark` se resuelve igual que ya lo hace el selector de acento:
-`document.documentElement.classList.contains('dark')` (`src/stores/auth.ts`
-línea ~130) — no se inventa una segunda forma de detectarlo.
+En cada uno, `resolveAccountColor(account.color ?? '#6b7280', isDarkNow)`
+pasa a ser simplemente `account.color ?? '#6b7280'` (o el color resuelto que
+corresponda), sin resolución por tema — mismo patrón que ya usan estas
+pantallas para `category.color` (uso directo del hex, sin función
+intermedia). El grid de swatches en `AccountFormSheet.vue` pasa de
+`ACCOUNT_COLOR_SWATCHES` (13 ítems, `background: resolveAccountColor(swatch.hex,
+isDarkNow)`) a `COLOR_SWATCHES` (16 ítems, `background: swatch.hex`),
+eliminando también la dependencia de `isDarkNow` en ese componente si no la
+usa para nada más.
 
-### 4.4 Trade-off evaluado: ¿ampliar `COLOR_SWATCHES` o paleta separada?
+**Dato legado**: cuentas existentes con un hex de la paleta jewel-tone
+retirada (que no matchea ningún `COLOR_SWATCHES.hex`) no preseleccionan
+ningún swatch al editar — mismo criterio defensivo que ya usa
+`CategoryFormSheet.vue` para colores custom/fuera de grid: el hex guardado
+se sigue pintando tal cual donde se use, y el usuario puede recolorear la
+cuenta eligiendo un swatch nuevo cuando quiera; no hace falta una migración
+de datos.
 
-**Decisión: paleta separada (`ACCOUNT_COLOR_SWATCHES`), no se toca
-`COLOR_SWATCHES`.** Motivos:
+### 4.4 (retirada) Paleta separada y `darkHex`
 
-1. **Fragmentar vs. diluir**: `COLOR_SWATCHES` ya tiene 3 consumidores en
-   producción (`CategoryFormSheet`, `CardFormSheet`, `CardPersonFormSheet`).
-   Agregar 8 tonos nuevos y más profundos a ese mismo array cambiaría —sin
-   que nadie lo haya pedido— el grid de color que ya ven esas 3 pantallas
-   (una mezcla de 10 tonos vívidos + 8 jewel-tone en un mismo grid se vería
-   incoherente, y algunos serían más difíciles de distinguir entre sí que
-   los 10 originales, ya validados informalmente por reuso). Es un cambio
-   visual no solicitado en pantallas ya shippeadas.
-2. **Necesitan variantes de tema distintas** (sección 4.3) — `COLOR_SWATCHES`
-   hoy es un array plano sin esa noción; agregarle `darkHex` a los 10
-   existentes es un cambio de forma de dato que ningún consumidor actual
-   pide ni necesita (sus 10 tonos ya funcionan razonablemente en ambos
-   temas, según el criterio original del design system).
-3. **Los tonos ya sirven para dominios distintos** (categoría, tarjeta,
-   persona) que **no necesitan** distinguirse entre sí — una tarjeta y una
-   categoría nunca se muestran una al lado de la otra compitiendo por
-   distinguibilidad. Una cuenta sí conviene que se vea visualmente distinta
-   de una tarjeta de crédito en el mismo dashboard (ambas son "de dónde sale
-   la plata") — tener un registro de color deliberadamente distinto (más
-   profundo) ayuda, no solo estéticamente sino como señal de "esto es una
-   cosa distinta a una tarjeta".
-
-Costo de esta decisión: un segundo array de swatches para mantener a futuro.
-Aceptable — es exactamente el mismo costo que ya se pagó al introducir
-`COLOR_SWATCHES` una vez, y evita el riesgo mayor (cambiar pantallas ya
-shippeadas sin pedido).
+La versión anterior de esta sección evaluaba mantener una paleta separada
+para (a) no alterar el grid de color de pantallas ya shippeadas
+(Categorías/Tarjetas/Personas) y (b) diferenciar visualmente "cuenta" de
+"tarjeta de crédito". Ambos argumentos quedan sin efecto frente al pedido
+actual, que es exactamente lo contrario: el Product Owner quiere que
+"Editar cuenta" y "Editar categoría" se vean **iguales**. No se modifica
+`COLOR_SWATCHES` ni sus consumidores existentes — "Editar cuenta" se suma
+como un cuarto consumidor que lo reusa tal cual.
 
 ---
 

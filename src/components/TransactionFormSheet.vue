@@ -12,7 +12,7 @@ import {
   X,
 } from '@lucide/vue'
 import { formatDateChip, formatTimeShort, isFutureDate, nowTimeInputValue, todayDateInputValue } from '@/lib/date'
-import { readableTextColor, resolveAccountColor } from '@/lib/colors'
+import { readableTextColor } from '@/lib/colors'
 import { formatAmount } from '@/lib/currency'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { useAccountsStore } from '@/stores/accounts'
@@ -89,8 +89,6 @@ const accountsStore = useAccountsStore()
 const isEditing = computed(() => !!props.transaction)
 const todayValue = computed(() => todayDateInputValue())
 
-const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
-
 const form = reactive({
   type: 'expense' as TransactionType,
   amount: '',
@@ -135,15 +133,13 @@ const selectedCategory = computed(() =>
   allCategories.value.find(c => c.id === form.categoryId),
 )
 const selectedAccountColor = computed(() => selectedAccount.value?.color ?? '#6b7280')
-// Color realmente pintado (respeta la variante `darkHex` en modo oscuro).
-const panelBg = computed(() => resolveAccountColor(selectedAccountColor.value, isDarkNow.value))
-// Contraste calculado contra el color PINTADO (no el hex claro guardado), para
-// que el texto siga legible también cuando el panel usa la variante oscura.
-const textColor = computed(() => readableTextColor(panelBg.value) ?? '#ffffff')
+// Contraste calculado contra el color de la cuenta, para que el texto del panel
+// siga legible sobre cualquier hex de la paleta.
+const textColor = computed(() => readableTextColor(selectedAccountColor.value) ?? '#ffffff')
 // Sección 14.4.2: si el texto resuelto es blanco, el panel es oscuro (define el
 // tono del fondo semitransparente de la píldora de fecha) — sin tocar colors.ts.
 const panelIsDark = computed(() => textColor.value === '#ffffff')
-const panelStyle = computed(() => ({ background: panelBg.value }))
+const panelStyle = computed(() => ({ background: selectedAccountColor.value }))
 
 // Sección 14.4.3: número gigante SOLO visual (aria-hidden). Parte entera
 // agrupada de a miles con `formatAmount`; parte decimal tal cual la tipeó el
@@ -601,7 +597,7 @@ function onSubmit() {
                     <component
                       :is="resolveAccountIcon(account.icon)"
                       class="size-4 shrink-0"
-                      :style="{ color: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                      :style="{ color: account.color ?? '#6b7280' }"
                     />
                     <span class="flex-1 truncate">{{ account.name }}</span>
                     <span class="text-xs text-muted-foreground">

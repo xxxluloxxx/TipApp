@@ -32,7 +32,7 @@ import {
 import { movementVerb } from '@/lib/debtDisplay'
 import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading, formatTimeShort } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { readableTextColor, resolveAccountColor } from '@/lib/colors'
+import { readableTextColor } from '@/lib/colors'
 import { normalizeSearchText } from '@/lib/text'
 import AppHeader from '@/components/AppHeader.vue'
 import TransactionFormSheet from '@/components/TransactionFormSheet.vue'
@@ -100,7 +100,6 @@ const accountTransfersStore = useAccountTransfersStore()
 const debtsStore = useDebtsStore()
 const debtPeopleStore = useDebtPeopleStore()
 
-const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const isInitialLoading = ref(true)
 // Sección 4: estado intermedio liviano al cambiar Mes/Cuenta (no repite el
@@ -469,10 +468,10 @@ function primaryBadgeText(item: TransactionItem): string {
 function primaryBadgeColor(item: TransactionItem): string | undefined {
   switch (item.kind) {
     case 'expense': return item.data.category.color ?? undefined
-    case 'income': return resolveAccountColor(item.data.account.color ?? '#6b7280', isDarkNow.value)
-    case 'transfer-out': return resolveAccountColor(accountColor(item.data.from_account_id), isDarkNow.value)
-    case 'transfer-in': return resolveAccountColor(accountColor(item.data.to_account_id), isDarkNow.value)
-    case 'debt-linked': return resolveAccountColor(accountColor(item.data.account_id!), isDarkNow.value)
+    case 'income': return item.data.account.color ?? '#6b7280'
+    case 'transfer-out': return accountColor(item.data.from_account_id)
+    case 'transfer-in': return accountColor(item.data.to_account_id)
+    case 'debt-linked': return accountColor(item.data.account_id!)
   }
 }
 function itemDeleteTitle(item: TransactionItem): string {
@@ -733,7 +732,7 @@ function goToDebt(debtId: string) {
                     <Badge v-if="item.kind === 'expense'" variant="outline" class="w-fit gap-1.5">
                       <span
                         class="size-2 shrink-0 rounded-full"
-                        :style="{ backgroundColor: resolveAccountColor(accountColor(item.data.account_id), isDarkNow) }"
+                        :style="{ backgroundColor: accountColor(item.data.account_id) }"
                       />
                       {{ accountName(item.data.account_id) }}
                     </Badge>

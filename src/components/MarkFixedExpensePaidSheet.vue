@@ -3,7 +3,6 @@ import { computed, reactive, ref, watch } from 'vue'
 import { Info, Loader2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { currentMonthLabel, isFutureDate, todayDateInputValue } from '@/lib/date'
-import { resolveAccountColor } from '@/lib/colors'
 import { useAccountsStore } from '@/stores/accounts'
 import { useExpensesStore } from '@/stores/expenses'
 import { useIncomesStore } from '@/stores/incomes'
@@ -61,7 +60,6 @@ const incomesStore = useIncomesStore()
 
 const todayValue = computed(() => todayDateInputValue())
 const monthLabel = computed(() => currentMonthLabel())
-const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const form = reactive({
   accountId: '',
@@ -235,7 +233,7 @@ async function onSubmit() {
               <SelectItem v-for="account in accountsStore.accounts" :key="account.id" :value="account.id">
                 <span
                   class="size-2.5 rounded-full"
-                  :style="{ background: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                  :style="{ background: account.color ?? '#6b7280' }"
                 />
                 {{ account.name }}
               </SelectItem>

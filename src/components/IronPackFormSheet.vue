@@ -4,7 +4,6 @@ import { Info, Loader2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { formatTimeShort, isFutureDate, nowTimeInputValue, todayDateInputValue } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { resolveAccountColor } from '@/lib/colors'
 import { useAccountsStore } from '@/stores/accounts'
 import { useExpensesStore } from '@/stores/expenses'
 import { useIncomesStore } from '@/stores/incomes'
@@ -71,7 +70,6 @@ const ironStore = useIronStore()
 const isEditing = computed(() => !!props.pack)
 const wasLinked = computed(() => !!props.pack?.linked_expense_id)
 const todayValue = computed(() => todayDateInputValue())
-const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const form = reactive({
   cost: '',
@@ -324,7 +322,7 @@ async function onConfirmDelete() {
                 <SelectItem v-for="account in accountsStore.accounts" :key="account.id" :value="account.id">
                   <span
                     class="size-2.5 rounded-full"
-                    :style="{ background: resolveAccountColor(account.color ?? '#6b7280', isDarkNow) }"
+                    :style="{ background: account.color ?? '#6b7280' }"
                   />
                   {{ account.name }}
                 </SelectItem>

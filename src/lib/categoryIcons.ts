@@ -10,7 +10,7 @@
  *
  * Se centraliza acá (en vez de una constante local en `CategoryFormSheet.vue`,
  * que la nota de la sección 3.2 dejaba a criterio del implementador) siguiendo
- * el mismo criterio que `COLOR_SWATCHES`/`ACCOUNT_COLOR_SWATCHES` en
+ * el mismo criterio que `COLOR_SWATCHES` en
  * `src/lib/colors.ts`: un set de opciones de UI vive en `src/lib` como fuente
  * única, listo para un segundo consumidor sin duplicar el literal.
  *

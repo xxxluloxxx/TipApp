@@ -23,7 +23,6 @@ import {
   startOfMonth,
 } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { resolveAccountColor } from '@/lib/colors'
 import AppHeader from '@/components/AppHeader.vue'
 import AccountTransferFormSheet from '@/components/AccountTransferFormSheet.vue'
 import { Button } from '@/components/ui/button'
@@ -57,8 +56,6 @@ const router = useRouter()
 const accountsStore = useAccountsStore()
 const categoriesStore = useCategoriesStore()
 const accountTransfersStore = useAccountTransfersStore()
-
-const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
@@ -150,7 +147,7 @@ function accountName(id: string): string {
   return accountsStore.accountById(id)?.name ?? 'Cuenta'
 }
 function accountColor(id: string): string {
-  return resolveAccountColor(accountsStore.accountById(id)?.color ?? '#6b7280', isDarkNow.value)
+  return accountsStore.accountById(id)?.color ?? '#6b7280'
 }
 
 // Estado del Sheet de alta/edición.

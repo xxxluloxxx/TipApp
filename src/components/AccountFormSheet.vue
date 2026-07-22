@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import { Check, Loader2 } from '@lucide/vue'
-import { ACCOUNT_COLOR_SWATCHES, readableTextColor, resolveAccountColor } from '@/lib/colors'
+import { COLOR_SWATCHES, readableTextColor } from '@/lib/colors'
 import { ACCOUNT_ICON_OPTIONS, DEFAULT_ACCOUNT_ICON, type AccountIconKey } from '@/lib/accountIcons'
 import { useAccountsStore, type Account } from '@/stores/accounts'
 import { Button } from '@/components/ui/button'
@@ -33,7 +33,6 @@ const emit = defineEmits<{
 const accountsStore = useAccountsStore()
 
 const isEditing = computed(() => !!props.account)
-const isDarkNow = computed(() => document.documentElement.classList.contains('dark'))
 
 const form = reactive({
   name: '',
@@ -56,10 +55,11 @@ function resetForm() {
 
   if (props.account) {
     form.name = props.account.name
-    // Sección 6.3: si el color guardado no coincide con ninguno de los 8
-    // swatches (dato legado), no se preselecciona ninguno — mismo criterio
-    // que `CategoryFormSheet`/`CardFormSheet`.
-    form.color = ACCOUNT_COLOR_SWATCHES.some(swatch => swatch.hex === props.account?.color)
+    // Sección 6.3: si el color guardado no coincide con ninguno de los
+    // swatches (dato legado — p. ej. un hex de la paleta vieja de cuentas), no
+    // se preselecciona ninguno — mismo criterio que `CategoryFormSheet`/
+    // `CardFormSheet`.
+    form.color = COLOR_SWATCHES.some(swatch => swatch.hex === props.account?.color)
       ? props.account.color
       : null
     form.icon = ACCOUNT_ICON_OPTIONS.some(item => item.key === props.account?.icon)
@@ -209,12 +209,12 @@ function onSubmit() {
           <Label id="color-cuenta-label">Color</Label>
           <div id="color-cuenta" role="group" aria-labelledby="color-cuenta-label" class="flex flex-wrap gap-3">
             <button
-              v-for="swatch in ACCOUNT_COLOR_SWATCHES"
+              v-for="swatch in COLOR_SWATCHES"
               :key="swatch.hex"
               type="button"
               class="relative flex size-11 shrink-0 items-center justify-center rounded-full outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               :class="{ 'ring-2 ring-offset-2 ring-ring': form.color === swatch.hex }"
-              :style="{ background: resolveAccountColor(swatch.hex, isDarkNow) }"
+              :style="{ background: swatch.hex }"
               :aria-pressed="form.color === swatch.hex"
               :aria-label="swatch.label"
               :disabled="isSaving"
@@ -223,7 +223,7 @@ function onSubmit() {
               <Check
                 v-if="form.color === swatch.hex"
                 class="size-5"
-                :style="{ color: readableTextColor(resolveAccountColor(swatch.hex, isDarkNow)) }"
+                :style="{ color: readableTextColor(swatch.hex) }"
               />
             </button>
           </div>
@@ -249,7 +249,7 @@ function onSubmit() {
               <component
                 :is="item.component"
                 class="size-5"
-                :style="{ color: form.color ? resolveAccountColor(form.color, isDarkNow) : undefined }"
+                :style="{ color: form.color ?? undefined }"
               />
             </button>
           </div>
