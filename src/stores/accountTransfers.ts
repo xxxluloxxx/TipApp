@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 import { supabase } from '@/lib/supabase'
 import { useAccountsStore } from '@/stores/accounts'
 import { useExpensesStore } from '@/stores/expenses'
+import type { DateAccountFilter } from '@/stores/expenses'
 import type { Tables } from '@/types/database.types'
 
 export type AccountTransfer = Tables<'account_transfers'>
@@ -122,6 +123,36 @@ export const useAccountTransfersStore = defineStore('accountTransfers', () => {
     return sortTransfersDesc((data ?? []) as AccountTransfer[])
   }
 
+  /** Fetch acotado por Mes/Cuenta para `/transacciones`
+   * (transactions-filters-ux.md sección 3.1), mismo patrón que
+   * `expensesStore.fetchFiltered` pero sobre `transfer_date`. Diferencia
+   * puntual: el filtro de cuenta usa `.or(from/to)` en vez de `.eq()` — una
+   * transferencia no tiene una única cuenta, participa por cualquiera de sus
+   * dos lados (mismo criterio que `fetchRecentForAccount`). Método NUEVO, no
+   * toca la lista maestra `transfers` (que sigue sirviendo a `HomeView`).
+   * Devuelve `null` si falló. */
+  async function fetchFiltered(filter: DateAccountFilter, limit = MAX_TRANSFERS): Promise<AccountTransfer[] | null> {
+    let query = supabase
+      .from('account_transfers')
+      .select('*')
+      .order('transfer_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (filter.from) query = query.gte('transfer_date', filter.from)
+    if (filter.to) query = query.lt('transfer_date', filter.to)
+    if (filter.accountId) {
+      query = query.or(`from_account_id.eq.${filter.accountId},to_account_id.eq.${filter.accountId}`)
+    }
+
+    const { data, error } = await query
+    if (error) {
+      console.error('[accountTransfers] No se pudieron cargar las transferencias filtradas', error)
+      return null
+    }
+    return sortTransfersDesc((data ?? []) as AccountTransfer[])
+  }
+
   /**
    * Refresca los caches derivados tras una mutación confirmada: la propia
    * lista de transferencias, los saldos de cuenta (`account_balances`, ya
@@ -220,6 +251,7 @@ export const useAccountTransfersStore = defineStore('accountTransfers', () => {
     transferById,
     fetchAll,
     fetchRecentForAccount,
+    fetchFiltered,
     createTransfer,
     updateTransfer,
     deleteTransfer,

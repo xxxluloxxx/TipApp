@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
+import type { Ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { formatAmount } from '@/lib/currency'
 import { supabase } from '@/lib/supabase'
@@ -16,6 +17,18 @@ export type ExpenseWithCategory = Tables<'expenses'> & {
   /** Marca local "insertado/editado optimistamente, esperando confirmación
    * del servidor" (sección 3.8). No existe como columna real. */
   _pending?: boolean
+}
+
+/** Filtro server-side de Mes + Cuenta para `/transacciones`
+ * (transactions-filters-ux.md sección 3.1). Los 3 campos son opcionales: sin
+ * ninguno, `fetchFiltered` equivale exactamente al fetch global de `fetchAll`.
+ * Compartido por `incomes.ts`/`accountTransfers.ts`/`debts.ts`. */
+export interface DateAccountFilter {
+  /** 'YYYY-MM-DD', inclusive. */
+  from?: string
+  /** 'YYYY-MM-DD', exclusive. */
+  to?: string
+  accountId?: string
 }
 
 export interface ExpensePayload {
@@ -107,6 +120,33 @@ export const useExpensesStore = defineStore('expenses', () => {
     return (data ?? []) as unknown as ExpenseWithCategory[]
   }
 
+  /** Fetch acotado por Mes/Cuenta para el listado filtrable de
+   * `/transacciones` (transactions-filters-ux.md sección 3.1). Método NUEVO,
+   * independiente de `fetchAll` (que sigue sirviendo a `HomeView`): NO toca la
+   * lista maestra `expenses` — devuelve su propio resultado para un `ref` local
+   * de la vista, mismo criterio que `fetchRecentForAccount`. Con `filter`
+   * vacío se comporta igual que `fetchAll` (mismo `MAX_EXPENSES`, mismo orden).
+   * Devuelve `null` si falló (el caller decide cómo mostrarlo). */
+  async function fetchFiltered(filter: DateAccountFilter, limit = MAX_EXPENSES): Promise<ExpenseWithCategory[] | null> {
+    let query = supabase
+      .from('expenses')
+      .select('*, category:categories(*)')
+      .order('expense_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (filter.from) query = query.gte('expense_date', filter.from)
+    if (filter.to) query = query.lt('expense_date', filter.to)
+    if (filter.accountId) query = query.eq('account_id', filter.accountId)
+
+    const { data, error: fetchError } = await query
+    if (fetchError) {
+      console.error('[expenses] No se pudieron cargar los movimientos filtrados', fetchError)
+      return null
+    }
+    return (data ?? []) as unknown as ExpenseWithCategory[]
+  }
+
   function replaceById(id: string, next: ExpenseWithCategory) {
     const idx = expenses.value.findIndex(expense => expense.id === id)
     if (idx === -1) return
@@ -115,11 +155,28 @@ export const useExpensesStore = defineStore('expenses', () => {
     expenses.value = sortExpenses(nextList)
   }
 
+  /** transactions-filters-ux.md sección 3.5: además de la lista maestra
+   * `expenses`, las mutaciones optimistas sincronizan `ref`s locales que la
+   * vista pasa como `targets` (mismo mecanismo que `cardExpensesStore`).
+   * `HomeView`/`AccountDetailView` no pasan ninguno (`targets = []`) y siguen
+   * mutando solo la lista maestra, sin cambios. `TransactionsView` pasa su
+   * `ref` filtrado local para que el alta/edición/borrado se reflejen ahí (esa
+   * vista ya no lee la lista maestra). */
+  function replaceInTargets(targets: Ref<ExpenseWithCategory[]>[], id: string, next: ExpenseWithCategory) {
+    for (const target of targets) {
+      const idx = target.value.findIndex(expense => expense.id === id)
+      if (idx === -1) continue
+      const list = [...target.value]
+      list.splice(idx, 1, next)
+      target.value = sortExpenses(list)
+    }
+  }
+
   /** Alta optimista (sección 3.8). No es async a propósito: la mutación
    * local es síncrona, así el Sheet puede cerrarse inmediatamente después
    * de llamarla; la confirmación/rollback contra Supabase sigue en segundo
    * plano y se resuelve vía toast. */
-  function addExpense(payload: ExpensePayload): void {
+  function addExpense(payload: ExpensePayload, targets: Ref<ExpenseWithCategory[]>[] = []): void {
     const categoriesStore = useCategoriesStore()
     const accountsStore = useAccountsStore()
     const category = categoriesStore.categoryById(payload.categoryId)
@@ -150,6 +207,7 @@ export const useExpensesStore = defineStore('expenses', () => {
     }
 
     expenses.value = sortExpenses([optimistic, ...expenses.value])
+    for (const target of targets) target.value = sortExpenses([optimistic, ...target.value])
     // Sección 1 de accounts-income-ux.md: un gasto reduce el saldo de su
     // cuenta. El saldo real sigue viniendo de `account_balances`; esto solo
     // ajusta el número ya cargado para que "Mis cuentas" se sienta "vivo".
@@ -171,6 +229,7 @@ export const useExpensesStore = defineStore('expenses', () => {
 
       if (insertError || !data) {
         expenses.value = expenses.value.filter(expense => expense.id !== tempId)
+        for (const target of targets) target.value = target.value.filter(expense => expense.id !== tempId)
         accountsStore.adjustBalance(payload.accountId, payload.amount)
         toast.error('No se pudo guardar el gasto', {
           description: 'Revisá tu conexión e intentá de nuevo.',
@@ -178,6 +237,7 @@ export const useExpensesStore = defineStore('expenses', () => {
             label: 'Reintentar',
             onClick: () => {
               expenses.value = sortExpenses([optimistic, ...expenses.value])
+              for (const target of targets) target.value = sortExpenses([optimistic, ...target.value])
               accountsStore.adjustBalance(payload.accountId, -payload.amount)
               void persist()
             },
@@ -187,6 +247,7 @@ export const useExpensesStore = defineStore('expenses', () => {
       }
 
       replaceById(tempId, data as unknown as ExpenseWithCategory)
+      replaceInTargets(targets, tempId, data as unknown as ExpenseWithCategory)
       toast.success('Gasto agregado', {
         description: `$${formatAmount(payload.amount)} en ${category.name}`,
       })
@@ -197,10 +258,11 @@ export const useExpensesStore = defineStore('expenses', () => {
 
   /** Edición optimista (sección 3.9): mismo patrón que `addExpense`, con
    * rollback al valor previo si falla el `update()`. */
-  function updateExpense(id: string, payload: ExpensePayload): void {
+  function updateExpense(id: string, payload: ExpensePayload, targets: Ref<ExpenseWithCategory[]>[] = []): void {
     const categoriesStore = useCategoriesStore()
     const accountsStore = useAccountsStore()
     const previous = expenses.value.find(expense => expense.id === id)
+      ?? targets.map(t => t.value.find(expense => expense.id === id)).find(Boolean)
     const category = categoriesStore.categoryById(payload.categoryId)
     if (!previous || !category) return
 
@@ -216,6 +278,7 @@ export const useExpensesStore = defineStore('expenses', () => {
     }
 
     replaceById(id, optimistic)
+    replaceInTargets(targets, id, optimistic)
     // Revierte el impacto del monto/cuenta anteriores y aplica el nuevo
     // (posiblemente una cuenta distinta), mismo criterio que
     // `incomesStore.updateIncome`.
@@ -238,6 +301,7 @@ export const useExpensesStore = defineStore('expenses', () => {
 
       if (updateError || !data) {
         replaceById(id, previous)
+        replaceInTargets(targets, id, previous)
         accountsStore.adjustBalance(payload.accountId, payload.amount)
         accountsStore.adjustBalance(previous.account_id, -previous.amount)
         toast.error('No se pudieron guardar los cambios', {
@@ -246,6 +310,7 @@ export const useExpensesStore = defineStore('expenses', () => {
             label: 'Reintentar',
             onClick: () => {
               replaceById(id, optimistic)
+              replaceInTargets(targets, id, optimistic)
               void persist()
             },
           },
@@ -254,6 +319,7 @@ export const useExpensesStore = defineStore('expenses', () => {
       }
 
       replaceById(id, data as unknown as ExpenseWithCategory)
+      replaceInTargets(targets, id, data as unknown as ExpenseWithCategory)
       toast.success('Cambios guardados')
     }
 
@@ -263,12 +329,14 @@ export const useExpensesStore = defineStore('expenses', () => {
   /** Eliminación optimista (referenciada en sección 3.9 como ya resuelta
    * por el design system: AlertDialog de confirmación + remover de la
    * lista local, con rollback si falla). */
-  function deleteExpense(id: string): void {
+  function deleteExpense(id: string, targets: Ref<ExpenseWithCategory[]>[] = []): void {
     const accountsStore = useAccountsStore()
     const removed = expenses.value.find(expense => expense.id === id)
+      ?? targets.map(t => t.value.find(expense => expense.id === id)).find(Boolean)
     if (!removed) return
 
     expenses.value = expenses.value.filter(expense => expense.id !== id)
+    for (const target of targets) target.value = target.value.filter(expense => expense.id !== id)
     accountsStore.adjustBalance(removed.account_id, removed.amount)
 
     const persist = async (): Promise<void> => {
@@ -276,6 +344,7 @@ export const useExpensesStore = defineStore('expenses', () => {
 
       if (deleteError) {
         expenses.value = sortExpenses([...expenses.value, removed])
+        for (const target of targets) target.value = sortExpenses([...target.value, removed])
         accountsStore.adjustBalance(removed.account_id, -removed.amount)
         toast.error('No se pudo eliminar el gasto', {
           description: 'Revisá tu conexión e intentá de nuevo.',
@@ -283,6 +352,7 @@ export const useExpensesStore = defineStore('expenses', () => {
             label: 'Reintentar',
             onClick: () => {
               expenses.value = expenses.value.filter(expense => expense.id !== id)
+              for (const target of targets) target.value = target.value.filter(expense => expense.id !== id)
               accountsStore.adjustBalance(removed.account_id, removed.amount)
               void persist()
             },
@@ -304,6 +374,7 @@ export const useExpensesStore = defineStore('expenses', () => {
     error,
     fetchAll,
     fetchRecentForAccount,
+    fetchFiltered,
     addExpense,
     updateExpense,
     deleteExpense,

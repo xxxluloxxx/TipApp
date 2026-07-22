@@ -6,6 +6,7 @@ import { supabase } from '@/lib/supabase'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
+import type { DateAccountFilter } from '@/stores/expenses'
 import type { Tables } from '@/types/database.types'
 
 export type Debt = Tables<'debts'>
@@ -322,6 +323,35 @@ export const useDebtsStore = defineStore('debts', () => {
       return null
     }
 
+    return (data ?? []) as unknown as DebtMovementWithDebt[]
+  }
+
+  /** Fetch acotado por Mes/Cuenta para el ítem sintético `debt-linked` del
+   * listado filtrable de `/transacciones` (transactions-filters-ux.md sección
+   * 3.1), mismo patrón que `expensesStore.fetchFiltered` pero sobre
+   * `movement_date`. Diferencia puntual: `.not('account_id', 'is', null)`
+   * SIEMPRE presente (es la definición de "movimiento con cuenta vinculada"
+   * que ya usa `fetchAccountLinkedMovements`, no algo que este filtro decida),
+   * más `.eq('account_id', ...)` opcional encima si viene `filter.accountId`.
+   * Método NUEVO, no toca ningún `ref` del store. Devuelve `null` si falló. */
+  async function fetchFiltered(filter: DateAccountFilter, limit = ACCOUNT_LINKED_MOVEMENTS_LIMIT): Promise<DebtMovementWithDebt[] | null> {
+    let query = supabase
+      .from('debt_movements')
+      .select(MOVEMENT_SELECT)
+      .not('account_id', 'is', null)
+      .order('movement_date', { ascending: false })
+      .order('created_at', { ascending: false })
+      .limit(limit)
+
+    if (filter.from) query = query.gte('movement_date', filter.from)
+    if (filter.to) query = query.lt('movement_date', filter.to)
+    if (filter.accountId) query = query.eq('account_id', filter.accountId)
+
+    const { data, error: fetchError } = await query
+    if (fetchError) {
+      console.error('[debts] No se pudieron cargar los movimientos con cuenta filtrados', fetchError)
+      return null
+    }
     return (data ?? []) as unknown as DebtMovementWithDebt[]
   }
 
@@ -701,6 +731,7 @@ export const useDebtsStore = defineStore('debts', () => {
     fetchMovementsInRange,
     fetchAccountLinkedMovements,
     fetchRecentForAccount,
+    fetchFiltered,
     createDebt,
     updateDebt,
     deleteDebt,

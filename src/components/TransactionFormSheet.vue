@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import type { Ref } from 'vue'
 import {
   ChevronDown,
   CircleArrowDown,
@@ -65,6 +66,13 @@ const props = defineProps<{
    * Cuenta — el usuario puede seguir cambiándola. Retrocompatible: los
    * call-sites que no la pasan siguen cayendo a `defaultAccountId()`. */
   presetAccountId?: string | null
+  /** transactions-filters-ux.md sección 3.5: `ref`s locales a sincronizar de
+   * forma optimista, además de la lista maestra del store (mismo mecanismo que
+   * `CardExpenseFormSheet`). Usados solo por `TransactionsView`, que trae su
+   * propio dato acotado por filtros y ya no lee la lista maestra. Los demás
+   * call-sites (`HomeView`/`AccountDetailView`) no los pasan y siguen igual. */
+  expenseSyncTargets?: Ref<ExpenseWithCategory[]>[]
+  incomeSyncTargets?: Ref<IncomeWithAccount[]>[]
 }>()
 
 const emit = defineEmits<{
@@ -368,10 +376,11 @@ function onSubmit() {
         description,
         expenseDate: form.date,
       }
+      const expenseTargets = props.expenseSyncTargets ?? []
       if (props.transaction?.kind === 'expense') {
-        expensesStore.updateExpense(props.transaction.expense.id, payload)
+        expensesStore.updateExpense(props.transaction.expense.id, payload, expenseTargets)
       } else {
-        expensesStore.addExpense(payload)
+        expensesStore.addExpense(payload, expenseTargets)
       }
     } else {
       const payload = {
@@ -380,10 +389,11 @@ function onSubmit() {
         description,
         incomeDate: form.date,
       }
+      const incomeTargets = props.incomeSyncTargets ?? []
       if (props.transaction?.kind === 'income') {
-        incomesStore.updateIncome(props.transaction.income.id, payload)
+        incomesStore.updateIncome(props.transaction.income.id, payload, incomeTargets)
       } else {
-        incomesStore.addIncome(payload)
+        incomesStore.addIncome(payload, incomeTargets)
       }
     }
 
