@@ -10,6 +10,12 @@ import type { ExpenseWithCategory } from '@/stores/expenses'
 export interface TrendPoint {
   date: string
   amount: number
+  /** iron-ux.md sección 6.4: etiqueta de eje X ya formateada para este punto
+   * (día del mes / "Sem D/M" / "Ene"). Opcional y retrocompatible — los
+   * builders de Inicio/Estadísticas no la setean y `TrendAreaChart` cae a
+   * parsear `date` cuando falta. Misma convención de campo `label` que
+   * `DualTrendPoint`, no se inventa una nueva. */
+  label?: string
 }
 
 export interface CategoryTotal {
@@ -173,7 +179,7 @@ export interface DualTrendPoint {
   borrowed: number
 }
 
-const MONTHS_ES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
+export const MONTHS_ES_SHORT = ['Ene', 'Feb', 'Mar', 'Abr', 'May', 'Jun', 'Jul', 'Ago', 'Sep', 'Oct', 'Nov', 'Dic']
 
 /** Forma mínima que necesita `buildDebtBalanceEvolution` de un `debt_balances`
  * — desacoplado del tipo real del store (este archivo no depende de stores,

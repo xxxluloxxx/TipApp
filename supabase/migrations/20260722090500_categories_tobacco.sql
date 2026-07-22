@@ -1,0 +1,78 @@
+-- =============================================================================
+-- categories_tobacco
+-- -----------------------------------------------------------------------------
+-- Categoría default nueva "Tabaco" (user_id NULL, mismo patrón exacto que
+-- las 10 default sembradas en 20260716142006_categories_init.sql y las 2
+-- agregadas después -- "Comisiones bancarias"/20260720090900,
+-- "Ajuste de saldo"/20260720100000), para que el vínculo opcional opt-in de
+-- Iron (create_iron_pack_linked/update_iron_pack, ver
+-- 20260722090600_iron_pack_link_functions.sql) tenga dónde imputar el
+-- expense real que genera cuando el usuario activa "Vincular a mis
+-- finanzas" (docs/features/iron-ux.md sección 2.3-2.4). Resuelta por
+-- nombre dentro de esas funciones (`where user_id is null and lower(name) =
+-- lower('Tabaco')`), NUNCA por un id hardcodeado en el cliente -- mismo
+-- criterio exacto que "Comisiones bancarias"/"Ajuste de saldo".
+--
+-- icon: '🚬' -- emoji literal de texto plano, mismo contrato que el resto de
+-- categories.icon (CategoriesView.vue: `<span>{{ category.icon }}</span>`,
+-- sin mapeo a componente lucide).
+--
+-- color: el doc de UX (iron-ux.md sección 2.3) sugirió '#78716c' (stone-500,
+-- "gris cálido apagado", deliberadamente neutro en vez de un tono vivo) y
+-- pidió explícitamente correr `node scripts/validate_palette.js` (skill de
+-- dataviz) contra la paleta ya sembrada antes de fijar el hex final. Se
+-- corrió contra los 12 hex ya sembrados (10 default + '#6366f1' de
+-- "Comisiones bancarias" + '#a3520a' de "Ajuste de saldo"), en light
+-- (surface '#fcfcfb') y dark (surface '#1a1a19'):
+--
+--   '#78716c' FALLA -- introduce un conflicto NUEVO que no existía antes:
+--   [FAIL] Chroma floor (0.012, muy por debajo del piso 0.10 -- lee como
+--   gris puro) Y, más grave, [FAIL] Normal-vision floor específicamente
+--   contra '#6b7280' ("Otros"): ΔE 3.4, muy por debajo del piso de 15 -- un
+--   lector con visión de color COMPLETA no puede distinguir "Tabaco" de
+--   "Otros". Es exactamente el mismo problema que ya obligó a cambiar el
+--   color original de "Comisiones bancarias" (20260720091500): dos grises
+--   apagados uno al lado del otro no se diferencian entre sí, sin importar
+--   cuán "apagado" se quiera que luzca la categoría a propósito.
+--
+--   Se probaron ~20 candidatos adicionales en la misma familia "apagada/
+--   cálida" (stone/marrón/oliva oscuro de baja saturación: '#57534e',
+--   '#44403c', '#78350f', '#8a5a44', '#6d4c41', '#7c5e48', '#5b4636',
+--   '#8c6d5c', '#6e5849', '#7a6a58', variantes muy desaturadas de oliva/
+--   khaki) -- TODOS caen por debajo del piso de croma (0.10 en OKLCH C) por
+--   la misma razón que '#78716c': "apagado" en el sentido que pedía el doc
+--   (baja saturación) es, computacionalmente, indistinguible de "gris" para
+--   el validador, y ya hay DOS grises sembrados ('#6b7280' de "Otros" y, en
+--   menor medida, el propio piso de croma que "Otros" ya bordea) -- sumar
+--   un tercero no es viable sin volver a fallar el mismo check.
+--
+--   Se optó por relajar "apagado" a "oscuro y de baja luminosidad" en vez de
+--   "desaturado", manteniendo el espíritu de "no celebrar visualmente esta
+--   categoría" (docs/features/iron-ux.md sección 2.3: no es Comida/Ocio) sin
+--   caer en el piso de croma. Candidato final: '#6f8226' (oliva/musgo
+--   oscuro, H≈120° en OKLCH -- hueco vacío entre "Servicios" amarillo
+--   (H≈86°) y "Ahorro e inversión" verde (H≈150°), L=0.573, C=0.118, ambos
+--   dentro de banda/piso). Verificado contra los 12 hex existentes + este,
+--   en AMBOS modos (light surface '#fcfcfb', dark surface '#1a1a19'): el
+--   set de FAIL/WARN reportado es EXACTAMENTE el mismo que el baseline sin
+--   "Tabaco" (Vivienda/Transporte CVD adyacente, Ahorro/Ropa normal-vision
+--   floor adyacente, "Otros" bajo el piso de croma, 'eab308' fuera de banda
+--   de luminosidad, WARN de contraste ya documentados) -- '#6f8226' no
+--   aparece en ningún FAIL/WARN nuevo, en ningún check, en ningún modo.
+--   No introduce ningún conflicto nuevo.
+--
+--   Nota: '#6f8226' no coincide con ningún hex ya usado en
+--   ACCOUNT_COLOR_SWATCHES/ACCOUNT_COLOR_SWATCHES_DARK (src/lib/colors.ts,
+--   que sí tiene una "Oliva" propia: '#4d7c0f'/'#84cc16' lima) -- dominio
+--   distinto (categories.color vs. accounts.color, paletas ya separadas a
+--   propósito, ver comment de 20260720100000_categories_balance_adjustment),
+--   pero se evita duplicar el hex exacto para no generar una asociación
+--   visual falsa entre una cuenta y esta categoría, mismo criterio ya
+--   aplicado en esa migración.
+--
+-- No se hace `update` de main.css/tokens ni de ninguna otra fila existente:
+-- esta migración solo inserta la fila nueva de "Tabaco".
+-- =============================================================================
+
+insert into public.categories (name, icon, color)
+values ('Tabaco', '🚬', '#6f8226');

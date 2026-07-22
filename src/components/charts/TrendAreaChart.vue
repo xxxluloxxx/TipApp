@@ -8,6 +8,11 @@ import { formatAmount } from '@/lib/currency'
 export interface TrendPoint {
   date: string
   amount: number
+  /** iron-ux.md sección 6.4: etiqueta de eje X ya formateada para este punto
+   * (semanas/meses, donde parsear `date` como día del mes no sirve). Opcional
+   * y retrocompatible: si falta, se cae al comportamiento actual de derivar la
+   * etiqueta del día de `date`. */
+  label?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -17,6 +22,10 @@ const props = withDefaults(defineProps<{
   ariaLabel: string
   /** Línea base + 3 etiquetas de eje X (variante de Estadísticas, sección 4.2). */
   showAxis?: boolean
+  /** iron-ux.md sección 6.4: formatea el techo del eje Y. Default (dinero):
+   * `"Hasta $X"`. Iron pasa una variante de cantidad ("Hasta 14 cigarrillos")
+   * para el gráfico de consumo; el de gasto no la pasa (usa el `$` default). */
+  maxLabelFormatter?: (max: number) => string
 }>(), {
   height: 64,
   showAxis: false,
@@ -105,12 +114,16 @@ const axisLabels = computed(() => {
   const lastIdx = props.points.length - 1
   const midIdx = Math.floor(lastIdx / 2)
   const indices = [...new Set([0, midIdx, lastIdx])]
-  return indices.map(idx => ({ key: idx, label: formatAxisLabel(props.points[idx]!.date) }))
+  return indices.map(idx => ({ key: idx, label: axisLabelFor(props.points[idx]!) }))
 })
 
-function formatAxisLabel(dateStr: string): string {
-  const day = dateStr.split('-')[2]
-  return day ? String(Number(day)) : dateStr
+// iron-ux.md sección 6.4: si el punto trae una `label` pre-formateada
+// (semanas/meses de Iron), se usa tal cual; si no, se deriva del día de `date`
+// (comportamiento original de Inicio/Estadísticas, siempre días de un mes).
+function axisLabelFor(point: TrendPoint): string {
+  if (point.label !== undefined) return point.label
+  const day = point.date.split('-')[2]
+  return day ? String(Number(day)) : point.date
 }
 
 // Pedido del usuario: ninguna de las gráficas de la app indicaba en el
@@ -125,7 +138,11 @@ function formatAxisLabel(dateStr: string): string {
 // ya lo comunica la línea base existente. La variante compacta de Inicio
 // (`showAxis` en `false`) no lo necesita: ya tiene el monto gigante del hero
 // justo arriba.
-const maxAmountLabel = computed(() => `Hasta $${formatAmount(maxAmount.value)}`)
+const maxAmountLabel = computed(() =>
+  props.maxLabelFormatter
+    ? props.maxLabelFormatter(maxAmount.value)
+    : `Hasta $${formatAmount(maxAmount.value)}`,
+)
 </script>
 
 <template>

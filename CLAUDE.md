@@ -92,6 +92,7 @@ Todo elegido para permanecer dentro de los planes gratuitos.
 | Gastos fijos | `/gastos-fijos` | `fixed-expenses-ux.md` |
 | Préstamos (en cuotas) | `/prestamos`, `/prestamos/:id` | `loans-ux.md` |
 | Partidos en vivo + cupones | `/partidos`, `/partidos/:id` | `live-matches-ux.md`, `live-coupons-ux.md` |
+| Iron (consumo de tabaco) | `/iron`, `/iron/historial`, `/iron/tendencias` | `iron-ux.md` |
 
 Otros docs: `nav-drawer-ux.md`, `icon-color-chip-ux.md`, `design-system.md`.
 

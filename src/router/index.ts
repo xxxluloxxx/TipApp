@@ -158,6 +158,27 @@ const router = createRouter({
       component: () => import('@/views/MatchDetailView.vue'),
       meta: { requiresAuth: true },
     },
+    // Sección 3.1 de iron-ux.md: panorama + historial + tendencias. Los tres
+    // segmentos son literales (sin `:id` dinámico bajo `/iron`), no requiere
+    // orden especial.
+    {
+      path: '/iron',
+      name: 'iron',
+      component: () => import('@/views/IronDashboardView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/iron/historial',
+      name: 'iron-history',
+      component: () => import('@/views/IronHistoryView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/iron/tendencias',
+      name: 'iron-trends',
+      component: () => import('@/views/IronTrendsView.vue'),
+      meta: { requiresAuth: true },
+    },
     {
       path: '/estadisticas',
       name: 'statistics',

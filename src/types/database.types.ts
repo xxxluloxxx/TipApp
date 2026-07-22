@@ -836,6 +836,98 @@ export type Database = {
           },
         ]
       }
+      iron_cigarettes: {
+        Row: {
+          closes_cigarette_id: string | null
+          created_at: string
+          id: string
+          kind: string
+          smoked_date: string
+          smoked_time: string
+          status: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          closes_cigarette_id?: string | null
+          created_at?: string
+          id?: string
+          kind: string
+          smoked_date: string
+          smoked_time: string
+          status: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          closes_cigarette_id?: string | null
+          created_at?: string
+          id?: string
+          kind?: string
+          smoked_date?: string
+          smoked_time?: string
+          status?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "iron_cigarettes_closes_cigarette_id_fkey"
+            columns: ["closes_cigarette_id"]
+            isOneToOne: false
+            referencedRelation: "iron_cigarettes"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "iron_cigarettes_closes_cigarette_id_fkey"
+            columns: ["closes_cigarette_id"]
+            isOneToOne: false
+            referencedRelation: "iron_current_status"
+            referencedColumns: ["pending_id"]
+          },
+        ]
+      }
+      iron_packs: {
+        Row: {
+          cost: number
+          created_at: string
+          id: string
+          linked_expense_id: string | null
+          purchased_date: string
+          purchased_time: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          cost: number
+          created_at?: string
+          id?: string
+          linked_expense_id?: string | null
+          purchased_date: string
+          purchased_time: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          cost?: number
+          created_at?: string
+          id?: string
+          linked_expense_id?: string | null
+          purchased_date?: string
+          purchased_time?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "iron_packs_linked_expense_id_fkey"
+            columns: ["linked_expense_id"]
+            isOneToOne: false
+            referencedRelation: "expenses"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       live_matches: {
         Row: {
           away_team: string | null
@@ -1344,6 +1436,27 @@ export type Database = {
         }
         Relationships: []
       }
+      iron_current_status: {
+        Row: {
+          pending_id: string | null
+          pending_since_date: string | null
+          pending_since_time: string | null
+          user_id: string | null
+        }
+        Insert: {
+          pending_id?: string | null
+          pending_since_date?: string | null
+          pending_since_time?: string | null
+          user_id?: string | null
+        }
+        Update: {
+          pending_id?: string | null
+          pending_since_date?: string | null
+          pending_since_time?: string | null
+          user_id?: string | null
+        }
+        Relationships: []
+      }
       loan_debtor_balances: {
         Row: {
           amount_owed: number | null
@@ -1435,9 +1548,18 @@ export type Database = {
         }
         Returns: string
       }
+      _iron_pack_tobacco_category_id: { Args: never; Returns: string }
       category_is_accessible: {
         Args: { p_category_id: string; p_user_id: string }
         Returns: boolean
+      }
+      close_pending_half: {
+        Args: {
+          p_cigarette_id: string
+          p_smoked_date?: string
+          p_smoked_time?: string
+        }
+        Returns: string
       }
       create_account_transfer: {
         Args: {
@@ -1462,6 +1584,15 @@ export type Database = {
           p_direction: string
           p_movement_date?: string
           p_person_id: string
+        }
+        Returns: string
+      }
+      create_iron_pack_linked: {
+        Args: {
+          p_account_id: string
+          p_cost: number
+          p_purchased_date: string
+          p_purchased_time: string
         }
         Returns: string
       }
@@ -1510,9 +1641,36 @@ export type Database = {
         Args: { p_transfer_id: string }
         Returns: undefined
       }
+      delete_iron_pack: { Args: { p_pack_id: string }; Returns: undefined }
+      discard_pending_half: {
+        Args: { p_cigarette_id: string }
+        Returns: undefined
+      }
       ensure_current_fixed_expense_instances: {
         Args: never
         Returns: undefined
+      }
+      iron_cigarette_totals: {
+        Args: {
+          p_granularity: string
+          p_window_end: string
+          p_window_start: string
+        }
+        Returns: {
+          cigarette_count: number
+          period_start: string
+        }[]
+      }
+      iron_pack_totals: {
+        Args: {
+          p_granularity: string
+          p_window_end: string
+          p_window_start: string
+        }
+        Returns: {
+          money_spent: number
+          period_start: string
+        }[]
       }
       pay_fixed_expense_instance: {
         Args: {
@@ -1533,6 +1691,17 @@ export type Database = {
           p_to_account_id: string
           p_transfer_date: string
           p_transfer_id: string
+        }
+        Returns: string
+      }
+      update_iron_pack: {
+        Args: {
+          p_account_id?: string
+          p_cost: number
+          p_link: boolean
+          p_pack_id: string
+          p_purchased_date: string
+          p_purchased_time: string
         }
         Returns: string
       }
