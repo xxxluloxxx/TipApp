@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { AlertCircle, ArrowDown, ArrowUp, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
+import { AlertCircle, ArrowDown, ArrowUp, CalendarSync, ChevronRight, CreditCard as CreditCardIcon, Plus, RotateCcw, Settings, User } from '@lucide/vue'
 import { currentMonthLabel, formatDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, withAlpha } from '@/lib/colors'
@@ -24,8 +24,8 @@ import {
 } from '@/components/ui/select'
 
 // Resumen/Dashboard de tarjetas (credit-cards-ux.md sección 2). Usa el
-// AppHeader compartido (botón de menú + slot de título custom con el Select
-// de mes + acción "Gestionar" a la derecha).
+// AppHeader compartido (botón de menú + título simple + acción "Gestionar")
+// y deja el selector de mes como control propio de la vista.
 
 const router = useRouter()
 const creditCardsStore = useCreditCardsStore()
@@ -215,31 +215,7 @@ const dashboardSyncTargets = [monthExpenses]
 
 <template>
   <div class="min-h-screen bg-background text-foreground">
-    <!-- Header con selector de mes integrado (credit-cards-ux.md sección 2.0):
-    "Tarjetas de crédito" baja a eyebrow chico y el mes elegido (mismo
-    filters.month/monthOptions/Select de siempre, solo cambia la presentación)
-    pasa a ser el texto grande, sin caja/borde de campo de formulario. -->
-    <AppHeader>
-      <div class="min-w-0 flex-1">
-        <p id="cards-dashboard-eyebrow" class="truncate text-center text-xs font-medium text-muted-foreground">
-          Tarjetas de crédito
-        </p>
-
-        <Select v-model="filters.month">
-          <SelectTrigger
-            aria-describedby="cards-dashboard-eyebrow"
-            class="!h-11 !w-fit !max-w-full !gap-1.5 !border-0 !bg-transparent !px-2 !py-0 !shadow-none mx-auto rounded-md text-xl font-semibold tracking-tight text-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 data-[state=open]:bg-accent data-[state=open]:text-accent-foreground"
-          >
-            <SelectValue class="truncate" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
-              {{ option.label }}
-            </SelectItem>
-          </SelectContent>
-        </Select>
-      </div>
-
+    <AppHeader title="Tarjetas">
       <template #actions>
         <Button variant="ghost" size="icon" aria-label="Gestionar tarjetas y personas" @click="router.push({ name: 'manage-cards' })">
           <Settings class="size-5" />
@@ -248,6 +224,44 @@ const dashboardSyncTargets = [monthExpenses]
     </AppHeader>
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 pb-28 sm:px-6 lg:px-8">
+      <section class="flex flex-col gap-3">
+        <div class="px-1">
+          <p class="text-sm font-medium text-muted-foreground">
+            Tarjetas de crédito
+          </p>
+          <h2 class="text-2xl font-semibold tracking-tight">
+            {{ monthLabel }}
+          </h2>
+        </div>
+
+        <div class="rounded-lg border border-border bg-card p-3 shadow-card">
+          <div class="flex items-center gap-3">
+            <div class="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+              <CalendarSync class="size-5" />
+            </div>
+
+            <div class="min-w-0 flex-1">
+              <p id="cards-dashboard-period-label" class="text-xs font-medium text-muted-foreground">
+                Periodo de tarjetas
+              </p>
+              <Select v-model="filters.month">
+                <SelectTrigger
+                  aria-describedby="cards-dashboard-period-label"
+                  class="mt-1 !h-10 !w-full !justify-between !rounded-md !bg-background !px-3 text-base font-semibold"
+                >
+                  <SelectValue class="truncate" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem v-for="option in monthOptions" :key="option.value" :value="option.value">
+                    {{ option.label }}
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+          </div>
+        </div>
+      </section>
+
       <!-- Estado de carga -->
       <template v-if="isInitialLoading">
         <Card>
