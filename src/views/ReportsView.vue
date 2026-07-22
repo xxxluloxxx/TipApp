@@ -457,7 +457,9 @@ onMounted(loadReport)
                   aria-describedby="reports-period-label"
                   class="mt-1 !h-10 !w-full !justify-center !gap-1.5 !rounded-md !bg-background !px-3 text-base font-semibold transition-colors hover:!bg-accent hover:!text-accent-foreground"
                 >
-                  <SelectValue class="truncate" />
+                  <SelectValue class="truncate capitalize">
+                    {{ monthLabel }}
+                  </SelectValue>
                 </SelectTrigger>
                 <SelectContent class="min-w-64 p-1">
                   <SelectItem
