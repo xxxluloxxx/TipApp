@@ -436,35 +436,26 @@ onMounted(loadReport)
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
       <section class="flex flex-col gap-3">
-        <div class="flex items-start justify-between gap-3 px-1">
-          <div>
-            <p class="text-sm font-medium text-muted-foreground">
-              Reporte mensual
-            </p>
-            <h2 class="text-2xl font-semibold tracking-tight">
-              {{ monthLabel }}
-            </h2>
-          </div>
-
-          <Badge variant="secondary" class="mt-1">
-            {{ isCurrentMonth ? 'Mes en curso' : 'Cerrado' }}
-          </Badge>
-        </div>
-
-        <div class="rounded-lg border border-border bg-card p-3 shadow-card">
-          <div class="flex items-center gap-3">
+        <!-- Pedido del usuario (mismo cambio ya hecho en Tarjetas): el
+             heading grande de arriba repetía el mismo mes que ya muestra el
+             selector de abajo — se saca ese heading duplicado, el selector
+             queda como única referencia al período, centrado en la card. El
+             Badge "Mes en curso"/"Cerrado" que vivía al lado del heading se
+             reubica debajo del selector para no perder esa señal. -->
+        <div class="rounded-lg border border-border bg-card p-4 shadow-card">
+          <div class="flex flex-col items-center gap-2 text-center">
             <div class="flex size-10 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
               <CalendarSync class="size-5" />
             </div>
 
-            <div class="min-w-0 flex-1">
+            <div class="w-full max-w-64">
               <p id="reports-period-label" class="text-xs font-medium text-muted-foreground">
                 Periodo del reporte
               </p>
               <Select v-model="selectedMonth">
                 <SelectTrigger
                   aria-describedby="reports-period-label"
-                  class="mt-1 !h-10 !w-full !justify-between !rounded-md !bg-background !px-3 text-base font-semibold transition-colors hover:!bg-accent hover:!text-accent-foreground"
+                  class="mt-1 !h-10 !w-full !justify-center !gap-1.5 !rounded-md !bg-background !px-3 text-base font-semibold transition-colors hover:!bg-accent hover:!text-accent-foreground"
                 >
                   <SelectValue class="truncate" />
                 </SelectTrigger>
@@ -492,6 +483,10 @@ onMounted(loadReport)
                 </SelectContent>
               </Select>
             </div>
+
+            <Badge variant="secondary">
+              {{ isCurrentMonth ? 'Mes en curso' : 'Cerrado' }}
+            </Badge>
           </div>
         </div>
       </section>
