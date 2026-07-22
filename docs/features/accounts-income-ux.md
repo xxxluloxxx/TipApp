@@ -220,38 +220,30 @@ sueltos entre la dona y las transacciones recientes.
     </div>
   </CardHeader>
 
-  <div class="grid grid-cols-2 gap-3 px-4 pb-4 sm:px-6 sm:pb-6">
+  <div class="grid grid-cols-3 gap-2 px-4 pb-4 sm:px-6 sm:pb-6">
     <button
-      v-for="account in topAccounts"
+      v-for="account in sortedAccounts"
       :key="account.id"
       type="button"
-      class="flex flex-col gap-2 rounded-lg border border-border p-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-      disabled
-      aria-disabled="true"
+      class="flex min-h-[4.5rem] flex-col justify-between gap-1 rounded-lg p-2.5 text-left transition hover:brightness-95 active:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      :style="{
+        backgroundColor: account.color ?? '#6b7280',
+        color: readableTextColor(account.color ?? '#6b7280'),
+      }"
+      @click="router.push({ name: 'account-detail', params: { id: account.id } })"
     >
-      <span
-        class="flex size-9 shrink-0 items-center justify-center rounded-full"
-        :style="{ backgroundColor: withAlpha(account.color, 0.15) }"
-      >
-        <component :is="ACCOUNT_ICONS[account.icon]" class="size-5" :style="{ color: account.color }" />
-      </span>
-      <div class="flex flex-col gap-0.5">
-        <p class="truncate text-sm font-medium">{{ account.name }}</p>
-        <p
-          class="text-sm font-semibold tabular-nums"
-          :class="account.balance < 0 ? 'text-destructive' : 'text-foreground'"
-        >
-          {{ account.balance < 0 ? '-' : '' }}${{ formatAmount(Math.abs(account.balance)) }}
-        </p>
-      </div>
+      <p class="line-clamp-2 text-xs font-medium leading-tight">{{ account.name }}</p>
+      <p class="text-sm font-semibold tabular-nums">
+        {{ balanceFor(account.id) < 0 ? '-' : '' }}${{ formatAmount(Math.abs(balanceFor(account.id))) }}
+      </p>
     </button>
 
     <button
       type="button"
-      class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+      class="flex min-h-[4.5rem] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border p-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
       @click="router.push({ name: 'accounts', query: { new: '1' } })"
     >
-      <Plus class="size-5" />
+      <Plus class="size-4" />
       Agregar cuenta
     </button>
   </div>
@@ -260,39 +252,38 @@ sueltos entre la dona y las transacciones recientes.
 
 Notas de implementación:
 
-- **`topAccounts`**: hasta **5** cuentas, ordenadas desc por `balance` (mismo
-  criterio de "las más significativas primero" ya usado en `cardsRanking` de
-  `credit-cards-ux.md` sección 2.3) + siempre la tile "Agregar cuenta" al
-  final (grid `grid-cols-2`, así que 5 cuentas + 1 tile de alta da 3 filas
-  completas). "Ver todas" navega a `/cuentas` (sección 6) siempre, sin
-  importar si el usuario tiene 5 cuentas o menos — mismo criterio ya usado
-  para "Ver todas" de Transacciones recientes en `dashboard-redesign-ux.md`.
-- **Tiles de cuenta NO son clickeables a un detalle** (a propósito:
-  `disabled`/`aria-disabled="true"`, sin navegación) — mismo criterio ya
-  aplicado a "Transacciones recientes" (`dashboard-redesign-ux.md` sección
-  2.4: "vista de solo lectura, esta no reemplaza a la gestión"). No se
-  construye un `AccountDetailView` (historial de movimientos por cuenta,
-  análogo a `CardDetailView.vue`) en esta iteración — no fue pedido
-  explícitamente, y agregarlo es exactamente el tipo de superficie nueva
-  (filtros, dona por persona, resumen, edición desde el detalle) que
-  `credit-cards-ux.md` sí necesitó pero que acá ampliaría el alcance sin
-  pedido. Candidata natural para una futura sesión si el Product Owner lo
-  pide — se deja la puerta abierta (la tile ya tiene la forma visual lista
-  para volverse clickeable el día que exista destino).
+- **`sortedAccounts`**: **todas** las cuentas del usuario, ordenadas desc por
+  saldo (mismo criterio de "las más significativas primero" ya usado en
+  `cardsRanking` de `credit-cards-ux.md` sección 2.3) + siempre la tile
+  "Agregar cuenta" al final. Ya **no se recorta** a 5: `accountsStore` no
+  tiene `MAX_*` de fetch para cuentas (a diferencia de expenses/incomes/
+  transfers, capadas a 200), y el número de cuentas de un usuario es chico
+  por naturaleza — no hay corte de negocio que replicar en la visualización.
+  El grid pasó a `grid-cols-3` (tiles más densas ~103-112px de ancho dentro
+  del `max-w-md` del `<main>`) para que entren 6+ cuentas sin esconder
+  ninguna. "Ver todas" navega a `/cuentas` (sección 6) siempre — no es solo
+  "ver más" sino la puerta a la gestión CRUD.
+- **Tiles de cuenta SÍ navegan al detalle**: cada tile hace
+  `router.push({ name: 'account-detail', params: { id: account.id } })`
+  (`AccountDetailView` ya existe, ver `account-detail-ux.md`). Ya **no** están
+  `disabled`/`aria-disabled` (eso describía una iteración anterior en la que
+  el detalle de cuenta no existía todavía).
+- **Tile sin ícono, fondo sólido**: a ~103-112px de ancho no entra un badge
+  de ícono de 40px + nombre + saldo con legibilidad, así que la vista compacta
+  de Inicio **prescinde del ícono** (sigue existiendo en `/cuentas` y en el
+  detalle). El fondo de la tile es el **color pleno** de la cuenta
+  (`account.color`), y el texto usa `readableTextColor(account.color)` para
+  garantizar contraste AA contra cualquier color libremente elegido por el
+  usuario. El nombre (hasta 2 líneas vía `line-clamp-2`) es el identificador
+  real a este tamaño, no el ícono.
 - **`totalBalance`**: viene de la agregación de servidor (sección 1.2), suma
   de `balance` de todas las cuentas del usuario — no se sub-computa sumando
-  `topAccounts` (que puede estar recortado a 5).
-- **Saldo negativo**: `text-destructive` + signo `-` explícito antes del
-  monto (el signo es el indicador primario, el color es refuerzo — nunca
-  color solo, mismo criterio que el resto de la app). Saldo en 0 o positivo:
-  color de texto normal (`text-foreground`), sin ningún tratamiento
-  especial — no se pinta de verde un saldo simplemente por ser positivo (ya
-  es el estado esperado, pintarlo introduciría ruido visual constante,
-  mismo argumento que "no pintar de rojo cada gasto" en `design-system.md`).
-- **Ícono**: `ACCOUNT_ICONS` es un mapa `{ [iconKey]: Component }` de los 6
-  íconos de la sección 5, coloreado con `account.color` vía `style` (los
-  íconos de Lucide heredan `currentColor`, así que fijar `color` en el
-  `style` alcanza, sin necesitar una clase Tailwind dinámica por hex).
+  las tiles visibles.
+- **Saldo negativo**: signo `-` explícito antes del monto como indicador
+  primario no-cromático (regla del proyecto: color nunca como único indicador
+  de estado). El color del saldo **no** usa `text-destructive`: hereda por
+  cascade el `color` (`readableTextColor`) del `:style` del botón, porque el
+  fondo es el color pleno de la cuenta y un rojo fijo podría no contrastar.
 - **Estado vacío de la sección** (usuario sin ninguna cuenta — no debería
   pasar nunca en la práctica, ver sección 6.5 sobre la cuenta "General"
   automática, pero se contempla como salvaguarda defensiva): se muestra

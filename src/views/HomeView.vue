@@ -27,7 +27,6 @@ import { movementVerb } from '@/lib/debtDisplay'
 import { currentMonthLabel, formatExpenseDateHeading, formatTimeShort, parseDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { readableTextColor, withAlpha } from '@/lib/colors'
-import { resolveAccountIcon } from '@/lib/accountIcons'
 import { buildCumulativeDailySeries, buildDonutSlices, isMonthSafeToShow, type CategoryTotal } from '@/lib/charts'
 import TrendAreaChart from '@/components/charts/TrendAreaChart.vue'
 import CategoryDonutChart from '@/components/charts/CategoryDonutChart.vue'
@@ -180,14 +179,14 @@ const donutSlices = computed(() => {
   return buildDonutSlices([...totals.values()], 5)
 })
 
-// Sección 2.3 de accounts-income-ux.md: hasta 5 cuentas, ordenadas desc por
-// saldo (las más significativas primero, mismo criterio que `cardsRanking`
-// de credit-cards-ux.md) + siempre la tile "Agregar cuenta" al final
-// (manejada aparte en el template, no en este computed).
-const topAccounts = computed(() =>
-  [...accountsStore.accounts]
-    .sort((a, b) => accountsStore.balanceFor(b.id) - accountsStore.balanceFor(a.id))
-    .slice(0, 5),
+// Ya no se recorta: accountsStore no tiene MAX_* de fetch para cuentas
+// (a diferencia de expenses/incomes/transfers), y el número de cuentas de
+// un usuario es chico por naturaleza — no hay corte de visualización que
+// justificar. Se mantiene el orden desc por saldo (mismo criterio que
+// cardsRanking de credit-cards-ux.md): las cuentas más significativas
+// aparecen primero en la grilla.
+const sortedAccounts = computed(() =>
+  [...accountsStore.accounts].sort((a, b) => accountsStore.balanceFor(b.id) - accountsStore.balanceFor(a.id)),
 )
 
 // Sección 7.5 + account-transfers-ux.md sección 6.4: "Transacciones recientes"
@@ -414,44 +413,32 @@ function goAddFirstExpense() {
             </div>
           </CardHeader>
 
-          <div class="grid grid-cols-2 gap-3 px-4 pb-4 sm:px-6 sm:pb-6">
+          <div class="grid grid-cols-3 gap-2 px-4 pb-4 sm:px-6 sm:pb-6">
             <button
-              v-for="account in topAccounts"
+              v-for="account in sortedAccounts"
               :key="account.id"
               type="button"
-              class="flex flex-col gap-2 rounded-lg border border-border p-3 text-left transition hover:brightness-95 active:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-              :style="{ backgroundColor: withAlpha(account.color ?? '#6b7280', 0.16) }"
+              class="flex min-h-[4.5rem] flex-col justify-between gap-1 rounded-lg p-2.5 text-left transition hover:brightness-95 active:brightness-90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              :style="{
+                backgroundColor: account.color ?? '#6b7280',
+                color: readableTextColor(account.color ?? '#6b7280'),
+              }"
               @click="router.push({ name: 'account-detail', params: { id: account.id } })"
             >
-              <span
-                class="flex size-10 shrink-0 items-center justify-center rounded-lg"
-                :style="{ backgroundColor: account.color ?? '#6b7280' }"
-              >
-                <component
-                  :is="resolveAccountIcon(account.icon)"
-                  class="size-5"
-                  :style="{ color: readableTextColor(account.color ?? '#6b7280') }"
-                />
-              </span>
-              <div class="flex flex-col gap-0.5">
-                <p class="truncate text-sm font-medium">
-                  {{ account.name }}
-                </p>
-                <p
-                  class="text-sm font-semibold tabular-nums"
-                  :class="accountsStore.balanceFor(account.id) < 0 ? 'text-destructive' : 'text-foreground'"
-                >
-                  {{ accountsStore.balanceFor(account.id) < 0 ? '-' : '' }}${{ formatAmount(Math.abs(accountsStore.balanceFor(account.id))) }}
-                </p>
-              </div>
+              <p class="line-clamp-2 text-xs font-medium leading-tight">
+                {{ account.name }}
+              </p>
+              <p class="text-sm font-semibold tabular-nums">
+                {{ accountsStore.balanceFor(account.id) < 0 ? '-' : '' }}${{ formatAmount(Math.abs(accountsStore.balanceFor(account.id))) }}
+              </p>
             </button>
 
             <button
               type="button"
-              class="flex flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-border p-3 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+              class="flex min-h-[4.5rem] flex-col items-center justify-center gap-1 rounded-lg border border-dashed border-border p-2 text-center text-xs font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-accent-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
               @click="router.push({ name: 'accounts', query: { new: '1' } })"
             >
-              <Plus class="size-5" />
+              <Plus class="size-4" />
               Agregar cuenta
             </button>
           </div>
