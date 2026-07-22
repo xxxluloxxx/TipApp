@@ -1,13 +1,14 @@
 <script setup lang="ts">
-import { onMounted } from 'vue'
+import { onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
-import { Ban, BellOff, BellRing, Check, ChevronRight, Cigarette, Goal, Monitor, Moon, Palette, Smartphone, Sun, SunMoon } from '@lucide/vue'
+import { Ban, BellOff, BellRing, Check, ChevronRight, Cigarette, Goal, Monitor, Moon, Palette, Smartphone, Sun, SunMoon, User } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { COLOR_SWATCHES, readableTextColor } from '@/lib/colors'
 import { useAuthStore } from '@/stores/auth'
 import { usePushNotificationsStore } from '@/stores/pushNotifications'
 import AppHeader from '@/components/AppHeader.vue'
 import { Card, CardHeader, CardTitle } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Switch } from '@/components/ui/switch'
 
@@ -24,6 +25,31 @@ const pushStore = usePushNotificationsStore()
 onMounted(() => {
   void pushStore.refresh()
 })
+
+// Borrador local del nombre, separado del store: el perfil carga async tras
+// `initialize()`, así que se siembra vía `watch` con `immediate: true`. No se
+// resincroniza mientras el input tiene foco, para no pisar lo que el usuario
+// está tipeando si `profile` cambia por otro motivo (p. ej. otra sesión).
+const displayNameDraft = ref('')
+const displayNameFocused = ref(false)
+
+watch(
+  () => authStore.profile?.display_name,
+  (value) => {
+    if (displayNameFocused.value) return
+    displayNameDraft.value = value ?? ''
+  },
+  { immediate: true },
+)
+
+function onDisplayNameBlur() {
+  displayNameFocused.value = false
+  const trimmed = displayNameDraft.value.trim()
+  const current = authStore.profile?.display_name ?? null
+  const next = trimmed || null
+  if (next === current) return // sin cambios reales; blur también se dispara al navegar
+  void authStore.updateDisplayName(next)
+}
 
 async function onToggleNotifications(value: boolean) {
   if (value) {
@@ -52,6 +78,38 @@ async function onToggleNotifications(value: boolean) {
     <AppHeader title="Ajustes" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <Card>
+        <CardHeader>
+          <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
+            Perfil
+          </CardTitle>
+        </CardHeader>
+
+        <div class="flex items-center gap-3 px-4 pb-1">
+          <User class="size-5 shrink-0 text-muted-foreground" />
+          <Label for="display-name" class="flex-1 text-sm font-medium">Nombre</Label>
+        </div>
+
+        <div class="px-4 pb-4 pl-[2.75rem]">
+          <Input
+            id="display-name"
+            v-model="displayNameDraft"
+            type="text"
+            placeholder="Ej. Juan"
+            maxlength="40"
+            autocomplete="name"
+            enterkeyhint="done"
+            class="text-base"
+            @focus="displayNameFocused = true"
+            @blur="onDisplayNameBlur"
+            @keydown.enter.prevent="($event.target as HTMLInputElement).blur()"
+          />
+          <p class="mt-1.5 text-xs text-muted-foreground">
+            Así te vamos a saludar en la app. Si lo dejás vacío, usamos tu email.
+          </p>
+        </div>
+      </Card>
+
       <Card>
         <CardHeader>
           <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">

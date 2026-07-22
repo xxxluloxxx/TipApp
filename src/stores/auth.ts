@@ -367,6 +367,43 @@ export const useAuthStore = defineStore('auth', () => {
     void persistAccentColor(value)
   }
 
+  /**
+   * Escritura optimista de `profiles.display_name`. Mismo criterio que
+   * `selectTheme`/`selectAccentColor` (reflejo inmediato en el saludo de
+   * Inicio y el drawer, ambos leen `profile.display_name` reactivamente),
+   * pero SIN la capa de `localStorage`/aplicación al DOM: esas existen en
+   * tema/acento por el requisito de pre-paint, el nombre no lo necesita.
+   */
+  async function updateDisplayName(value: string | null): Promise<void> {
+    if (!user.value) return
+
+    const previous = profile.value?.display_name ?? null
+    if (previous === value) return // sin cambios reales, no re-escribir
+
+    // Optimista: se refleja de inmediato en el saludo de Inicio y el drawer
+    // (ambos leen authStore.profile.display_name reactivamente), sin esperar
+    // la confirmación del servidor — mismo criterio que tema/acento.
+    if (profile.value) profile.value = { ...profile.value, display_name: value }
+
+    const { error } = await supabase
+      .from('profiles')
+      .update({ display_name: value })
+      .eq('id', user.value.id)
+
+    if (error) {
+      console.error('[auth] No se pudo guardar el nombre de perfil', error)
+      toast.error('No pudimos guardar tu nombre', {
+        description: 'Se aplicó igual en este dispositivo, pero podría no verse así en otra sesión.',
+        action: {
+          label: 'Reintentar',
+          onClick: () => {
+            void updateDisplayName(value)
+          },
+        },
+      })
+    }
+  }
+
   return {
     status,
     user,
@@ -379,5 +416,6 @@ export const useAuthStore = defineStore('auth', () => {
     signOut,
     selectTheme,
     selectAccentColor,
+    updateDisplayName,
   }
 })
