@@ -8,7 +8,6 @@ import {
   ChartPie,
   CreditCard,
   FileText,
-  Goal,
   HandCoins,
   Home,
   Landmark,
@@ -26,9 +25,11 @@ import { Sheet, SheetContent, SheetFooter, SheetTitle, SheetTrigger } from '@/co
 // Drawer de navegación principal, autocontenido y reusable desde cualquier
 // pantalla autenticada (dashboard-redesign-ux.md, sección 6.1 + patrón de
 // header único documentado en design-system.md): botón `Menu` que abre el
-// Sheet lateral con perfil + nav de 13 ítems (highlight de ruta activa) +
+// Sheet lateral con perfil + nav de 12 ítems (highlight de ruta activa) +
 // "Cerrar sesión". Antes vivía solo dentro de HomeView.vue; se extrajo para
 // que todas las vistas lo compartan sin duplicar el markup.
+// "Partidos en vivo" NO está en el drawer a propósito (feature de utilidad no
+// financiera, se mantiene descubrible solo desde Ajustes → Notificaciones).
 
 const router = useRouter()
 const route = useRoute()
@@ -49,7 +50,6 @@ type NavRouteName =
   | 'debts'
   | 'fixed-expenses'
   | 'loans'
-  | 'matches'
   | 'categories'
   | 'statistics'
   | 'reports'
@@ -183,16 +183,6 @@ function logoutFromDrawer() {
         >
           <Landmark class="size-5 shrink-0" />
           Préstamos
-        </button>
-        <button
-          type="button"
-          class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-          :class="isActive('matches') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
-          :aria-current="isActive('matches') ? 'page' : undefined"
-          @click="navigateFromDrawer('matches')"
-        >
-          <Goal class="size-5 shrink-0" />
-          Partidos en vivo
         </button>
         <button
           type="button"

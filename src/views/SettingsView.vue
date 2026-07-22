@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
-import { Ban, BellOff, BellRing, Check, Monitor, Moon, Palette, Smartphone, Sun, SunMoon } from '@lucide/vue'
+import { useRouter } from 'vue-router'
+import { Ban, BellOff, BellRing, Check, ChevronRight, Goal, Monitor, Moon, Palette, Smartphone, Sun, SunMoon } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { COLOR_SWATCHES, readableTextColor } from '@/lib/colors'
 import { useAuthStore } from '@/stores/auth'
@@ -16,6 +17,7 @@ import { Switch } from '@/components/ui/switch'
 // live-matches-ux.md sección 6.3: se agrega el toggle de notificaciones —
 // primer uso de `Switch` como preferencia de cuenta global.
 
+const router = useRouter()
 const authStore = useAuthStore()
 const pushStore = usePushNotificationsStore()
 
@@ -167,6 +169,18 @@ async function onToggleNotifications(value: boolean) {
             @update:model-value="onToggleNotifications"
           />
         </div>
+
+        <!-- Único acceso a Partidos en vivo: se quitó del drawer a propósito
+             (feature de utilidad no financiera) y queda escondido acá. -->
+        <button
+          type="button"
+          class="flex min-h-11 w-full items-center gap-3 border-t border-border px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+          @click="router.push({ name: 'matches' })"
+        >
+          <Goal class="size-5 shrink-0 text-muted-foreground" />
+          <span class="flex-1 text-sm font-medium">Partidos en vivo</span>
+          <ChevronRight class="size-4 shrink-0 text-muted-foreground" />
+        </button>
 
         <p v-if="pushStore.permission === 'denied'" class="border-t border-border px-4 py-3 text-xs text-muted-foreground">
           Bloqueaste las notificaciones para TipApp en tu navegador. Para activarlas, cambiá el permiso desde la configuración del sitio en tu navegador.
