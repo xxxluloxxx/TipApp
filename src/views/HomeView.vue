@@ -22,7 +22,7 @@ import { useDebtsStore, type DebtMovementWithDebt } from '@/stores/debts'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useExpensesStore } from '@/stores/expenses'
 import { useIncomesStore } from '@/stores/incomes'
-import { buildTransactionItems, resolveAccountImpact, type TransactionItem } from '@/lib/transactionItems'
+import { buildTransactionItems, type TransactionItem } from '@/lib/transactionItems'
 import { movementVerb } from '@/lib/debtDisplay'
 import { currentMonthLabel, formatExpenseDateHeading, formatTimeShort, parseDateOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
@@ -215,12 +215,14 @@ function personName(movement: DebtMovementWithDebt): string {
   return debtPeopleStore.personById(movement.debt.person_id)?.name ?? 'Persona'
 }
 
-// Filas con monto en verde y signo `+`: impacto real en caja positivo
-// (`resolveAccountImpact`), no el signo crudo del dato — para `debt-linked`
-// esos dos signos difieren (un préstamo nuevo tiene `amount > 0` pero SACA
-// plata de la cuenta, ver comentario en `transactionItems.ts`).
+// Filas con monto en verde y signo `+`: ingreso real, la cara de entrada de
+// una transferencia (sección 6.4.2) y un movimiento de deuda que sumó saldo
+// (debts-ux.md sección 13.4). Gasto real (sección 6.6), la cara de salida y un
+// movimiento de deuda negativo van en `text-destructive`.
 function isPositive(item: TransactionItem): boolean {
-  return resolveAccountImpact(item).signedAmount > 0
+  return item.kind === 'income'
+    || item.kind === 'transfer-in'
+    || (item.kind === 'debt-linked' && item.data.amount > 0)
 }
 
 // Sección 6.4.1 + 13.3: el título de una transferencia nombra "la otra punta"
