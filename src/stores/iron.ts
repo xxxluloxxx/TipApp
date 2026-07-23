@@ -311,10 +311,15 @@ export const useIronStore = defineStore('iron', () => {
 
   // --- Registro rápido de consumo (optimista + "Deshacer", sección 4.4) ------
 
-  /** Registra un cigarrillo entero o abre una mitad, de forma optimista.
-   * Devuelve el `tempId` para el "Deshacer" del toast, o `null` si no hay
-   * sesión. */
-  function logCigarette(kind: 'entero' | 'mitad'): { tempId: string } | null {
+  /** Núcleo optimista compartido por `logCigarette` y `logDiscardedHalf`
+   * (sección 12.1): inserta una fila con status arbitrario. `opensPending`
+   * decide si además abre una mitad pendiente (solo `logCigarette('mitad')`;
+   * una media descartada nace resuelta y nunca toca `pendingHalf`). */
+  function insertCigaretteOptimistic(
+    kind: 'entero' | 'mitad',
+    status: IronCigarette['status'],
+    opensPending: boolean,
+  ): { tempId: string } | null {
     const userId = currentUserId()
     if (!userId) {
       toast.error('No pudimos registrar esto', { description: 'Revisá tu conexión e intentá de nuevo.' })
@@ -323,7 +328,6 @@ export const useIronStore = defineStore('iron', () => {
 
     const now = new Date()
     const tempId = `temp-${crypto.randomUUID()}`
-    const status = kind === 'entero' ? 'completo' : 'mitad_pendiente'
     const smokedDate = todayDateInputValue(now)
     const smokedTime = `${nowTimeInputValue(now)}:00`
     const optimistic: IronCigarette = {
@@ -340,7 +344,7 @@ export const useIronStore = defineStore('iron', () => {
 
     const applyOptimistic = () => {
       todayCigarettes.value = [...todayCigarettes.value, optimistic]
-      if (kind === 'mitad') {
+      if (opensPending) {
         pendingHalf.value = {
           pending_id: tempId,
           user_id: userId,
@@ -390,6 +394,23 @@ export const useIronStore = defineStore('iron', () => {
     applyOptimistic()
     void persist()
     return { tempId }
+  }
+
+  /** Registra un cigarrillo entero o abre una mitad, de forma optimista.
+   * Devuelve el `tempId` para el "Deshacer" del toast, o `null` si no hay
+   * sesión. */
+  function logCigarette(kind: 'entero' | 'mitad'): { tempId: string } | null {
+    const status = kind === 'entero' ? 'completo' : 'mitad_pendiente'
+    return insertCigaretteOptimistic(kind, status, kind === 'mitad')
+  }
+
+  /** Registra una media que el usuario no va a terminar, en un solo toque
+   * (sección 12.1): nace directo en `status = 'descartada'` (no sujeto al
+   * índice único de la sección 1.3, por eso siempre está habilitada) y nunca
+   * abre una mitad pendiente. Mismo mecanismo optimista/"Deshacer" que
+   * `logCigarette`. */
+  function logDiscardedHalf(): { tempId: string } | null {
+    return insertCigaretteOptimistic('mitad', 'descartada', false)
   }
 
   /** "Deshacer" de un registro rápido (sección 4.4): quita la fila local y
@@ -516,6 +537,24 @@ export const useIronStore = defineStore('iron', () => {
     }
     removeCigaretteLocal(id)
     return true
+  }
+
+  /** Deshace el cierre de un par de mitades (sección 12.3.3.c): borra la mitad
+   * que cerró (`p_closing_id`) y revierte la original a `mitad_pendiente`, de
+   * forma atómica vía RPC `undo_close_half`. No optimista. Distingue el
+   * conflicto del índice único ("ya hay otra mitad pendiente en danza",
+   * `IRON_PENDING_HALF_CONFLICT`) del error genérico para que la vista muestre
+   * el copy correcto. */
+  async function undoClosePendingHalf(closingId: string): Promise<'ok' | 'conflict' | 'error'> {
+    if (!closingId || closingId.startsWith('temp-')) return 'error'
+
+    const { error } = await supabase.rpc('undo_close_half', { p_closing_id: closingId })
+    if (error) {
+      if (error.message?.includes('IRON_PENDING_HALF_CONFLICT')) return 'conflict'
+      console.error('[iron] No se pudo deshacer el cierre de la mitad', error)
+      return 'error'
+    }
+    return 'ok'
   }
 
   // --- Compra de cajetilla (sección 7.2) -------------------------------------
@@ -650,11 +689,13 @@ export const useIronStore = defineStore('iron', () => {
     fetchDay,
     fetchTrend,
     logCigarette,
+    logDiscardedHalf,
     undoLog,
     closePendingHalf,
     discardPendingHalf,
     editCigaretteTime,
     deleteCigarette,
+    undoClosePendingHalf,
     addPack,
     updatePack,
     deletePack,

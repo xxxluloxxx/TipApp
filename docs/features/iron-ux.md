@@ -30,11 +30,21 @@ gamificación (rachas de días sin fumar, logros, badges, proyección de plata
 ahorrada a futuro), sin recordatorios/notificaciones push, sin campo
 "cigarrillos por cajetilla" ni costo-por-cigarrillo derivado (el costo
 informativo es siempre a nivel de **compra de cajetilla**, nunca prorrateado
-por cigarrillo — sección 1.5), sin reabrir manualmente una mitad ya
-cerrada/descartada (si fue un error, se borra y se vuelve a registrar), sin
-comparar el nombre "Iron" a marcas reales de tabaco/cigarrillos — es
-simplemente el nombre de producto ya elegido por el Product Owner (se
-mantiene tal cual, sección 3.2).
+por cigarrillo — sección 1.5), sin comparar el nombre "Iron" a marcas reales
+de tabaco/cigarrillos — es simplemente el nombre de producto ya elegido por
+el Product Owner (se mantiene tal cual, sección 3.2).
+
+**Matiz agregado en sección 12 (ajuste post-lanzamiento)**: la restricción de
+"sin reabrir manualmente una mitad ya cerrada/descartada" de la v1 original
+sigue vigente **como acción directa** (no existe un botón "Reabrir"), pero
+sección 12.3.3 agrega una excepción puntual: eliminar la mitad que **cerró**
+un par revierte la original a `mitad_pendiente` como **efecto colateral** de
+deshacer ese cierre (no es una acción de "reabrir" en sí misma, es la
+consecuencia lógica de borrar el evento que la había cerrado). Una mitad
+**descartada** sigue sin ninguna forma de volver a `mitad_pendiente` salvo el
+"Deshacer" del toast inmediatamente después de descartarla (sección 4.3,
+ventana de 5s) — pasada esa ventana, si fue un error, se borra y se vuelve a
+registrar, sin cambios sobre este punto.
 
 ---
 
@@ -909,6 +919,23 @@ que estas dos acciones son **de un solo toque, sin formulario**:
 
 ### 5.3 Lista mixta del día — mismo patrón de ledger mezclado que Deudas
 
+> **Actualizado en la sección 12** (ajuste post-lanzamiento): esta sección
+> queda como registro histórico de la v1 original, pero dos partes de lo que
+> sigue **ya no reflejan el comportamiento vigente** — sección 12.3 tiene el
+> detalle actualizado y es la fuente de verdad:
+> 1. Las filas de tipo mitad (`mitad_pendiente`, `mitad_descartada`,
+>    `mitad_completa_*`) **ahora sí llevan menú "⋮"** (Editar hora/Eliminar,
+>    con reglas específicas por caso) — el bullet más abajo que dice "sin
+>    menú ⋮ en compras/mitades" ya no aplica a las mitades (sigue aplicando
+>    a las compras, que se editan abriendo su Sheet con un tap directo).
+> 2. El tratamiento **`mitad_completa_mismo_dia`** (fila fusionada "1
+>    cigarrillo (en 2 partes)") **se retira**: todo par de mitades completas
+>    (mismo día u otro día) se muestra ahora como **dos filas separadas**,
+>    unificando `mitad_completa_mismo_dia`/`mitad_completa_otro_dia` en un
+>    solo tipo `mitad_completa` — necesario para que cada mitad tenga su
+>    propio menú de acciones sin ambigüedad de "a cuál de las dos mitades le
+>    aplica esta acción". Ver sección 12.3.3.
+
 Un solo listado cronológico (por hora), mezclando compras de cajetilla y
 consumos — mismo criterio que el tab "Historial" de `/deudas`
 (`debts-ux.md` sección 3.6: eventos de distinto tipo, mismo timeline,
@@ -1403,3 +1430,461 @@ aunque el proyecto no la haya usado todavía).
    de `src/lib/date.ts`, `formatAmount` de `src/lib/currency.ts`, el
    default de cuenta (`defaultAccountId()`) de `accounts-income-ux.md`
    sección 8.2.
+
+---
+
+## 12. Ajustes post-lanzamiento: media directa + menú de mitades en Historial
+
+**Contexto**: Iron ya está en producción (`IronDashboardView.vue`,
+`IronHistoryView.vue`, `src/stores/iron.ts` tal como quedaron tras la
+sección 11). Este ajuste llega por dos pedidos puntuales del Product Owner
+sobre lo ya construido, **no** es una feature nueva — se documenta acá,
+en una sección aparte, para dejar trazabilidad de que es posterior al
+lanzamiento inicial (secciones 1-11 no se reescriben; donde este ajuste las
+contradice, quedó una nota puntual de remisión a esta sección — ver 5.3 y el
+párrafo de "Fuera de alcance" al inicio del documento).
+
+### 12.1 Parte 1 — Registrar "media, no la termino" en un solo toque desde el Dashboard
+
+**Problema**: hoy fumar solo la mitad y no terminarla nunca son 2 pasos
+obligatorios (tocar "Fumé la mitad" → ir al banner ámbar → tocar
+"Descartar"). Se pide un tercer camino de **un solo toque**.
+
+**Patrón elegido: un tercer control, visualmente subordinado, en su propia
+fila debajo del grid de 2 columnas** — ni un tercer botón en el grid (rompe
+el layout a ~375px y fuerza acortar el copy ya aprendido de los dos botones
+existentes, sección 4.4), ni un menú/caret sobre "Fumé la mitad" (agregaría
+un paso extra — abrir el menú, elegir la opción — exactamente la fricción
+que sección 4.4 prohíbe explícitamente para estas acciones, y el pedido es
+literal: "en 1 solo paso", es decir 1 solo toque, no 2). Un control
+independiente, siempre visible, de 1 tap, con menor peso visual que los dos
+botones principales (que llevan borde+fondo de card) y menor peso también
+que el botón outline de "Registrar cajetilla comprada", cumple las tres
+condiciones: cero pasos extra, cero ambigüedad con los dos botones
+existentes (no compite visualmente con ellos), cero cambio de layout.
+
+Se ubica **debajo del grid** (y de su texto explicativo cuando "Fumé la
+mitad" está deshabilitado), **arriba** del botón "Registrar cajetilla
+comprada" — agrupa las 3 acciones de *consumo* (entero / mitad pendiente /
+mitad ya resuelta) antes de la acción de *compra*, que es una categoría de
+evento distinta.
+
+```html
+<div class="flex flex-col gap-2">
+  <div class="grid grid-cols-2 gap-3">
+    <!-- "Fumé uno entero" / "Fumé la mitad", sin cambios (sección 4.4) -->
+  </div>
+  <p v-if="pendingHalf" class="text-center text-xs text-muted-foreground">
+    Cerrá la mitad pendiente de arriba antes de empezar una nueva.
+  </p>
+
+  <!-- NUEVO: acción de un toque, peso visual menor que los botones de arriba -->
+  <button
+    type="button"
+    class="mx-auto flex min-h-11 items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+    @click="logDiscardedHalf"
+  >
+    <CigaretteOff class="size-4" />
+    Fumé la mitad y no la termino
+  </button>
+
+  <Button variant="outline" class="h-11 w-full" @click="openPackSheet">
+    <Package class="size-4" />
+    Registrar cajetilla comprada
+  </Button>
+</div>
+```
+
+- **Copy: "Fumé la mitad y no la termino"** — verbo en primera persona igual
+  que los otros dos ("Fumé uno entero"/"Fumé la mitad"), pero con la
+  cláusula final que deja explícito que es la variante que **no** deja nada
+  pendiente (evita que se confunda con "Fumé la mitad", que sí abre un
+  pendiente).
+- **Ícono `CigaretteOff`**: se reusa el mismo ícono que el Historial ya usa
+  para la fila "Media (no terminada)" (`mitad_descartada`, sección 5.3) —
+  refuerza visualmente que esta acción y ese estado son la misma cosa, sin
+  inventar un ícono nuevo.
+- **Siempre habilitado**, incluso con una mitad pendiente abierta: a
+  diferencia de "Fumé la mitad" (bloqueado por el índice único de `mitad_
+  pendiente`, sección 1.3), esta acción inserta directo en `status =
+  'descartada'`, que **no** está sujeto a ese índice — no hay conflicto
+  posible entre ambas acciones, así que no hace falta ningún guard nuevo.
+- **Datos**: insert optimista de una sola fila, `kind = 'mitad'`, `status =
+  'descartada'`, `closes_cigarette_id = null`, fecha/hora = ahora — mismo
+  mecanismo exacto que `logCigarette('mitad')` (sección 4.4/1.4) salvo que
+  el status nace directo en `'descartada'` en vez de `'mitad_pendiente'`, y
+  **nunca** toca `pendingHalf` (no hay pendiente que abrir). **No requiere
+  RPC nueva**: es un insert de una sola tabla, cubierto por la misma policy
+  de insert que ya usa `logCigarette`. Sugerido para `vue-frontend-expert`:
+  extender `logCigarette` con un parámetro opcional de status (o agregar
+  una función hermana `logDiscardedHalf()` que reusa el mismo cuerpo de
+  `logCigarette('mitad')` fijando `status: 'descartada'` y omitiendo el
+  bloque que setea `pendingHalf`) — no vale la pena duplicar toda la
+  máquina de optimismo/deshacer/tracking de temp-id para una diferencia de
+  un campo.
+- **Toast, mismo patrón "Deshacer" ya establecido** (sección 4.4):
+  ```ts
+  toast('Media registrada (no terminada)', {
+    duration: 5000,
+    action: { label: 'Deshacer', onClick: () => ironStore.undoLog(res.tempId) },
+  })
+  ```
+  Copy alineado a la etiqueta que el Historial ya usa para este mismo
+  estado ("Media (no terminada)", sección 5.3) — mismo criterio de
+  consistencia terminológica en toda la app. Falla → mismo `toast.error`
+  + "Reintentar" que el resto de sección 4.4.
+- **Área táctil**: `min-h-11` (44px) igual que el resto, aunque el control
+  sea visualmente más chico (padding lateral en vez de fondo de card) — el
+  tamaño del texto/ícono es menor pero el *hitbox* nunca baja de 44px.
+
+### 12.2 Parte 2 — Menú de opciones en filas de mitad del Historial: reglas por caso
+
+**Problema**: hoy ninguna fila de tipo mitad tiene menú "⋮" — no hay forma
+de corregir un error de carga en ellas más que "borrar y volver a
+registrar", pero no hay ningún control de borrado disponible. Se agrega
+menú a los 4 casos, con reglas específicas donde hace falta por la relación
+`closes_cigarette_id` entre pares.
+
+**Patrón general, igual en los 4 casos**: mismo `DropdownMenu` que ya usa
+`entero` (Botón `ghost` `size="icon"` `h-11 w-11`, ícono `MoreVertical`,
+`aria-label="Más opciones"`), con 1-2 ítems según el caso. La edición de
+hora reusa el mismo Sheet mínimo que ya existe para `entero`
+(`Input type="date"` + `Input type="time"`, `max` = hoy) — generalizado
+para aceptar cualquier `cigarette.id` sin importar `kind`/`status`, con una
+extensión opcional de validación (sección 12.3.3). El borrado reusa
+`AlertDialog` estándar del proyecto salvo donde se indica lo contrario.
+
+### 12.3 Caso por caso
+
+#### 12.3.1 `mitad_pendiente`
+
+**"Cerrar" y el menú "⋮" conviven** — no se fusiona "Cerrar" dentro del
+menú. Justificación: "Cerrar" es, para una mitad pendiente, la acción más
+frecuente y esperable (terminar el cigarrillo) — enterrarla dentro de un
+menú le agregaría un toque extra a la acción principal, exactamente lo que
+este documento evita en cualquier lugar de alta frecuencia (mismo criterio
+de 4.4/12.1). El menú "⋮" es exclusivamente para las acciones de
+corrección, poco frecuentes por definición.
+
+```html
+<div v-else-if="item.type === 'mitad_pendiente'" class="flex min-h-11 w-full items-center gap-3 px-4 py-3">
+  <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-warning/15 text-warning">
+    <Clock class="size-4" />
+  </span>
+  <div class="flex min-w-0 flex-1 flex-col">
+    <p class="text-sm font-medium">Media (pendiente)</p>
+    <p class="text-xs text-muted-foreground">{{ formatTimeShort(item.time) }}</p>
+  </div>
+  <Button size="sm" class="h-11 shrink-0" @click="closePendingHalf(item.id)">Cerrar</Button>
+  <DropdownMenu>
+    <DropdownMenuTrigger as-child>
+      <Button variant="ghost" size="icon" class="h-11 w-11 shrink-0" aria-label="Más opciones">
+        <MoreVertical class="size-4" />
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end">
+      <DropdownMenuItem @select="openEditCigaretteSheet(item)">Editar hora</DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" @select="confirmDeleteCigarette(item)">Eliminar</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+</div>
+```
+
+- **Editar hora**: update simple, mismo criterio que `editCigaretteTime` ya
+  usa para `entero` — sin restricción adicional (una mitad pendiente
+  standalone no tiene ninguna pareja todavía con la cual chocar).
+- **Eliminar**: `AlertDialog` estándar del proyecto
+  (`¿Eliminar este registro? Esta acción no se puede deshacer.`), delete
+  simple (`deleteCigarette`, sin cambios). Nótese que esto es **distinto**
+  de "Descartar" (banner del Dashboard/RPC `discard_pending_half`):
+  Descartar dejar el registro vivo con `status = 'descartada'` (sigue
+  contando 0.5 fumado); Eliminar acá borra la fila entera (dejan de contar
+  esos 0.5). Ambos caminos deben seguir existiendo, no se fusionan — son
+  respuestas a preguntas distintas ("¿la sigo?" vs. "¿esto no debió
+  registrarse?").
+- **Sin RPC nueva.**
+
+#### 12.3.2 `mitad_descartada`
+
+Caso más simple: fila standalone, sin ninguna pareja. Mismo menú, sin
+condiciones especiales.
+
+```html
+<div v-else-if="item.type === 'mitad_descartada'" class="flex min-h-11 w-full items-center gap-3 px-4 py-3">
+  <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
+    <CigaretteOff class="size-4 text-muted-foreground" />
+  </span>
+  <div class="flex min-w-0 flex-1 flex-col">
+    <p class="text-sm font-medium">Media (no terminada)</p>
+    <p class="text-xs text-muted-foreground">{{ formatTimeShort(item.time) }}</p>
+  </div>
+  <DropdownMenu>
+    <DropdownMenuTrigger as-child>
+      <Button variant="ghost" size="icon" class="h-11 w-11" aria-label="Más opciones">
+        <MoreVertical class="size-4" />
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end">
+      <DropdownMenuItem @select="openEditCigaretteSheet(item)">Editar hora</DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" @select="confirmDeleteCigarette(item)">Eliminar</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+</div>
+```
+
+- **Editar hora**: update simple, sin restricción, igual que 12.3.1.
+- **Eliminar**: `AlertDialog` estándar genérico (`¿Eliminar este registro?
+  Esta acción no se puede deshacer.`), delete simple. Sin efectos
+  colaterales — nada apunta a esta fila (`closes_cigarette_id` es siempre
+  `null` en una descartada).
+- **Sin RPC nueva.**
+
+#### 12.3.3 `mitad_completa` — unificación de mismo_dia/otro_dia, edición con validación blanda, y borrado asimétrico por rol
+
+**Primer cambio necesario, antes de las reglas de menú**: se retira el tipo
+`mitad_completa_mismo_dia` (fila fusionada "1 cigarrillo (en 2 partes)",
+sección 5.3 original). Se unifica con `mitad_completa_otro_dia` en un solo
+tipo `mitad_completa`, que **siempre** renderiza **dos filas separadas**
+(una por `isFirstHalf: true`, otra por `isFirstHalf: false`), sean del
+mismo día o de días distintos. Motivo: cada mitad necesita su **propio**
+menú de acciones con reglas de borrado distintas según el rol (ver más
+abajo) — una fila fusionada no tiene forma limpia de ofrecer "editar/
+eliminar la primera" vs. "editar/eliminar la segunda" sin un menú de 4
+ítems ambiguos en una sola fila. Se pierde el agrupamiento visual explícito
+("en 2 partes"), pero se compensa con el subtítulo cruzado que ya existía
+para `otro_dia` (adaptado para mismo día, ver abajo) — el usuario sigue
+pudiendo entender que son dos mitades de un mismo cigarrillo, ahora vía
+texto en vez de vía fusión de filas.
+
+```html
+<div v-else-if="item.type === 'mitad_completa'" class="flex min-h-11 w-full items-center gap-3 px-4 py-3">
+  <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
+    <Cigarette class="size-4 text-muted-foreground" />
+  </span>
+  <div class="flex min-w-0 flex-1 flex-col">
+    <p class="text-sm font-medium">{{ item.isFirstHalf ? 'Media' : 'Segunda mitad' }}</p>
+    <p class="truncate text-xs text-muted-foreground">
+      {{ formatTimeShort(item.time) }} ·
+      {{ item.isFirstHalf ? 'cerrada' : 'empezada' }}
+      {{ item.sameDay ? `a las ${formatTimeShort(item.partnerTime)}` : `el ${item.partnerDayLabel}` }}
+    </p>
+  </div>
+  <DropdownMenu>
+    <DropdownMenuTrigger as-child>
+      <Button variant="ghost" size="icon" class="h-11 w-11" aria-label="Más opciones">
+        <MoreVertical class="size-4" />
+      </Button>
+    </DropdownMenuTrigger>
+    <DropdownMenuContent align="end">
+      <DropdownMenuItem @select="openEditCigaretteSheet(item)">Editar hora</DropdownMenuItem>
+      <DropdownMenuItem variant="destructive" @select="onDeleteHalfOfPair(item)">Eliminar</DropdownMenuItem>
+    </DropdownMenuContent>
+  </DropdownMenu>
+</div>
+```
+
+Copy de subtítulo, ejemplos: mismo día → `"14:32 · cerrada a las 14:45"` /
+`"14:45 · empezada a las 14:32"`; distinto día → `"23:50 · cerrada el 23 de
+julio"` / `"08:00 · empezada el 22 de julio"` (mismo texto que ya existía
+para `otro_dia`, sección 5.3 original, solo con la rama nueva agregada para
+mismo día).
+
+**a) Editar hora de la mitad ORIGINAL (`isFirstHalf: true`)**: **validación
+blanda, solo en cliente** — no se puede guardar una fecha/hora **posterior**
+a la de su pareja (la que cerró). No es un invariante duro nuevo a nivel de
+base de datos (a diferencia del índice único de "máx. 1 pendiente", sección
+1.3): un cruce de horarios entre las dos mitades de un par no rompe nada
+mecánicamente (no hay ninguna consulta del proyecto que asuma ese orden como
+precondición — ver el razonamiento completo abajo), así que no se justifica
+el costo de una constraint o un chequeo server-side para un caso de edición
+manual, poco frecuente, cuyo peor resultado es un dato "raro" pero
+inofensivo. Se resuelve enteramente en el Sheet de edición (mismo Sheet
+mínimo ya existente, extendido con el chequeo):
+
+```
+Fecha/hora no puede ser posterior a la de la segunda mitad ({{ pendingSinceLabel(partner.date, partner.time) }}).
+```
+
+Mostrado como el mismo estilo de error de campo ya usado en el resto de la
+app (`text-xs text-destructive` debajo del input), bloqueando el submit
+mientras el error esté presente — mismo patrón que la validación de costo
+en `IronPackFormSheet` (sección 7.1), no un simple warning ignorable.
+
+**b) Editar hora de la mitad que CIERRA (`isFirstHalf: false`)**: misma
+lógica, en sentido inverso — no puede quedar **anterior** a la de la
+original. Mismo copy adaptado:
+
+```
+Fecha/hora no puede ser anterior a la de la primera mitad ({{ pendingSinceLabel(partner.date, partner.time) }}).
+```
+
+`pendingSinceLabel` ya existe (`src/lib/iron.ts` sección 6.5) y resuelve
+exactamente el formato que hace falta acá ("hoy a las 14:32"/"23 de julio a
+las 08:00"), se reusa tal cual para el nombre de la pareja en el mensaje de
+error.
+
+**c) Eliminar la mitad que CIERRA (`isFirstHalf: false`)**: se confirma la
+sugerencia del Product Owner — **la original vuelve automáticamente a
+`mitad_pendiente`** (semánticamente "deshacer el cierre"). Es la única
+operación de este ajuste que **sí necesita una RPC nueva**, porque toca dos
+filas de forma atómica (borra una, actualiza la otra) — mismo criterio que
+`close_pending_half`/`discard_pending_half` (sección 1.4).
+
+```sql
+-- Ilustrativo, nombre y firma a confirmar con supabase-backend-expert.
+create or replace function undo_close_half(p_closing_id uuid)
+returns void
+language plpgsql
+security definer
+as $$
+declare
+  v_original_id uuid;
+begin
+  select closes_cigarette_id into v_original_id
+  from iron_cigarettes
+  where id = p_closing_id
+    and user_id = auth.uid()
+    and kind = 'mitad'
+    and status = 'completo'
+    and closes_cigarette_id is not null;
+
+  if v_original_id is null then
+    raise exception 'IRON_CLOSING_HALF_NOT_FOUND';
+  end if;
+
+  delete from iron_cigarettes where id = p_closing_id;
+
+  update iron_cigarettes
+  set status = 'mitad_pendiente'
+  where id = v_original_id;
+  -- El índice único parcial de la sección 1.3 hace fallar este UPDATE si el
+  -- usuario ya tiene OTRA fila mitad_pendiente en danza — se deja que la
+  -- excepción de Postgres suba tal cual (o se relanza con un código propio,
+  -- ej. 'IRON_PENDING_HALF_CONFLICT', a criterio de supabase-backend-expert)
+  -- para que el cliente la distinga de un error genérico.
+end;
+$$;
+```
+
+**Caso borde (el que señala el Product Owner)**: si el usuario ya tiene otra
+mitad pendiente distinta en danza en el momento de este borrado, revertir
+violaría el índice único de "máx. 1 pendiente" — **se bloquea el borrado**
+(no se permite ninguna alternativa silenciosa tipo "descartar la otra
+pendiente automáticamente": tocar una fila que el usuario no pidió tocar
+sería peor). Mensaje exacto que ve el usuario (`toast.error`, con el
+`AlertDialog` de confirmación quedando abierto para que pueda cancelar o
+reintentar después de resolver el conflicto):
+
+```
+No pudimos deshacer este cierre: ya tenés otra mitad pendiente abierta.
+Cerrala o descartala primero e intentá de nuevo.
+```
+
+`AlertDialog` de confirmación (antes de siquiera intentar el RPC):
+
+```
+¿Eliminar esta mitad?
+La mitad original va a volver a quedar pendiente, como si todavía no la
+hubieras terminado. Esta acción no se puede deshacer.
+```
+
+Error genérico (red/servidor, no el conflicto de arriba): mismo patrón de
+siempre, `"No pudimos eliminar este registro"` + acción "Reintentar".
+
+**d) Eliminar la mitad ORIGINAL (`isFirstHalf: true`, que tiene una pareja
+que la cerró)**: se **bloquea**, no se permite el delete simple. Se
+descarta la alternativa (a) del encargo (permitirlo y dejar la fila que
+cerró huérfana, mostrándose como una "media" `completo` sin pareja) —
+prioriza simplicidad de implementación **y** evita el estado raro real que
+generaría: al quedar `closes_cigarette_id = null` (por el `on delete set
+null` ya existente, sección 1.2), esa fila pasaría a leerse en el
+`dayItems` actual como una mitad "original" sin pareja (`isFirstHalf: true`
+por definición de la lógica ya existente, sección 5.3/`IronHistoryView.vue`
+líneas ~216-219) pese a tener `status = 'completo'` — una combinación que
+hoy no puede darse de ningún otro modo y que el resto de la UI no está
+preparada para explicar (se mostraría como "Media" con `status` completo
+pero sin ningún indicio de con qué se completó). Bloquear evita que ese
+estado exista.
+
+**No se oculta el ítem "Eliminar" del menú** para este caso (dejar un
+control fuera sin explicación visible contradice la regla de accesibilidad
+general del documento, sección 8.2) — se muestra siempre, pero al
+tocarlo, si `item.isFirstHalf` y tiene pareja, se muestra un mensaje
+informativo **en vez de** abrir el `AlertDialog` de borrado:
+
+```ts
+toast('Esta mitad ya fue cerrada', {
+  description: 'Para deshacerla, eliminá la segunda mitad primero.',
+  duration: 6000,
+})
+```
+
+Chequeo puramente en cliente (`item.isFirstHalf === true` implica siempre
+que hay pareja, por construcción — una mitad original solo llega a `status
+= 'completo'` a través de haber sido cerrada, sección 1.2), sin necesidad de
+ningún guard adicional en el backend: no es un problema de seguridad ni de
+integridad de datos (el `on delete set null` ya deja la base en un estado
+válido si esto se sorteara), es una simplificación deliberada de UX.
+
+- **Editar hora de la original**: sí permitido, con la validación blanda de
+  (a) — bloquear el borrado no implica bloquear la edición de hora.
+- **Sin RPC nueva** para este último punto (d): la lógica es 100%
+  client-side (mostrar el toast en vez de abrir el diálogo).
+
+### 12.4 Resumen accionable para `supabase-backend-expert`
+
+1. **Sin cambios de esquema** — ninguna columna/tabla nueva, todo el modelo
+   de datos de la sección 1 queda igual.
+2. **RPC nueva**: `undo_close_half(p_closing_id uuid)` (sección 12.3.3.c) —
+   borra la mitad que cerró un par y revierte la original a `mitad_
+   pendiente`, atómico, `security definer`, validando dueño + `kind`/
+   `status`/`closes_cigarette_id` de la fila. Debe devolver un error
+   distinguible (código o mensaje reconocible, ej. `IRON_PENDING_HALF_
+   CONFLICT`) cuando el UPDATE de reversión choca contra el índice único
+   parcial de la sección 1.3, para que el cliente muestre el copy exacto de
+   12.3.3.c en vez de un error genérico.
+3. **Todo lo demás de este ajuste no requiere RPC**: el insert directo de
+   "media descartada" (12.1) reusa la policy de insert ya existente para
+   `iron_cigarettes`; los borrados/ediciones de 12.3.1/12.3.2/12.3.3.a-b/d
+   reusan `update`/`delete` simples ya cubiertos por las policies actuales
+   de `iron_cigarettes` (dueño = `auth.uid()`).
+
+### 12.5 Resumen accionable para `vue-frontend-expert`
+
+1. **`IronDashboardView.vue`**: nuevo control de un toque "Fumé la mitad y
+   no la termino" (sección 12.1), debajo del grid de accesos rápidos,
+   arriba de "Registrar cajetilla comprada". Requiere importar `CigaretteOff`
+   de `@lucide/vue` (ya usado en `IronHistoryView.vue`, no en este archivo
+   todavía).
+2. **`src/stores/iron.ts`**: nueva función (sugerido `logDiscardedHalf()`,
+   sección 12.1) que reusa el cuerpo de `logCigarette('mitad')` fijando
+   `status: 'descartada'` y sin tocar `pendingHalf`; nueva función
+   `undoClosePendingHalf(closingId: string)` (o nombre equivalente) que
+   llama al RPC `undo_close_half` (no optimista, sección 12.3.3.c) y sabe
+   distinguir el error de conflicto (`IRON_PENDING_HALF_CONFLICT` o
+   equivalente) para mostrar el copy exacto de 12.3.3.c en vez del genérico.
+3. **`IronHistoryView.vue`**:
+   - Agregar `DropdownMenu` "⋮" a `mitad_pendiente` (junto al botón
+     "Cerrar" existente, sin fusionarlos) y a `mitad_descartada` (sección
+     12.3.1/12.3.2) — ambos reusan `editCigaletteTime`/`deleteCigarette`
+     sin cambios y el `AlertDialog` genérico ya existente.
+   - **Retirar** el tipo `mitad_completa_mismo_dia` y unificarlo con
+     `mitad_completa_otro_dia` en un solo tipo `mitad_completa` (sección
+     12.3.3) — ajustar la lógica de construcción de `dayItems` (líneas
+     ~216-246 actuales) para que el caso "misma fecha" deje de fusionarse
+     y en su lugar calcule `sameDay`/`partnerTime`/`partnerDayLabel` por
+     ítem.
+   - Extender el Sheet mínimo de "Editar hora" para aceptar cualquier fila
+     de mitad (no solo `entero`) y, cuando la fila editada sea parte de un
+     `mitad_completa`, agregar la validación blanda de 12.3.3.a/b (compara
+     contra la fecha/hora de `partner`, ya disponible en memoria vía
+     `partners.value`/el `item` — sin query adicional).
+   - El botón/ítem "Eliminar" de una fila `mitad_completa` pasa por
+     `onDeleteHalfOfPair(item)` (función nueva sugerida) que ramifica: si
+     `item.isFirstHalf`, muestra el toast informativo de 12.3.3.d (nunca
+     abre `AlertDialog`); si no, abre el `AlertDialog` de 12.3.3.c y, al
+     confirmar, llama al nuevo RPC.
+   - Considerar generalizar el título del `AlertDialog` de borrado de
+     `"¿Eliminar este cigarrillo?"` a `"¿Eliminar este registro?"` (ya
+     usado tal cual en el copy nuevo de 12.3.1/12.3.2) para que el mismo
+     diálogo sirva para `entero` y para mitades sin sonar impreciso.

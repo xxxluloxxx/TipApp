@@ -1691,6 +1691,7 @@ export type Database = {
         }
         Returns: string
       }
+      undo_close_half: { Args: { p_closing_id: string }; Returns: undefined }
       update_account_transfer: {
         Args: {
           p_amount: number

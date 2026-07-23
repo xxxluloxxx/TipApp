@@ -16,7 +16,7 @@ import {
 import { toast } from 'vue-sonner'
 import { formatDateOnly, formatTimeShort, isFutureDate, parseDateOnly, todayDateInputValue } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
-import { dayNavigatorLabel, formatCigaretteCount, sumCigaretteUnits } from '@/lib/iron'
+import { dayNavigatorLabel, formatCigaretteCount, pendingSinceLabel, sumCigaretteUnits } from '@/lib/iron'
 import { useAccountsStore } from '@/stores/accounts'
 import { useIronStore, type IronCigarette, type IronPack } from '@/stores/iron'
 import AppHeader from '@/components/AppHeader.vue'
@@ -52,10 +52,11 @@ import {
 
 // iron-ux.md sección 5: historial navegable día a día, con un listado mixto
 // (compras + consumos) en un solo timeline cronológico (mismo criterio que el
-// tab Historial de /deudas). Edición/eliminación de la hora de un entero vía
-// menú "⋮"; cierre inline de una mitad pendiente. Las mitades no llevan menú
-// (sección 5.3: "sin menú en mitades" — si el usuario se equivocó, borra y
-// vuelve a registrar).
+// tab Historial de /deudas). Edición/eliminación de la hora vía menú "⋮".
+// Cierre inline de una mitad pendiente. Sección 12: todas las filas de mitad
+// llevan ahora menú "⋮" (editar hora / eliminar), con reglas específicas por
+// caso; las mitades completas se muestran siempre como 2 filas separadas
+// (sección 12.3.3), sin fusionar cuando caen el mismo día.
 
 const ironStore = useIronStore()
 const accountsStore = useAccountsStore()
@@ -145,23 +146,24 @@ interface SimpleMitadItem {
   id: string
   sortTime: string
   time: string
+  cigarette: IronCigarette
 }
-interface MitadMismoDiaItem {
-  type: 'mitad_completa_mismo_dia'
-  id: string
-  sortTime: string
-  firstTime: string
-  secondTime: string
-}
-interface MitadOtroDiaItem {
-  type: 'mitad_completa_otro_dia'
+// Sección 12.3.3: una mitad completa siempre se renderiza como su propia fila
+// (nunca fusionada), sea del mismo día o de otro. Cada fila lleva la referencia
+// a su pareja para el subtítulo cruzado y la validación blanda de edición.
+interface MitadCompletaItem {
+  type: 'mitad_completa'
   id: string
   sortTime: string
   time: string
   isFirstHalf: boolean
-  otherDayLabel: string
+  sameDay: boolean
+  partnerDate: string
+  partnerTime: string
+  partnerDayLabel: string
+  cigarette: IronCigarette
 }
-type DayItem = PackItem | EnteroItem | SimpleMitadItem | MitadMismoDiaItem | MitadOtroDiaItem
+type DayItem = PackItem | EnteroItem | SimpleMitadItem | MitadCompletaItem
 
 function accountNameFor(pack: IronPack): string | null {
   if (!pack.linked_expense_id) return null
@@ -205,43 +207,32 @@ const dayItems = computed<DayItem[]>(() => {
     }
     // kind === 'mitad'
     if (c.status === 'mitad_pendiente') {
-      items.push({ type: 'mitad_pendiente', id: c.id, sortTime: c.smoked_time, time: c.smoked_time })
+      items.push({ type: 'mitad_pendiente', id: c.id, sortTime: c.smoked_time, time: c.smoked_time, cigarette: c })
       continue
     }
     if (c.status === 'descartada') {
-      items.push({ type: 'mitad_descartada', id: c.id, sortTime: c.smoked_time, time: c.smoked_time })
+      items.push({ type: 'mitad_descartada', id: c.id, sortTime: c.smoked_time, time: c.smoked_time, cigarette: c })
       continue
     }
-    // status === 'completo'
+    // status === 'completo': sección 12.3.3 — SIEMPRE una fila propia por mitad
+    // (nunca fusionada). Si la pareja cayó el mismo día, ambas están en
+    // `cigarettes.value` y cada una emite su propia fila.
     const isFirstHalf = !c.closes_cigarette_id
     const partner = isFirstHalf
       ? closerByParent.get(c.id)
       : (c.closes_cigarette_id ? refById.get(c.closes_cigarette_id) : undefined)
 
-    if (partner && partner.smoked_date === selectedDate.value) {
-      // Ambas mitades el mismo día: fila fusionada, emitida una sola vez (al
-      // procesar la PRIMERA mitad; se saltea la segunda).
-      if (isFirstHalf) {
-        const [firstTime, secondTime] = [c.smoked_time, partner.smoked_time].sort()
-        items.push({
-          type: 'mitad_completa_mismo_dia',
-          id: c.id,
-          sortTime: firstTime!,
-          firstTime: firstTime!,
-          secondTime: secondTime!,
-        })
-      }
-      continue
-    }
-
-    // La otra parte cayó otro día (o falta): fila propia con referencia cruzada.
     items.push({
-      type: 'mitad_completa_otro_dia',
+      type: 'mitad_completa',
       id: c.id,
       sortTime: c.smoked_time,
       time: c.smoked_time,
       isFirstHalf,
-      otherDayLabel: partner ? dayNavigatorLabel(partner.smoked_date) : '',
+      sameDay: !!partner && partner.smoked_date === selectedDate.value,
+      partnerDate: partner?.smoked_date ?? '',
+      partnerTime: partner?.smoked_time ?? '',
+      partnerDayLabel: partner ? dayNavigatorLabel(partner.smoked_date) : '',
+      cigarette: c,
     })
   }
 
@@ -273,19 +264,47 @@ function onPackSaved() {
   void reload()
 }
 
-// --- Cigarrillo entero: editar hora ----------------------------------------
+// --- Editar hora (entero o cualquier mitad, sección 5.3 / 12.3.3.a-b) -------
 const isEditCigaretteSheetOpen = ref(false)
 const editingCigaretteId = ref<string | null>(null)
 const editForm = ref({ date: todayDateInputValue(), time: '' })
 const isSavingCigarette = ref(false)
-function openEditCigaretteSheet(cigarette: IronCigarette) {
+// Restricción blanda cuando la fila editada es parte de un par completo
+// (sección 12.3.3.a/b): no puede cruzar el horario de su pareja. `null` para
+// enteros y mitades sin pareja (sin restricción).
+const editPartnerBound = ref<{ date: string, time: string, isFirstHalf: boolean } | null>(null)
+
+function openEditCigaretteSheet(
+  cigarette: IronCigarette,
+  bound: { date: string, time: string, isFirstHalf: boolean } | null = null,
+) {
   editingCigaretteId.value = cigarette.id
   editForm.value = { date: cigarette.smoked_date, time: formatTimeShort(cigarette.smoked_time) }
+  // Sin pareja resuelta (edge defensivo) no hay restricción que aplicar.
+  editPartnerBound.value = bound && bound.date && bound.time ? bound : null
   isEditCigaretteSheetOpen.value = true
 }
+
+// Error de validación blanda (sección 12.3.3.a/b): comparación puramente en
+// cliente contra la fecha/hora de la pareja, con el mensaje exacto del doc.
+const editTimeError = computed(() => {
+  const bound = editPartnerBound.value
+  if (!bound || !editForm.value.date || !editForm.value.time) return ''
+  const edited = `${editForm.value.date} ${editForm.value.time}`
+  const partner = `${bound.date} ${formatTimeShort(bound.time)}`
+  if (bound.isFirstHalf && edited > partner) {
+    return `Fecha/hora no puede ser posterior a la de la segunda mitad (${pendingSinceLabel(bound.date, bound.time)}).`
+  }
+  if (!bound.isFirstHalf && edited < partner) {
+    return `Fecha/hora no puede ser anterior a la de la primera mitad (${pendingSinceLabel(bound.date, bound.time)}).`
+  }
+  return ''
+})
+
 async function saveCigaretteTime() {
   if (!editingCigaretteId.value || !editForm.value.date || !editForm.value.time) return
   if (isFutureDate(editForm.value.date)) return
+  if (editTimeError.value) return
   isSavingCigarette.value = true
   try {
     const ok = await ironStore.editCigaretteTime(editingCigaretteId.value, editForm.value.date, editForm.value.time)
@@ -317,6 +336,52 @@ async function onConfirmDeleteCigarette() {
     await reload()
   } finally {
     isDeletingCigarette.value = false
+  }
+}
+
+// --- Eliminar una mitad de un par completo (sección 12.3.3.c/d) -------------
+// Borrado asimétrico por rol: la mitad que CIERRA se puede eliminar (deshace el
+// cierre, la original vuelve a pendiente vía RPC); la mitad ORIGINAL no (solo
+// un toast informativo, nunca abre diálogo).
+const isUndoCloseDialogOpen = ref(false)
+const undoClosingId = ref<string | null>(null)
+const isUndoingClose = ref(false)
+
+function onDeleteHalfOfPair(item: MitadCompletaItem) {
+  if (item.isFirstHalf) {
+    // 12.3.3.d: la original ya fue cerrada — se bloquea el borrado directo.
+    toast('Esta mitad ya fue cerrada', {
+      description: 'Para deshacerla, eliminá la segunda mitad primero.',
+      duration: 6000,
+    })
+    return
+  }
+  undoClosingId.value = item.id
+  isUndoCloseDialogOpen.value = true
+}
+
+async function onConfirmUndoClose() {
+  if (!undoClosingId.value) return
+  isUndoingClose.value = true
+  try {
+    const result = await ironStore.undoClosePendingHalf(undoClosingId.value)
+    if (result === 'ok') {
+      toast.success('Cierre deshecho')
+      isUndoCloseDialogOpen.value = false
+      await reload()
+    } else if (result === 'conflict') {
+      // 12.3.3.c: el diálogo queda abierto para cancelar o reintentar luego.
+      toast.error('No pudimos deshacer este cierre: ya tenés otra mitad pendiente abierta.', {
+        description: 'Cerrala o descartala primero e intentá de nuevo.',
+      })
+    } else {
+      toast.error('No pudimos eliminar este registro', {
+        description: 'Revisá tu conexión e intentá de nuevo.',
+        action: { label: 'Reintentar', onClick: () => void onConfirmUndoClose() },
+      })
+    }
+  } finally {
+    isUndoingClose.value = false
   }
 }
 </script>
@@ -472,6 +537,21 @@ async function onConfirmDeleteCigarette() {
             <Button size="sm" class="h-11 shrink-0" @click="onClosePendingHalf(item.id)">
               Cerrar
             </Button>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button variant="ghost" size="icon" class="h-11 w-11 shrink-0" aria-label="Más opciones">
+                  <MoreVertical class="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem @select="openEditCigaretteSheet(item.cigarette)">
+                  Editar hora
+                </DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" @select="confirmDeleteCigarette(item.id)">
+                  Eliminar
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
           <!-- Mitad descartada -->
@@ -487,25 +567,25 @@ async function onConfirmDeleteCigarette() {
                 {{ formatTimeShort(item.time) }}
               </p>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button variant="ghost" size="icon" class="h-11 w-11" aria-label="Más opciones">
+                  <MoreVertical class="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem @select="openEditCigaretteSheet(item.cigarette)">
+                  Editar hora
+                </DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" @select="confirmDeleteCigarette(item.id)">
+                  Eliminar
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
 
-          <!-- Mitad completa: ambas partes el mismo día (fila fusionada) -->
-          <div v-else-if="item.type === 'mitad_completa_mismo_dia'" class="flex min-h-11 w-full items-center gap-3 px-4 py-3">
-            <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
-              <Cigarette class="size-4 text-muted-foreground" />
-            </span>
-            <div class="flex min-w-0 flex-1 flex-col">
-              <p class="text-sm font-medium">
-                1 cigarrillo (en 2 partes)
-              </p>
-              <p class="text-xs text-muted-foreground">
-                {{ formatTimeShort(item.firstTime) }} y {{ formatTimeShort(item.secondTime) }}
-              </p>
-            </div>
-          </div>
-
-          <!-- Mitad completa: la otra parte fue otro día -->
-          <div v-else-if="item.type === 'mitad_completa_otro_dia'" class="flex min-h-11 w-full items-center gap-3 px-4 py-3">
+          <!-- Mitad completa: siempre su propia fila (sección 12.3.3) -->
+          <div v-else-if="item.type === 'mitad_completa'" class="flex min-h-11 w-full items-center gap-3 px-4 py-3">
             <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted">
               <Cigarette class="size-4 text-muted-foreground" />
             </span>
@@ -514,12 +594,28 @@ async function onConfirmDeleteCigarette() {
                 {{ item.isFirstHalf ? 'Media' : 'Segunda mitad' }}
               </p>
               <p class="truncate text-xs text-muted-foreground">
-                {{ formatTimeShort(item.time) }}
-                <span v-if="item.otherDayLabel">
-                  · {{ item.isFirstHalf ? 'cerrada el' : 'empezada el' }} {{ item.otherDayLabel }}
-                </span>
+                {{ formatTimeShort(item.time) }} ·
+                {{ item.isFirstHalf ? 'cerrada' : 'empezada' }}
+                {{ item.sameDay ? `a las ${formatTimeShort(item.partnerTime)}` : `el ${item.partnerDayLabel}` }}
               </p>
             </div>
+            <DropdownMenu>
+              <DropdownMenuTrigger as-child>
+                <Button variant="ghost" size="icon" class="h-11 w-11" aria-label="Más opciones">
+                  <MoreVertical class="size-4" />
+                </Button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  @select="openEditCigaretteSheet(item.cigarette, { date: item.partnerDate, time: item.partnerTime, isFirstHalf: item.isFirstHalf })"
+                >
+                  Editar hora
+                </DropdownMenuItem>
+                <DropdownMenuItem variant="destructive" @select="onDeleteHalfOfPair(item)">
+                  Eliminar
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
           </div>
         </template>
       </div>
@@ -561,8 +657,12 @@ async function onConfirmDeleteCigarette() {
             />
           </div>
         </form>
+        <!-- Sección 12.3.3.a/b: validación blanda de orden temporal contra la pareja -->
+        <p v-if="editTimeError" class="px-4 text-xs text-destructive">
+          {{ editTimeError }}
+        </p>
         <SheetFooter>
-          <Button type="submit" form="edit-cigarette-form" class="h-11 w-full" :disabled="isSavingCigarette">
+          <Button type="submit" form="edit-cigarette-form" class="h-11 w-full" :disabled="isSavingCigarette || !!editTimeError">
             <Loader2 v-if="isSavingCigarette" class="size-4 animate-spin" />
             {{ isSavingCigarette ? 'Guardando…' : 'Guardar cambios' }}
           </Button>
@@ -573,7 +673,7 @@ async function onConfirmDeleteCigarette() {
     <AlertDialog v-model:open="isDeleteDialogOpen">
       <AlertDialogContent>
         <AlertDialogHeader>
-          <AlertDialogTitle>¿Eliminar este cigarrillo?</AlertDialogTitle>
+          <AlertDialogTitle>¿Eliminar este registro?</AlertDialogTitle>
           <AlertDialogDescription>
             Esta acción no se puede deshacer.
           </AlertDialogDescription>
@@ -585,6 +685,28 @@ async function onConfirmDeleteCigarette() {
           <Button variant="destructive" :disabled="isDeletingCigarette" @click="onConfirmDeleteCigarette">
             <Loader2 v-if="isDeletingCigarette" class="size-4 animate-spin" />
             {{ isDeletingCigarette ? 'Eliminando…' : 'Eliminar' }}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+
+    <!-- Sección 12.3.3.c: eliminar la mitad que cierra un par (deshace el cierre) -->
+    <AlertDialog v-model:open="isUndoCloseDialogOpen">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar esta mitad?</AlertDialogTitle>
+          <AlertDialogDescription>
+            La mitad original va a volver a quedar pendiente, como si todavía no
+            la hubieras terminado. Esta acción no se puede deshacer.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="isUndoingClose">
+            Cancelar
+          </AlertDialogCancel>
+          <Button variant="destructive" :disabled="isUndoingClose" @click="onConfirmUndoClose">
+            <Loader2 v-if="isUndoingClose" class="size-4 animate-spin" />
+            {{ isUndoingClose ? 'Eliminando…' : 'Eliminar' }}
           </Button>
         </AlertDialogFooter>
       </AlertDialogContent>

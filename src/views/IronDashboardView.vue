@@ -5,6 +5,7 @@ import {
   AlertCircle,
   ChevronRight,
   Cigarette,
+  CigaretteOff,
   Clock,
   Package,
   RotateCcw,
@@ -75,6 +76,18 @@ function logHalf() {
   const res = ironStore.logCigarette('mitad')
   if (!res) return
   toast('Media registrada', {
+    duration: 5000,
+    action: { label: 'Deshacer', onClick: () => ironStore.undoLog(res.tempId) },
+  })
+}
+
+// Sección 12.1: registrar una media que no se termina, en un solo toque.
+// Siempre habilitada (nace en `status = 'descartada'`, sin conflicto con el
+// índice de mitad pendiente); mismo patrón "Deshacer" que los otros registros.
+function logDiscardedHalf() {
+  const res = ironStore.logDiscardedHalf()
+  if (!res) return
+  toast('Media registrada (no terminada)', {
     duration: 5000,
     action: { label: 'Deshacer', onClick: () => ironStore.undoLog(res.tempId) },
   })
@@ -199,6 +212,16 @@ function openPackSheet() {
           <p v-if="pendingHalf" class="text-center text-xs text-muted-foreground">
             Cerrá la mitad pendiente de arriba antes de empezar una nueva.
           </p>
+
+          <!-- Sección 12.1: acción de un toque, peso visual menor que los botones de arriba -->
+          <button
+            type="button"
+            class="mx-auto flex min-h-11 items-center gap-2 rounded-md px-3 text-sm text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+            @click="logDiscardedHalf"
+          >
+            <CigaretteOff class="size-4" />
+            Fumé la mitad y no la termino
+          </button>
 
           <Button variant="outline" class="h-11 w-full" @click="openPackSheet">
             <Package class="size-4" />
