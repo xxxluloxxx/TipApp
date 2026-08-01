@@ -300,6 +300,31 @@ duplicación en sección 3.6). Layout idéntico al de "Resumen por categoría"
 de `HomeView.vue` (dona + lista de leyenda con nombre/monto/%, sección 2.3 de
 `dashboard-redesign-ux.md`) — no reinventar el layout.
 
+### 3.4.1 Dona "Ingresos por categoría" (agregado con las categorías de ingreso)
+
+Card **gemela** de la de 3.4, ubicada **inmediatamente debajo** (no al lado):
+la vista es de una sola columna (`max-w-2xl`, mobile-first) y poner dos donas
+en fila comprimiría ambas leyendas por debajo del umbral legible en 360px.
+Mismo `CategoryDonutChart` + `buildDonutSlices()` sin ninguna variante — el
+contrato `CategoryTotal` es idéntico, así que se reusa literal.
+
+- Fuente: `incomes` del `selectedMonth`, con el embed
+  `category:categories(id, name, color)`, agrupadas por
+  `summarizeIncomeCategories()` de `src/lib/reportInsights.ts` (hermana de
+  `summarizeCategories`, comparten el mismo núcleo privado de agrupación —
+  no se duplicó la lógica).
+- **Ingresos sin categoría: se omiten**, exactamente igual que
+  `summarizeCategories` hace con los gastos sin categoría (`if (!category)
+  continue`). Es un criterio deliberado de consistencia, con una consecuencia
+  conocida: en un mes con ingresos históricos sin categorizar, la suma de la
+  dona es menor al tile "Total ingresos". El tile sigue siendo la fuente de
+  verdad del total; la dona responde "de lo que clasificaste, en qué se
+  reparte".
+- La Card entera se oculta si no hay **ningún** ingreso categorizado en el mes
+  (no se muestra una dona vacía ni un bucket sintético).
+- El tile "Total ingresos" (3.2) y el gráfico de 6 meses (3.3) **no cambian**:
+  siguen sumando todos los ingresos, categorizados o no.
+
 ### 3.5 "Top gastos"
 
 Lista corta (**top 5**) de los gastos individuales más grandes del mes
@@ -494,11 +519,34 @@ criterio de "toda la info accesible ya es texto real", nada depende de
 posición visual sola. Ordenado por monto desc, igual que "Gastos por
 categoría" ya hace.
 
+### 4.6.1 "Ingresos por categoría" (agregado con las categorías de ingreso)
+
+Tabla **análoga a 4.6**, misma card-list de 4 columnas
+(`grid-cols-[1fr_auto_auto_auto]`), mismo encabezado explícito
+`Categoría / Cant. / Monto / %`, mismo orden por monto desc. Diferencias:
+
+- Fuente: `incomes` del mes (embed `category:categories(id, name, color,
+  icon)`), no `expenses`. El `%` es sobre el total de **ingresos** del mes.
+- El monto va en `text-success` (es plata que entra); el de gastos queda
+  neutro como estaba.
+- **Sí** hay bucket sintético "Sin categoría" para los ingresos
+  históricos sin categorizar — a diferencia de la dona de 3.4.1, que los
+  omite. No es una inconsistencia: esta tabla es un **desglose completo** del
+  total del mes (si se omitieran filas, los % no sumarían 100%), mientras que
+  la dona es un top-N ilustrativo. Es exactamente el mismo criterio que 4.6
+  ya aplicaba a los gastos sin categoría.
+- La Card se oculta si el mes no tiene ningún ingreso.
+
+Ambas tablas comparten un único helper local de agrupación en la vista
+(`summarizeByCategory`), parametrizado por filas + total — no se duplicó.
+
 ### 4.7 Estados de carga/vacío/error
 
 Mismo patrón que Pantalla 1 (sección 3.7) — Skeleton por sección mientras
 carga, `AlertCircle`+"Reintentar" en error, mensaje vacío honesto si el mes
-no tiene ningún `expense`/`card_expense`.
+no tiene ningún `expense`/`card_expense`/`income` (el vacío pasó a incluir
+ingresos al agregarse 4.6.1: el copy es "Sin movimientos en {mes}", ya no
+"Sin gastos en {mes}").
 
 ---
 

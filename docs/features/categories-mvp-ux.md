@@ -111,6 +111,45 @@ segundo nivel", no la raíz):
 
 ## 2. Listado de categorías
 
+### 2.0 Tabs Gastos / Ingresos (agregado en la iteración de categorías de ingreso)
+
+Desde que `categories` tiene columna `kind` (`'expense' | 'income'`), la
+pantalla maneja **dos universos disjuntos** de categorías. Se resuelven con un
+**segmentado de 2 tabs arriba de todo**, no con dos pantallas separadas ni con
+un filtro dentro del formulario:
+
+- Control: `role="radiogroup"` con 2 botones `role="radio"`, en una píldora
+  `bg-muted p-1.5 rounded-lg`; el ítem activo va `bg-background` +
+  `shadow-[var(--shadow-card)]`. Es **exactamente** el patrón del selector de
+  Tema de `/ajustes` (theme-toggle-ux.md), reusado a propósito: ya está
+  validado en el proyecto y no introduce un tercer estilo de toggle.
+- Cada tab lleva **ícono + texto**, nunca color solo: `CircleArrowUp` +
+  "Gastos" (activo en `text-destructive`) y `CircleArrowDown` + "Ingresos"
+  (activo en `text-success`) — mismos íconos y misma semántica de color que el
+  toggle Gasto/Ingreso de `TransactionFormSheet`, para que "flecha arriba
+  roja = gasto" signifique lo mismo en toda la app (requisito CVD, ver
+  sección 8).
+- Altura mínima 44px por tab (área táctil), grid de 2 columnas a ancho
+  completo.
+- La tab activa **filtra ambas listas** de abajo ("Categorías predeterminadas"
+  y "Mis categorías"): con "Gastos" se ven las `kind='expense'` (las 10
+  default históricas + las custom de gasto); con "Ingresos", las
+  `kind='income'` (Sueldo 💵, Capitalización de intereses 📈, Otros 🪙 +
+  las custom de ingreso).
+- La tab activa es además **el único lugar donde se decide el `kind` de una
+  categoría nueva**: el formulario de alta NO tiene un campo "Tipo". Se crea
+  con el kind de la tab desde la que se tocó "Nueva categoría", y ese kind
+  **no se puede cambiar después** (cambiarlo dejaría inconsistentes los
+  movimientos ya imputados; en edición el Sheet lo muestra en el título
+  —"Editar categoría de ingreso"— pero no lo ofrece como campo).
+- El estado de la tab es local a la pantalla (no se persiste): siempre abre
+  en "Gastos", que es el caso dominante.
+
+Nota de nomenclatura: "Otros" existe **dos veces** (una por kind) y es
+correcto — los índices únicos de `categories` incluyen `kind` en la clave, y
+la validación de nombre duplicado del formulario también está acotada al kind
+activo.
+
 Contenedor: `px-4 sm:px-6 lg:px-8`, ancho `max-w-2xl mx-auto` (una lista de
 ajustes no necesita ancho completo en pantallas grandes). Dos secciones,
 cada una un `Card` que envuelve una lista de filas separadas por
@@ -580,7 +619,21 @@ para v1.
 
 ---
 
-## 6. Borrar categoría con gastos asociados
+## 6. Borrar categoría con movimientos asociados
+
+> **Actualización (categorías de ingreso):** el conteo de uso que gobierna
+> esta sección **depende del `kind`**: para una categoría `kind='expense'`
+> cuenta filas de `expenses`; para una `kind='income'`, filas de `incomes`
+> (nunca las dos mezcladas — una categoría solo puede ser referenciada por su
+> propio tipo de movimiento, lo garantiza el trigger de validación de
+> `incomes.category_id`). Se resuelve en una sola query agregada
+> (`categories?select=id,kind,expenses(count),incomes(count)`) y se elige el
+> agregado que corresponde. La etiqueta de la fila cambia de sustantivo en
+> consecuencia: `Sin gastos`/`{n} gastos` en la tab Gastos, `Sin ingresos`/
+> `{n} ingresos` en la tab Ingresos. Todo lo demás (deshabilitar proactivo,
+> backstop `23503`, no reasignar) queda igual; donde abajo dice "gastos", leer
+> "movimientos del tipo que corresponda".
+
 
 **Decisión: se confirma la sugerencia de bloquear el borrado desde la UI,
 de forma proactiva (deshabilitando la acción) en vez de reactiva (dejar

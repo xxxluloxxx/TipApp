@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
+import { computed, onMounted, ref } from 'vue'
 import {
   AlertCircle,
+  CircleArrowDown,
+  CircleArrowUp,
   EllipsisVertical,
   Pencil,
   Plus,
@@ -10,7 +12,7 @@ import {
   Trash2,
 } from '@lucide/vue'
 import { withAlpha } from '@/lib/colors'
-import { useCategoriesStore, type Category } from '@/stores/categories'
+import { useCategoriesStore, type Category, type CategoryKind } from '@/stores/categories'
 import AppHeader from '@/components/AppHeader.vue'
 import CategoryFormSheet from '@/components/CategoryFormSheet.vue'
 import { Button } from '@/components/ui/button'
@@ -49,7 +51,7 @@ async function loadAll() {
   try {
     const [categoriesOk, countsOk] = await Promise.all([
       categoriesStore.fetchCategories(),
-      categoriesStore.fetchExpenseCounts(),
+      categoriesStore.fetchUsageCounts(),
     ])
     if (!categoriesOk || !countsOk) loadError.value = true
   } finally {
@@ -59,8 +61,23 @@ async function loadAll() {
 
 onMounted(loadAll)
 
+// Sección 2.0: tab activa Gastos/Ingresos. Es el ÚNICO lugar donde se decide
+// el `kind` con el que se crea una categoría nueva (el formulario no lo
+// pregunta), además de filtrar ambas listas.
+const activeKind = ref<CategoryKind>('expense')
+const isIncomeTab = computed(() => activeKind.value === 'income')
+
+const visibleDefaults = computed(() => categoriesStore.defaultCategoriesFor(activeKind.value))
+const visibleCustoms = computed(() => categoriesStore.customCategoriesFor(activeKind.value))
+
+// El conteo de uso de una categoría de ingreso cuenta filas de `incomes`
+// (`fetchUsageCounts`), así que la etiqueta también cambia de sustantivo.
 function usageLabel(categoryId: string): string {
   const count = categoriesStore.countFor(categoryId)
+  if (isIncomeTab.value) {
+    if (count === 0) return 'Sin ingresos'
+    return count === 1 ? '1 ingreso' : `${count} ingresos`
+  }
   if (count === 0) return 'Sin gastos'
   return count === 1 ? '1 gasto' : `${count} gastos`
 }
@@ -84,6 +101,47 @@ function openEditSheet(category: Category) {
     <AppHeader title="Categorías" />
 
     <main class="mx-auto flex max-w-2xl flex-col gap-6 px-4 py-6 sm:px-6 lg:px-8">
+      <!-- Sección 2.0: segmentado Gastos/Ingresos. Mismo patrón visual que el
+           selector de Tema de /ajustes (radiogroup dentro de una píldora
+           `bg-muted`, ítem activo en `bg-background` + sombra de card) y mismos
+           íconos/semántica de color que el toggle de TransactionFormSheet
+           (ingreso = flecha hacia abajo/success, gasto = flecha hacia arriba/
+           destructive). El color nunca es el único indicador: cada tab lleva
+           ícono + texto. -->
+      <div
+        v-if="!loadError"
+        role="radiogroup"
+        aria-label="Tipo de categorías"
+        class="grid grid-cols-2 gap-1.5 rounded-lg bg-muted p-1.5"
+      >
+        <button
+          type="button"
+          role="radio"
+          :aria-checked="activeKind === 'expense'"
+          class="flex min-h-11 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          :class="activeKind === 'expense'
+            ? 'bg-background text-destructive shadow-[var(--shadow-card)]'
+            : 'text-muted-foreground hover:text-foreground'"
+          @click="activeKind = 'expense'"
+        >
+          <CircleArrowUp class="size-4 shrink-0" />
+          Gastos
+        </button>
+        <button
+          type="button"
+          role="radio"
+          :aria-checked="activeKind === 'income'"
+          class="flex min-h-11 items-center justify-center gap-2 rounded-md text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          :class="activeKind === 'income'
+            ? 'bg-background text-success shadow-[var(--shadow-card)]'
+            : 'text-muted-foreground hover:text-foreground'"
+          @click="activeKind = 'income'"
+        >
+          <CircleArrowDown class="size-4 shrink-0" />
+          Ingresos
+        </button>
+      </div>
+
       <!-- Estado de carga (sección 7.1) -->
       <template v-if="isInitialLoading">
         <Card>
@@ -155,7 +213,7 @@ function openEditSheet(category: Category) {
           </CardHeader>
 
           <div class="flex flex-col">
-            <template v-for="(category, idx) in categoriesStore.defaultCategories" :key="category.id">
+            <template v-for="(category, idx) in visibleDefaults" :key="category.id">
               <Separator v-if="idx > 0" />
               <div class="flex items-center gap-3 px-4 py-3">
                 <span
@@ -181,7 +239,7 @@ function openEditSheet(category: Category) {
             <CardTitle class="text-xs font-medium uppercase tracking-wide text-muted-foreground">
               Mis categorías
             </CardTitle>
-            <CardAction v-if="categoriesStore.customCategories.length">
+            <CardAction v-if="visibleCustoms.length">
               <Button variant="outline" @click="openAddSheet">
                 <Plus class="size-4" />
                 Nueva categoría
@@ -190,8 +248,8 @@ function openEditSheet(category: Category) {
           </CardHeader>
 
           <!-- Sección 2.2 -->
-          <div v-if="categoriesStore.customCategories.length" class="flex flex-col">
-            <template v-for="(category, idx) in categoriesStore.customCategories" :key="category.id">
+          <div v-if="visibleCustoms.length" class="flex flex-col">
+            <template v-for="(category, idx) in visibleCustoms" :key="category.id">
               <Separator v-if="idx > 0" />
               <div class="flex items-center gap-3 px-4 py-3">
                 <span
@@ -262,7 +320,7 @@ function openEditSheet(category: Category) {
               Todavía no creaste categorías propias.
             </p>
             <p class="mx-auto max-w-[220px] text-center text-xs text-muted-foreground">
-              Creá una para organizar tus gastos como quieras.
+              Creá una para organizar tus {{ isIncomeTab ? 'ingresos' : 'gastos' }} como quieras.
             </p>
             <Button variant="outline" @click="openAddSheet">
               <Plus class="size-4" />
@@ -273,6 +331,6 @@ function openEditSheet(category: Category) {
       </template>
     </main>
 
-    <CategoryFormSheet v-model:open="isSheetOpen" :category="editingCategory" />
+    <CategoryFormSheet v-model:open="isSheetOpen" :category="editingCategory" :kind="activeKind" />
   </div>
 </template>

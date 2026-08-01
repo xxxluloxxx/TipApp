@@ -121,6 +121,10 @@ function preventCloseWhileSaving(event: Event) {
   if (isSaving.value) event.preventDefault()
 }
 
+/** Ver comentario en `submitRecordMode`: hoy no hay categoría de ingreso para
+ * un ajuste de saldo, así que el ingreso generado va sin categorizar. */
+const incomeAdjustmentCategoryId: string | null = null
+
 function submitRecordMode(currentDiff: number) {
   // Sección 5.3, opción 1: crear un gasto o ingreso por la diferencia.
   if (currentDiff < 0) {
@@ -142,6 +146,15 @@ function submitRecordMode(currentDiff: number) {
     incomesStore.addIncome({
       amount: currentDiff,
       accountId: props.account.id,
+      // Los ingresos se categorizan desde la iteración de categorías de
+      // ingreso, pero NO existe una categoría default `kind='income'`
+      // equivalente a "Ajuste de saldo" (solo se sembró la de gasto). Se
+      // manda `null` a propósito — `incomes.category_id` es nullable y la
+      // fila se muestra como "Sin categoría", que es más honesto que
+      // imputarla a "Otros" y ensuciar el reporte de ingresos reales. Si el
+      // backend siembra una categoría de ingreso "Ajuste de saldo", este es
+      // el único lugar a cambiar (mismo lookup por nombre de arriba).
+      categoryId: incomeAdjustmentCategoryId,
       description: null,
       incomeDate: todayDateInputValue(),
       incomeTime: null,

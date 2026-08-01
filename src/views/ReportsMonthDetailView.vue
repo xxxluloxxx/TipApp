@@ -48,6 +48,16 @@ interface ExpenseRow {
   category: { id: string, name: string, color: string | null, icon: string | null } | null
 }
 
+interface IncomeRow {
+  amount: number
+  income_date: string
+  description: string | null
+  /** Nullable: `incomes.category_id` es opcional y los ingresos históricos no
+   * la tienen. La tabla de abajo los agrupa en el bucket "Sin categoría",
+   * mismo criterio que ya usa `transactionsSummary` para los gastos. */
+  category: { id: string, name: string, color: string | null, icon: string | null } | null
+}
+
 interface CardRef {
   id: string
   name: string
@@ -66,6 +76,7 @@ const selectedMonth = ref(monthKey(new Date()))
 
 const cardExpenses = ref<CardExpenseRow[]>([])
 const expenses = ref<ExpenseRow[]>([])
+const incomes = ref<IncomeRow[]>([])
 const cards = ref<CardRef[]>([])
 const people = ref<PersonRef[]>([])
 
@@ -98,8 +109,11 @@ const monthLabel = computed(() => currentMonthLabel(monthFromKey(selectedMonth.v
 
 const cardExpensesTotal = computed(() => cardExpenses.value.reduce((sum, row) => sum + row.amount, 0))
 const accountExpensesTotal = computed(() => expenses.value.reduce((sum, row) => sum + row.amount, 0))
+const incomesTotal = computed(() => incomes.value.reduce((sum, row) => sum + row.amount, 0))
 
-const hasActivity = computed(() => cardExpenses.value.length > 0 || expenses.value.length > 0)
+const hasActivity = computed(
+  () => cardExpenses.value.length > 0 || expenses.value.length > 0 || incomes.value.length > 0,
+)
 
 function percentLabelOf(amount: number, total: number): string {
   return total === 0 ? '0%' : `${Math.round((amount / total) * 100)}%`
@@ -187,31 +201,53 @@ const topExpenses = computed(() =>
     })),
 )
 
-// "Resumen de transacciones" (4.6): expenses agrupados por categoría, con
-// cantidad de transacciones, ordenados por monto desc.
-const transactionsSummary = computed(() => {
-  const totals = new Map<string, { categoryId: string, categoryName: string, color: string | null, amount: number, count: number }>()
-  for (const expense of expenses.value) {
-    const category = expense.category
+interface CategorySummaryRow {
+  categoryId: string
+  categoryName: string
+  color: string | null
+  amount: number
+  count: number
+}
+
+// Agrupación por categoría compartida por la tabla de gastos (4.6) y la de
+// ingresos: filas sin categoría caen en un único bucket sintético
+// "Sin categoría" (a diferencia de `summarizeCategories` en reportInsights, que
+// las omite — acá la tabla es un desglose completo del total del mes y omitir
+// filas dejaría los % sin sumar 100%). Criterio preexistente de esta vista, se
+// mantiene igual para ambos tipos.
+function summarizeByCategory(
+  rows: Array<{ amount: number, category: { id: string, name: string, color: string | null } | null }>,
+  total: number,
+) {
+  const totals = new Map<string, CategorySummaryRow>()
+  for (const row of rows) {
+    const category = row.category
     const key = category?.id ?? 'uncategorized'
     const existing = totals.get(key)
     if (existing) {
-      existing.amount += expense.amount
+      existing.amount += row.amount
       existing.count += 1
     } else {
       totals.set(key, {
         categoryId: key,
         categoryName: category?.name ?? 'Sin categoría',
         color: category?.color ?? null,
-        amount: expense.amount,
+        amount: row.amount,
         count: 1,
       })
     }
   }
   return [...totals.values()]
     .sort((a, b) => b.amount - a.amount)
-    .map(row => ({ ...row, percentLabel: percentLabelOf(row.amount, accountExpensesTotal.value) }))
-})
+    .map(row => ({ ...row, percentLabel: percentLabelOf(row.amount, total) }))
+}
+
+// "Resumen de transacciones" (4.6): expenses agrupados por categoría, con
+// cantidad de transacciones, ordenados por monto desc.
+const transactionsSummary = computed(() => summarizeByCategory(expenses.value, accountExpensesTotal.value))
+
+// "Ingresos por categoría": tabla análoga a la de gastos, sobre `incomes`.
+const incomesSummary = computed(() => summarizeByCategory(incomes.value, incomesTotal.value))
 
 async function loadDetail(): Promise<void> {
   loadError.value = false
@@ -220,7 +256,7 @@ async function loadDetail(): Promise<void> {
   const range = monthRange(selectedMonth.value)
 
   try {
-    const [cardExpensesRes, expensesRes, cardsRes, peopleRes] = await Promise.all([
+    const [cardExpensesRes, expensesRes, incomesRes, cardsRes, peopleRes] = await Promise.all([
       supabase
         .from('card_expenses')
         .select('amount, card_id, person_id, expense_date')
@@ -234,17 +270,25 @@ async function loadDetail(): Promise<void> {
         .lt('expense_date', range.nextKey)
         .order('expense_date', { ascending: false })
         .limit(1000),
+      supabase
+        .from('incomes')
+        .select('amount, income_date, description, category:categories(id, name, color, icon)')
+        .gte('income_date', range.startKey)
+        .lt('income_date', range.nextKey)
+        .order('income_date', { ascending: false })
+        .limit(1000),
       supabase.from('credit_cards').select('id, name, color'),
       supabase.from('card_people').select('id, name, color'),
     ])
 
-    if (cardExpensesRes.error || expensesRes.error || cardsRes.error || peopleRes.error) {
+    if (cardExpensesRes.error || expensesRes.error || incomesRes.error || cardsRes.error || peopleRes.error) {
       loadError.value = true
       return
     }
 
     cardExpenses.value = (cardExpensesRes.data ?? []) as unknown as CardExpenseRow[]
     expenses.value = (expensesRes.data ?? []) as unknown as ExpenseRow[]
+    incomes.value = (incomesRes.data ?? []) as unknown as IncomeRow[]
     cards.value = (cardsRes.data ?? []) as CardRef[]
     people.value = (peopleRes.data ?? []) as PersonRef[]
   } finally {
@@ -344,11 +388,11 @@ onMounted(loadDetail)
         <div class="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
           <FileText class="size-12 text-muted-foreground" />
           <h2 class="text-lg font-semibold">
-            Sin gastos en {{ monthLabel }}
+            Sin movimientos en {{ monthLabel }}
           </h2>
           <p class="max-w-xs text-sm text-muted-foreground">
-            Cuando registres gastos de cuenta o de tarjeta, el detalle del mes se
-            va a completar automáticamente.
+            Cuando registres gastos de cuenta o de tarjeta, o ingresos, el detalle
+            del mes se va a completar automáticamente.
           </p>
         </div>
       </template>
@@ -482,6 +526,34 @@ onMounted(loadDetail)
               </div>
               <span class="w-8 text-right text-xs text-muted-foreground tabular-nums">{{ row.count }}</span>
               <span class="tabular-nums">${{ formatAmount(row.amount) }}</span>
+              <span class="w-10 text-right text-xs text-muted-foreground">{{ row.percentLabel }}</span>
+            </div>
+          </div>
+        </Card>
+
+        <!-- Ingresos por categoría: tabla análoga a "Resumen de transacciones",
+             mismas 4 columnas y mismo bucket "Sin categoría" para los ingresos
+             históricos sin categorizar. -->
+        <Card v-if="incomesSummary.length">
+          <CardHeader>
+            <CardTitle class="text-base font-semibold">
+              Ingresos por categoría
+            </CardTitle>
+          </CardHeader>
+          <div class="flex flex-col gap-2 px-6 pb-6">
+            <div class="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 text-xs uppercase text-muted-foreground">
+              <span>Categoría</span>
+              <span class="w-8 text-right">Cant.</span>
+              <span class="text-right">Monto</span>
+              <span class="w-10 text-right">%</span>
+            </div>
+            <div v-for="row in incomesSummary" :key="row.categoryId" class="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 text-sm">
+              <div class="flex min-w-0 items-center gap-2">
+                <span class="size-2.5 shrink-0 rounded-full" :style="{ background: row.color ?? 'hsl(var(--muted-foreground))' }" />
+                <span class="truncate font-medium">{{ row.categoryName }}</span>
+              </div>
+              <span class="w-8 text-right text-xs text-muted-foreground tabular-nums">{{ row.count }}</span>
+              <span class="tabular-nums text-success">${{ formatAmount(row.amount) }}</span>
               <span class="w-10 text-right text-xs text-muted-foreground">{{ row.percentLabel }}</span>
             </div>
           </div>

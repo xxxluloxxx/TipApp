@@ -7,11 +7,20 @@ import { supabase } from '@/lib/supabase'
 import { useAccountsStore } from '@/stores/accounts'
 import type { Account } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
+import { useCategoriesStore } from '@/stores/categories'
+import type { Category } from '@/stores/categories'
 import type { DateAccountFilter } from '@/stores/expenses'
 import type { Tables } from '@/types/database.types'
 
 export type IncomeWithAccount = Tables<'incomes'> & {
   account: Account
+  /** Categoría de ingreso embebida (`category:categories(*)`), análoga a
+   * `ExpenseWithCategory.category` pero **nullable**: `incomes.category_id`
+   * es opcional en BD y todos los ingresos históricos (anteriores a esta
+   * feature) la tienen en `null`. Los consumidores DEBEN degradar sin romper
+   * ("Sin categoría"), nunca asumir que existe — la app no tiene error
+   * boundary, así que un `.name` sobre `null` tumba toda la pantalla. */
+  category: Category | null
   /** Marca local "insertado/editado optimistamente, esperando confirmación
    * del servidor" — mismo criterio que `ExpenseWithCategory._pending`. */
   _pending?: boolean
@@ -20,6 +29,10 @@ export type IncomeWithAccount = Tables<'incomes'> & {
 export interface IncomePayload {
   amount: number
   accountId: string
+  /** Categoría de ingreso (`kind='income'`). Obligatoria en el formulario
+   * desde esta iteración, pero el tipo la deja nullable porque la columna en
+   * BD lo es (ingresos históricos sin categoría). */
+  categoryId: string | null
   description: string | null
   incomeDate: string
   /** transaction-time-ux.md: hora opcional `"HH:MM"` (o `null` si el usuario
@@ -62,7 +75,7 @@ export const useIncomesStore = defineStore('incomes', () => {
 
     const { data, error: fetchError } = await supabase
       .from('incomes')
-      .select('*, account:accounts(*)')
+      .select('*, account:accounts(*), category:categories(*)')
       .order('income_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(MAX_INCOMES)
@@ -84,7 +97,7 @@ export const useIncomesStore = defineStore('incomes', () => {
   async function fetchRecentForAccount(accountId: string, limit = 10): Promise<IncomeWithAccount[] | null> {
     const { data, error: fetchError } = await supabase
       .from('incomes')
-      .select('*, account:accounts(*)')
+      .select('*, account:accounts(*), category:categories(*)')
       .eq('account_id', accountId)
       .order('income_date', { ascending: false })
       .order('created_at', { ascending: false })
@@ -106,7 +119,7 @@ export const useIncomesStore = defineStore('incomes', () => {
   async function fetchFiltered(filter: DateAccountFilter, limit = MAX_INCOMES): Promise<IncomeWithAccount[] | null> {
     let query = supabase
       .from('incomes')
-      .select('*, account:accounts(*)')
+      .select('*, account:accounts(*), category:categories(*)')
       .order('income_date', { ascending: false })
       .order('created_at', { ascending: false })
       .limit(limit)
@@ -153,7 +166,16 @@ export const useIncomesStore = defineStore('incomes', () => {
     const accountsStore = useAccountsStore()
     const account = accountsStore.accountById(payload.accountId)
     const authStore = useAuthStore()
+    const categoriesStore = useCategoriesStore()
     const userId = authStore.user?.id
+    // La categoría se resuelve del store ya cargado para poder armar la fila
+    // optimista completa (mismo mecanismo que `expenses.ts`). Si el id viniera
+    // sin match (store no cargado), se cae a `null` — la fila se muestra "Sin
+    // categoría" hasta que el `select()` del insert la reemplace por la real,
+    // en vez de bloquear el alta.
+    const category = payload.categoryId
+      ? (categoriesStore.categoryById(payload.categoryId) ?? null)
+      : null
 
     if (!account || !userId) {
       toast.error('No se pudo guardar el ingreso', {
@@ -168,6 +190,7 @@ export const useIncomesStore = defineStore('incomes', () => {
       id: tempId,
       amount: payload.amount,
       account_id: payload.accountId,
+      category_id: payload.categoryId,
       description: payload.description,
       income_date: payload.incomeDate,
       income_time: payload.incomeTime,
@@ -175,6 +198,7 @@ export const useIncomesStore = defineStore('incomes', () => {
       created_at: nowIso,
       updated_at: nowIso,
       account,
+      category,
       _pending: true,
     }
 
@@ -192,12 +216,13 @@ export const useIncomesStore = defineStore('incomes', () => {
         .insert({
           amount: payload.amount,
           account_id: payload.accountId,
+          category_id: payload.categoryId,
           description: payload.description,
           income_date: payload.incomeDate,
           income_time: payload.incomeTime,
           user_id: userId,
         })
-        .select('*, account:accounts(*)')
+        .select('*, account:accounts(*), category:categories(*)')
         .single()
 
       if (insertError || !data) {
@@ -232,19 +257,26 @@ export const useIncomesStore = defineStore('incomes', () => {
   /** Edición optimista, mismo patrón que `updateExpense`. */
   function updateIncome(id: string, payload: IncomePayload, targets: Ref<IncomeWithAccount[]>[] = []): void {
     const accountsStore = useAccountsStore()
+    const categoriesStore = useCategoriesStore()
     const previous = incomes.value.find(income => income.id === id)
       ?? targets.map(t => t.value.find(income => income.id === id)).find(Boolean)
     const account = accountsStore.accountById(payload.accountId)
     if (!previous || !account) return
 
+    const category = payload.categoryId
+      ? (categoriesStore.categoryById(payload.categoryId) ?? null)
+      : null
+
     const optimistic: IncomeWithAccount = {
       ...previous,
       amount: payload.amount,
       account_id: payload.accountId,
+      category_id: payload.categoryId,
       description: payload.description,
       income_date: payload.incomeDate,
       income_time: payload.incomeTime,
       account,
+      category,
       _pending: true,
     }
 
@@ -263,12 +295,13 @@ export const useIncomesStore = defineStore('incomes', () => {
         .update({
           amount: payload.amount,
           account_id: payload.accountId,
+          category_id: payload.categoryId,
           description: payload.description,
           income_date: payload.incomeDate,
           income_time: payload.incomeTime,
         })
         .eq('id', id)
-        .select('*, account:accounts(*)')
+        .select('*, account:accounts(*), category:categories(*)')
         .single()
 
       if (updateError || !data) {

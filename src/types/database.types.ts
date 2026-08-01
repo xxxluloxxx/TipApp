@@ -426,6 +426,7 @@ export type Database = {
           created_at: string
           icon: string | null
           id: string
+          kind: string
           name: string
           user_id: string | null
         }
@@ -434,6 +435,7 @@ export type Database = {
           created_at?: string
           icon?: string | null
           id?: string
+          kind?: string
           name: string
           user_id?: string | null
         }
@@ -442,6 +444,7 @@ export type Database = {
           created_at?: string
           icon?: string | null
           id?: string
+          kind?: string
           name?: string
           user_id?: string | null
         }
@@ -789,6 +792,7 @@ export type Database = {
         Row: {
           account_id: string
           amount: number
+          category_id: string | null
           created_at: string
           description: string | null
           id: string
@@ -800,6 +804,7 @@ export type Database = {
         Insert: {
           account_id: string
           amount: number
+          category_id?: string | null
           created_at?: string
           description?: string | null
           id?: string
@@ -811,6 +816,7 @@ export type Database = {
         Update: {
           account_id?: string
           amount?: number
+          category_id?: string | null
           created_at?: string
           description?: string | null
           id?: string
@@ -832,6 +838,13 @@ export type Database = {
             columns: ["account_id"]
             isOneToOne: false
             referencedRelation: "accounts"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "incomes_category_id_fkey"
+            columns: ["category_id"]
+            isOneToOne: false
+            referencedRelation: "categories"
             referencedColumns: ["id"]
           },
         ]
@@ -1559,7 +1572,7 @@ export type Database = {
       }
       _iron_pack_tobacco_category_id: { Args: never; Returns: string }
       category_is_accessible: {
-        Args: { p_category_id: string; p_user_id: string }
+        Args: { p_category_id: string; p_kind?: string; p_user_id: string }
         Returns: boolean
       }
       close_pending_half: {

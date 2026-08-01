@@ -40,6 +40,7 @@ import {
   shortDateLabel,
   summarizeAccounts,
   summarizeCategories,
+  summarizeIncomeCategories,
   type ExpenseRow,
   type Insight,
 } from '@/lib/reportInsights'
@@ -57,10 +58,14 @@ interface DetailedExpenseRow {
   category: { id: string, name: string, color: string | null, icon: string | null } | null
 }
 
+// Ingreso del mes seleccionado. Estructuralmente asignable a `IncomeRow` de
+// reportInsights, así que las mismas filas alimentan `summarizeAccounts`
+// (que ignora `category`) y `summarizeIncomeCategories`.
 interface IncomeRowLocal {
   amount: number
   income_date: string
   account_id: string
+  category: { id: string, name: string, color: string | null } | null
 }
 
 interface TransferRowLocal {
@@ -87,6 +92,7 @@ const previousIncomeTotal = ref(0)
 const previousExpenseTotal = ref(0)
 const currentExpenses = ref<DetailedExpenseRow[]>([])
 const categoryTotals = ref<ReturnType<typeof summarizeCategories>>([])
+const incomeCategoryTotals = ref<ReturnType<typeof summarizeIncomeCategories>>([])
 const insights = ref<Insight[]>([])
 const monthlyActivityCount = ref(0)
 
@@ -231,6 +237,9 @@ const summaryTiles = computed<SummaryTile[]>(() => [
 ])
 
 const donutSlices = computed(() => buildDonutSlices(categoryTotals.value))
+// Misma construcción de dona (top 6 + "Otras") que la de gastos: `CategoryTotal`
+// es el mismo contrato, así que `buildDonutSlices` se reusa tal cual.
+const incomeDonutSlices = computed(() => buildDonutSlices(incomeCategoryTotals.value))
 
 // Top 5 gastos individuales del mes, orden desc (3.5). Filas no clickeables.
 const topExpenses = computed(() =>
@@ -289,13 +298,13 @@ async function loadReport(): Promise<void> {
         .limit(1000),
       supabase
         .from('incomes')
-        .select('amount, income_date, account_id')
+        .select('amount, income_date, account_id, category:categories(id, name, color)')
         .gte('income_date', current.startKey)
         .lt('income_date', current.nextKey)
         .limit(1000),
       supabase
         .from('incomes')
-        .select('amount, income_date, account_id')
+        .select('amount, income_date, account_id, category:categories(id, name, color)')
         .gte('income_date', previous.startKey)
         .lt('income_date', previous.nextKey)
         .limit(1000),
@@ -340,6 +349,7 @@ async function loadReport(): Promise<void> {
     previousExpenseTotal.value = previousExpenseRows.reduce((sum, expense) => sum + expense.amount, 0)
 
     categoryTotals.value = summarizeCategories(expenseRows, previousExpenseRows)
+    incomeCategoryTotals.value = summarizeIncomeCategories(incomeRows, previousIncomeRows)
     const accountTotals = summarizeAccounts(accountsRes.data ?? [], expenseRows, incomeRows, transferRows, debtMovementRows)
     insights.value = buildInsights(expenseRows, categoryTotals.value, accountTotals)
     monthlyActivityCount.value = expenseRows.length + incomeRows.length + transferRows.length + debtMovementRows.length
@@ -521,6 +531,31 @@ onMounted(() => {
             <CategoryDonutChart :slices="donutSlices" class="size-32 shrink-0" />
             <ul class="flex w-full flex-col gap-2">
               <li v-for="slice in donutSlices" :key="slice.id" class="flex items-center gap-2 text-sm">
+                <span class="size-2.5 shrink-0 rounded-full" :style="{ background: slice.color ?? 'hsl(var(--muted-foreground))' }" />
+                <span class="flex-1 truncate font-medium">{{ slice.name }}</span>
+                <span class="tabular-nums">${{ formatAmount(slice.amount) }}</span>
+                <span class="w-10 text-right text-xs text-muted-foreground">{{ slice.percentLabel }}</span>
+              </li>
+            </ul>
+          </div>
+        </Card>
+
+        <!-- Ingresos por categoría, top 6 — misma Card/dona que la de gastos,
+             apilada debajo (el layout de la vista es de una sola columna, así
+             que "al lado" rompería la lectura en mobile). Se omite entera si
+             no hay ningún ingreso categorizado en el mes: los ingresos sin
+             categoría no forman un slice propio (mismo criterio que gastos sin
+             categoría, ver `summarizeByCategory`). -->
+        <Card v-if="incomeDonutSlices.length">
+          <CardHeader>
+            <CardTitle class="text-base font-semibold">
+              Ingresos por categoría
+            </CardTitle>
+          </CardHeader>
+          <div class="flex flex-col items-center gap-4 px-6 pb-6 sm:flex-row sm:items-center">
+            <CategoryDonutChart :slices="incomeDonutSlices" class="size-32 shrink-0" />
+            <ul class="flex w-full flex-col gap-2">
+              <li v-for="slice in incomeDonutSlices" :key="slice.id" class="flex items-center gap-2 text-sm">
                 <span class="size-2.5 shrink-0 rounded-full" :style="{ background: slice.color ?? 'hsl(var(--muted-foreground))' }" />
                 <span class="flex-1 truncate font-medium">{{ slice.name }}</span>
                 <span class="tabular-nums">${{ formatAmount(slice.amount) }}</span>

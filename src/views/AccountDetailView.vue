@@ -291,7 +291,9 @@ function personName(movement: DebtMovementWithDebt): string {
 function itemTitle(item: TransactionItem): string {
   switch (item.kind) {
     case 'expense': return item.data.description || item.data.category.name
-    case 'income': return item.data.description || 'Ingreso'
+    // `category` de un ingreso es nullable (ingresos históricos sin
+    // categorizar): se accede siempre con `?.`, nunca directo.
+    case 'income': return item.data.description || item.data.category?.name || 'Ingreso'
     case 'transfer-out': return `Transferencia a ${accountName(item.data.to_account_id)}`
     case 'transfer-in': return `Transferencia desde ${accountName(item.data.from_account_id)}`
     case 'debt-linked': return `${movementVerb(item.data)} — ${personName(item.data)}`
@@ -300,6 +302,24 @@ function itemTitle(item: TransactionItem): string {
 
 function isTransfer(item: TransactionItem): boolean {
   return item.kind === 'transfer-out' || item.kind === 'transfer-in'
+}
+
+// Badge sólido de categoría para gastos/ingresos (mismo clasificador primario
+// que `primaryBadgeText`/`primaryBadgeColor` de TransactionsView). Solo se
+// invoca desde la rama `expense`/`income` del template; para cualquier otro
+// kind cae al gris neutro en vez de lanzar.
+const UNCATEGORIZED_LABEL = 'Sin categoría'
+const UNCATEGORIZED_COLOR = '#6b7280'
+
+function categoryBadgeText(item: TransactionItem): string {
+  if (item.kind === 'expense') return item.data.category.name
+  if (item.kind === 'income') return item.data.category?.name ?? UNCATEGORIZED_LABEL
+  return UNCATEGORIZED_LABEL
+}
+function categoryBadgeColor(item: TransactionItem): string {
+  if (item.kind === 'expense') return item.data.category.color ?? UNCATEGORIZED_COLOR
+  if (item.kind === 'income') return item.data.category?.color ?? UNCATEGORIZED_COLOR
+  return UNCATEGORIZED_COLOR
 }
 // Impacto real en caja (`resolveAccountImpact`), no el signo crudo del dato:
 // para `debt-linked` esos dos signos difieren (un préstamo nuevo tiene
@@ -538,6 +558,26 @@ const showChart = computed(() => balanceEvolutionPoints.value.length > 1)
                     <Badge variant="outline" class="w-fit gap-1">
                       <HandCoins class="size-3" />
                       Vinculado a una deuda
+                    </Badge>
+                  </div>
+                  <!-- Badge sólido = categoría, mismo clasificador primario que
+                       en TransactionsView, ahora también para el ingreso (que
+                       ya se categoriza). Acá no hay badge secundario de cuenta:
+                       toda la lista es de UNA sola cuenta, sería ruido. Un
+                       ingreso histórico sin categoría cae al badge gris "Sin
+                       categoría" en vez de romper. -->
+                  <div
+                    v-else-if="item.kind === 'expense' || item.kind === 'income'"
+                    class="mt-0.5 flex flex-wrap items-center gap-1.5"
+                  >
+                    <Badge
+                      class="w-fit border-transparent"
+                      :style="{
+                        backgroundColor: categoryBadgeColor(item),
+                        color: readableTextColor(categoryBadgeColor(item)),
+                      }"
+                    >
+                      {{ categoryBadgeText(item) }}
                     </Badge>
                   </div>
                 </div>

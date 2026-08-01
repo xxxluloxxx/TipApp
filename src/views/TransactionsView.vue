@@ -447,22 +447,34 @@ function personName(movement: DebtMovementWithDebt): string {
 function itemTitle(item: TransactionItem): string {
   switch (item.kind) {
     case 'expense': return item.data.description || item.data.category.name
-    case 'income': return item.data.description || 'Ingreso'
+    // `category` de un ingreso es nullable (ingresos históricos): se degrada al
+    // literal genérico, nunca se accede a `.name` sin guard.
+    case 'income': return item.data.description || item.data.category?.name || 'Ingreso'
     case 'transfer-out': return `Transferencia a ${accountName(item.data.to_account_id)}`
     case 'transfer-in': return `Transferencia desde ${accountName(item.data.from_account_id)}`
     case 'debt-linked': return `${movementVerb(item.data)} — ${personName(item.data)}`
   }
 }
-// Badge sólido (clasificador primario de la fila, sección 6.4.3/6.5): categoría
-// en un gasto, cuenta en un ingreso, y la cuenta de la propia cara de la
-// transferencia (origen en la salida, destino en la entrada).
+// Badge sólido (clasificador primario de la fila, sección 6.4.3/6.5): la
+// CATEGORÍA tanto en un gasto como en un ingreso (desde que los ingresos se
+// categorizan), y la cuenta de la propia cara de la transferencia (origen en la
+// salida, destino en la entrada) / la cuenta vinculada en una deuda.
 // El `!` en `debt-linked` es seguro: un ítem `debt-linked` solo se genera para
 // movimientos con `account_id` no nulo (sección 13.2), aunque el tipo de la
 // columna lo declare nullable.
+//
+// Ingresos SIN categoría (todos los anteriores a esta feature): el embed viene
+// `null` y se degrada a un badge "Sin categoría" gris, nunca a una excepción —
+// la app no tiene error boundary (ver `resolveAccountImpact` en
+// `transactionItems.ts`), así que un `.name` sobre null tumbaría la pantalla
+// entera, no solo esta fila.
+const UNCATEGORIZED_LABEL = 'Sin categoría'
+const UNCATEGORIZED_COLOR = '#6b7280'
+
 function primaryBadgeText(item: TransactionItem): string {
   switch (item.kind) {
     case 'expense': return item.data.category.name
-    case 'income': return item.data.account.name
+    case 'income': return item.data.category?.name ?? UNCATEGORIZED_LABEL
     case 'transfer-out': return accountName(item.data.from_account_id)
     case 'transfer-in': return accountName(item.data.to_account_id)
     case 'debt-linked': return accountName(item.data.account_id!)
@@ -471,7 +483,7 @@ function primaryBadgeText(item: TransactionItem): string {
 function primaryBadgeColor(item: TransactionItem): string | undefined {
   switch (item.kind) {
     case 'expense': return item.data.category.color ?? undefined
-    case 'income': return item.data.account.color ?? '#6b7280'
+    case 'income': return item.data.category?.color ?? UNCATEGORIZED_COLOR
     case 'transfer-out': return accountColor(item.data.from_account_id)
     case 'transfer-in': return accountColor(item.data.to_account_id)
     case 'debt-linked': return accountColor(item.data.account_id!)
@@ -730,9 +742,15 @@ function goToDebt(debtId: string) {
                     >
                       {{ primaryBadgeText(item) }}
                     </Badge>
-                    <!-- Sección 6.5: cuenta de un gasto real como marcador
-                         secundario (outline + punto de color), nunca sólido. -->
-                    <Badge v-if="item.kind === 'expense'" variant="outline" class="w-fit gap-1.5">
+                    <!-- Sección 6.5: cuenta de un gasto/ingreso real como
+                         marcador secundario (outline + punto de color), nunca
+                         sólido — el sólido de arriba ya clasifica por
+                         categoría en ambos casos. -->
+                    <Badge
+                      v-if="item.kind === 'expense' || item.kind === 'income'"
+                      variant="outline"
+                      class="w-fit gap-1.5"
+                    >
                       <span
                         class="size-2 shrink-0 rounded-full"
                         :style="{ backgroundColor: accountColor(item.data.account_id) }"

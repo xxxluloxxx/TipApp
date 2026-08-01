@@ -1,0 +1,22 @@
+-- =============================================================================
+-- category_is_accessible_drop_old_overload
+-- -----------------------------------------------------------------------------
+-- Fix de 20260801090000_categories_income_kind.sql: `create or replace
+-- function public.category_is_accessible(p_category_id uuid, p_user_id uuid,
+-- p_kind text default null)` NO reemplazó la función original de 2
+-- argumentos -- Postgres distingue funciones por firma completa (tipos de
+-- parámetros), así que agregar un parámetro (aunque tenga default) crea una
+-- sobrecarga nueva en vez de reemplazar la existente. Quedaron 2 funciones
+-- coexistiendo (2 args y 3 args), y cualquier call-site que la invoque con 2
+-- argumentos (expenses_validate_category, budgets_validate_category,
+-- fixed_expenses_validate_owner -- todos los existentes) pasó a ser
+-- ambiguo: "function public.category_is_accessible(uuid, uuid) is not
+-- unique" (descubierto corriendo la prueba (e) de verificación contra el
+-- remoto).
+--
+-- Se borra la sobrecarga vieja de 2 argumentos para que solo quede la de 3
+-- (con default null), y así los call-sites existentes (que la invocan con 2
+-- argumentos) vuelvan a resolver sin ambigüedad a esa única función.
+-- =============================================================================
+
+drop function public.category_is_accessible(uuid, uuid);

@@ -50,6 +50,10 @@ export interface IncomeRow {
   amount: number
   income_date: string
   account_id: string
+  /** `incomes.category_id` es nullable y todos los ingresos anteriores a la
+   * feature de categorías de ingreso la tienen en `null`; además el embed
+   * puede no pedirse (`summarizeAccounts` no lo necesita), de ahí el `?`. */
+  category?: { id: string, name: string, color: string | null } | null
 }
 
 export interface TransferRow {
@@ -70,45 +74,77 @@ export function shortDateLabel(value: string): string {
   return `${date.getDate()} ${monthNameOnly(date).slice(0, 3)}`
 }
 
-/** 1:1 con `summarizeCategories` de `ReportsView.vue`. */
-export function summarizeCategories(expenses: ExpenseRow[], previousExpenses: ExpenseRow[]): CategoryTotal[] {
+/**
+ * Fila mínima que necesita la agrupación por categoría: monto + categoría
+ * embebida (posiblemente ausente/nula). Tanto `ExpenseRow` como `IncomeRow`
+ * son estructuralmente asignables, así que la misma lógica sirve para gastos e
+ * ingresos sin duplicarla.
+ */
+export interface CategorizableRow {
+  amount: number
+  category?: { id: string, name: string, color: string | null } | null
+}
+
+/**
+ * Núcleo de agrupación compartido por `summarizeCategories` (gastos) y
+ * `summarizeIncomeCategories` (ingresos).
+ *
+ * Criterio de "sin categoría": se OMITEN del resultado (`if (!category)
+ * continue`), tal como lo hace `summarizeCategories` en `ReportsView.vue`
+ * desde siempre. Se replica exactamente para ingresos — no se inventa un
+ * bucket "Sin categoría" acá. Consecuencia conocida y deliberada: la suma de
+ * la dona puede ser menor al total del mes cuando hay filas sin categoría
+ * (típicamente ingresos históricos, previos a las categorías de ingreso).
+ */
+function summarizeByCategory(current: CategorizableRow[], previous: CategorizableRow[]): CategoryTotal[] {
   const totals = new Map<string, CategoryTotal>()
 
-  for (const expense of expenses) {
-    const category = expense.category
+  for (const row of current) {
+    const category = row.category
     if (!category) continue
     const existing = totals.get(category.id)
     if (existing) {
-      existing.amount += expense.amount
+      existing.amount += row.amount
     } else {
       totals.set(category.id, {
         id: category.id,
         name: category.name,
         color: category.color,
-        amount: expense.amount,
+        amount: row.amount,
         previousAmount: 0,
       })
     }
   }
 
-  for (const expense of previousExpenses) {
-    const category = expense.category
+  for (const row of previous) {
+    const category = row.category
     if (!category) continue
     const existing = totals.get(category.id)
     if (existing) {
-      existing.previousAmount += expense.amount
+      existing.previousAmount += row.amount
     } else {
       totals.set(category.id, {
         id: category.id,
         name: category.name,
         color: category.color,
         amount: 0,
-        previousAmount: expense.amount,
+        previousAmount: row.amount,
       })
     }
   }
 
   return [...totals.values()]
+}
+
+/** 1:1 (en comportamiento) con `summarizeCategories` de `ReportsView.vue`. */
+export function summarizeCategories(expenses: ExpenseRow[], previousExpenses: ExpenseRow[]): CategoryTotal[] {
+  return summarizeByCategory(expenses, previousExpenses)
+}
+
+/** Hermana de `summarizeCategories` para ingresos categorizados: misma lógica
+ * de agrupación y mismo criterio ante filas sin categoría (se omiten). */
+export function summarizeIncomeCategories(incomes: IncomeRow[], previousIncomes: IncomeRow[] = []): CategoryTotal[] {
+  return summarizeByCategory(incomes, previousIncomes)
 }
 
 /** 1:1 con `summarizeAccounts` de `ReportsView.vue`. */

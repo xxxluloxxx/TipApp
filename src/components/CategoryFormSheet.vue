@@ -4,7 +4,7 @@ import { Check, Loader2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
 import { COLOR_SWATCHES, readableTextColor, withAlpha } from '@/lib/colors'
 import { CATEGORY_ICON_OPTIONS } from '@/lib/categoryIcons'
-import { useCategoriesStore, type Category } from '@/stores/categories'
+import { useCategoriesStore, type Category, type CategoryKind } from '@/stores/categories'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -21,6 +21,11 @@ const props = defineProps<{
   open: boolean
   /** Categoría a editar. `null`/`undefined` = modo alta. */
   category?: Category | null
+  /** Sección 2.0: tipo con el que se crea la categoría, IMPLÍCITO por la tab
+   * activa de `/categorias` — no hay control en el formulario para elegirlo.
+   * En edición se ignora (manda el `kind` ya guardado de la categoría, que no
+   * se puede cambiar). */
+  kind?: CategoryKind
 }>()
 
 const emit = defineEmits<{
@@ -30,6 +35,17 @@ const emit = defineEmits<{
 const categoriesStore = useCategoriesStore()
 
 const isEditing = computed(() => !!props.category)
+
+/** Kind efectivo del formulario: el de la categoría en edición, o el de la tab
+ * activa en alta (default `'expense'`, retrocompatible con cualquier
+ * call-site que no pase la prop). */
+const effectiveKind = computed<CategoryKind>(() => {
+  const stored = props.category?.kind
+  if (stored === 'income' || stored === 'expense') return stored
+  return props.kind ?? 'expense'
+})
+
+const isIncomeKind = computed(() => effectiveKind.value === 'income')
 
 const form = reactive({
   name: '',
@@ -81,14 +97,21 @@ function focusName() {
   nameInputRef.value?.$el?.focus()
 }
 
-/** Duplicado case-insensitive contra defaults + propias, excluyéndose a sí
- * misma en edición (sección 3.1). Es una regla de negocio de frontend por
- * encima del índice único de la base (que solo garantiza unicidad dentro de
- * cada grupo default/custom, no entre ambos). */
+/** Duplicado case-insensitive contra defaults + propias DEL MISMO KIND,
+ * excluyéndose a sí misma en edición (sección 3.1). Es una regla de negocio de
+ * frontend por encima del índice único de la base (que solo garantiza unicidad
+ * dentro de cada grupo default/custom, no entre ambos).
+ *
+ * El scope por `kind` acompaña a los índices únicos reales, que desde la
+ * migración `categories_income_kind` incluyen `kind` en la clave: "Otros" de
+ * gasto y "Otros" de ingreso conviven a propósito (de hecho son 2 categorías
+ * default sembradas), así que validarlo global daría un falso positivo. */
 function isDuplicateName(name: string): boolean {
   const normalized = name.trim().toLowerCase()
   return categoriesStore.categories.some(
-    category => category.id !== props.category?.id && category.name.trim().toLowerCase() === normalized,
+    category => category.id !== props.category?.id
+      && category.kind === effectiveKind.value
+      && category.name.trim().toLowerCase() === normalized,
   )
 }
 
@@ -140,7 +163,12 @@ async function onSubmit() {
 
   isSaving.value = true
   try {
-    const payload = { name: form.name.trim(), icon: form.icon, color: form.color! }
+    const payload = {
+      name: form.name.trim(),
+      icon: form.icon,
+      color: form.color!,
+      kind: effectiveKind.value,
+    }
 
     const result = isEditing.value
       ? await categoriesStore.updateCategory(props.category!.id, payload)
@@ -151,7 +179,7 @@ async function onSubmit() {
         toast.success('Categoría actualizada')
       } else {
         toast.success('Categoría creada', {
-          description: `"${result.category.name}" ya está disponible para tus gastos.`,
+          description: `"${result.category.name}" ya está disponible para tus ${isIncomeKind.value ? 'ingresos' : 'gastos'}.`,
         })
       }
       emit('update:open', false)
@@ -185,9 +213,17 @@ async function onSubmit() {
       @interact-outside="preventCloseWhileSaving"
     >
       <SheetHeader>
-        <SheetTitle>{{ isEditing ? 'Editar categoría' : 'Nueva categoría' }}</SheetTitle>
+        <!-- Sección 2.0: el kind no se elige acá, se hereda de la tab activa —
+             se comunica en el título/descripción para que quede explícito qué
+             se está creando. -->
+        <SheetTitle>
+          {{ isEditing
+            ? (isIncomeKind ? 'Editar categoría de ingreso' : 'Editar categoría de gasto')
+            : (isIncomeKind ? 'Nueva categoría de ingreso' : 'Nueva categoría de gasto') }}
+        </SheetTitle>
         <SheetDescription v-if="!isEditing">
-          Elegí un nombre, un ícono y un color para tu categoría.
+          Elegí un nombre, un ícono y un color para tu categoría de
+          {{ isIncomeKind ? 'ingreso' : 'gasto' }}.
         </SheetDescription>
       </SheetHeader>
 
@@ -198,7 +234,7 @@ async function onSubmit() {
             id="nombre-categoria"
             ref="nameInputRef"
             v-model="form.name"
-            placeholder="Ej. Mascotas"
+            :placeholder="isIncomeKind ? 'Ej. Alquiler cobrado' : 'Ej. Mascotas'"
             maxlength="40"
             :disabled="isSaving"
             :aria-invalid="!!errors.name"

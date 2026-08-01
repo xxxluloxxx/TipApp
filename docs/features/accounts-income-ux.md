@@ -942,7 +942,32 @@ vez de crear un `IncomeFormSheet.vue` separado.**
   (`TransactionsView.vue`, que es el único lugar que lo abre tras el
   rediseño de `dashboard-redesign-ux.md` sección 2.5).
 
-### 7.2 ¿Ingresos categorizados? No, en esta iteración
+### 7.2 ¿Ingresos categorizados? ~~No, en esta iteración~~ — SÍ (revertido)
+
+> **⚠️ SECCIÓN OBSOLETA — actualizada por la iteración "categorías de
+> ingreso".** Los ingresos **sí se categorizan** desde entonces. Lo que sigue
+> abajo se conserva como registro del razonamiento original (y de por qué se
+> pedía un set paralelo, que es exactamente lo que terminó construyéndose),
+> pero **no describe el comportamiento actual**. Estado real hoy:
+>
+> - `categories` ganó la columna `kind` (`'expense' | 'income'`), con 3
+>   categorías default de ingreso sembradas (Sueldo 💵, Capitalización de
+>   intereses 📈, Otros 🪙) + custom del usuario. Ver
+>   `categories-mvp-ux.md` sección 2.0 (tabs Gastos/Ingresos).
+> - `incomes.category_id` es una FK **nullable** a `categories`, validada por
+>   trigger (accesibilidad + `kind='income'`). Nullable **solo** por los
+>   ingresos históricos anteriores al cambio: el formulario la exige.
+> - `TransactionFormSheet` muestra el picker de Categoría para **ambos**
+>   tipos (el listado se filtra por `kind` según el tipo activo) y la valida
+>   como obligatoria en los dos. Cambiar el toggle Gasto↔Ingreso descarta
+>   siempre la categoría elegida: los dos conjuntos son disjuntos.
+> - El punto 3 de abajo ("un campo menos en el formulario de ingreso") ya no
+>   aplica: los dos formularios tienen los mismos campos.
+>
+> Única excepción viva: el ingreso que genera el "Ajuste de saldo" de una
+> cuenta se guarda **sin** categoría (no existe una categoría de ingreso
+> equivalente a la de gasto "Ajuste de saldo"), y se muestra como
+> "Sin categoría".
 
 El Product Owner dejó la puerta abierta ("evaluá vos si tiene sentido").
 **Decisión: no.** Motivos:
@@ -1089,8 +1114,23 @@ indicador de tipo — **no solo color** (regla de a11y de siempre):
   — detalle menor, no crítico; lo importante a11y-mente es el signo + color
   en el monto, que ya es texto real.
 - `rowSubtitle`: para gasto, el nombre de categoría (igual que hoy); para
-  ingreso, el nombre de la cuenta (no hay categoría que mostrar) — ej.
-  "Efectivo" en vez de "Comida".
+  ingreso, ~~el nombre de la cuenta (no hay categoría que mostrar)~~ —
+  **actualizado por la iteración de categorías de ingreso**: ahora un ingreso
+  también tiene categoría, así que su clasificador primario es la **categoría**
+  y no la cuenta, exactamente igual que un gasto. En concreto:
+  - `HomeView` ("Transacciones recientes"): subtítulo `"{Categoría} · {Cuenta}"`
+    para ambos tipos (antes el ingreso mostraba solo la cuenta).
+  - `TransactionsView` (`/transacciones`): el **badge sólido** de una fila de
+    ingreso pasa a ser la categoría (antes: la cuenta), y la cuenta baja a
+    badge secundario `outline` con punto de color — mismo par de badges que ya
+    usaba el gasto.
+  - `AccountDetailView` ("Movimientos recientes"): badge sólido de categoría en
+    las filas de gasto e ingreso. Sin badge de cuenta: toda la lista es de una
+    sola cuenta, repetirla sería ruido.
+  - **Ingresos sin categoría** (todos los históricos): degradan a un badge gris
+    "Sin categoría" / subtítulo "Sin categoría · {Cuenta}". Nunca se accede al
+    embed sin guard (`category?.name`): el proyecto no tiene error boundary, y
+    una excepción en una fila tumba la pantalla completa.
 - Filas de "Transacciones recientes" en Inicio siguen **sin** menú `⋮` (solo
   lectura, igual que hoy); filas de `/transacciones` conservan su menú
   `⋮` con Editar/Eliminar, abriendo `TransactionFormSheet` con `form.type`

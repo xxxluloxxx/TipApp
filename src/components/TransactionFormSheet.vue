@@ -16,7 +16,7 @@ import { readableTextColor } from '@/lib/colors'
 import { formatAmount } from '@/lib/currency'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { useAccountsStore } from '@/stores/accounts'
-import { useCategoriesStore } from '@/stores/categories'
+import { useCategoriesStore, type CategoryKind } from '@/stores/categories'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
 import { Button } from '@/components/ui/button'
@@ -117,12 +117,20 @@ const dateInputRef = ref<HTMLInputElement | null>(null)
 const accountTriggerRef = ref<HTMLButtonElement | null>(null)
 const categoryTriggerRef = ref<HTMLButtonElement | null>(null)
 
+// Categorías del picker, filtradas por el `kind` que corresponde al tipo de
+// movimiento activo: un gasto solo puede imputarse a una categoría
+// `kind='expense'` y un ingreso a una `kind='income'` (lo exige el trigger de
+// validación de `incomes.category_id` en BD, no es solo cosmética).
+const categoryKind = computed<CategoryKind>(() => (form.type === 'income' ? 'income' : 'expense'))
+const defaultCategoryOptions = computed(() => categoriesStore.defaultCategoriesFor(categoryKind.value))
+const customCategoryOptions = computed(() => categoriesStore.customCategoriesFor(categoryKind.value))
+
 // Sección 14.7 / 16.2: default + custom, en ese orden — reusado por el picker
 // de 16.2 (agrupación visual con `DropdownMenuLabel`/`DropdownMenuSeparator`)
 // y por `selectedCategory` para resolver el nombre mostrado en el trigger.
 const allCategories = computed(() => [
-  ...categoriesStore.defaultCategories,
-  ...categoriesStore.customCategories,
+  ...defaultCategoryOptions.value,
+  ...customCategoryOptions.value,
 ])
 
 // Sección 14.4: el panel superior se colorea SIEMPRE con el color de la cuenta
@@ -213,7 +221,10 @@ function resetForm() {
     form.type = 'income'
     form.amount = String(income.amount)
     form.accountId = income.account_id
-    form.categoryId = ''
+    // Ingresos históricos (anteriores a las categorías de ingreso) tienen
+    // `category_id` null: se precarga vacío y la validación obliga a elegir
+    // una antes de guardar la edición.
+    form.categoryId = income.category_id ?? ''
     form.date = income.income_date
     form.time = income.income_time ? formatTimeShort(income.income_time) : ''
     form.description = income.description ?? ''
@@ -241,10 +252,13 @@ watch(() => props.open, (isOpen) => {
   if (isOpen) resetForm()
 })
 
-// Sección 7.3: al cambiar a "Ingreso" se descarta la categoría ya elegida
-// (no queda "fantasma" guardada por error).
-watch(() => form.type, (type) => {
-  if (type === 'income') form.categoryId = ''
+// Sección 7.3: al cambiar de tipo se descarta SIEMPRE la categoría ya elegida
+// (en ambos sentidos, no solo al pasar a Ingreso): las categorías de gasto y
+// las de ingreso son conjuntos disjuntos por `kind`, así que una categoría
+// elegida para el tipo anterior nunca es válida para el nuevo — dejarla
+// guardaría un id "fantasma" que la BD rechazaría.
+watch(() => form.type, () => {
+  form.categoryId = ''
 })
 
 function parseAmount(raw: string): number | null {
@@ -330,7 +344,9 @@ function validate(): boolean {
     return false
   }
 
-  if (form.type === 'expense' && !form.categoryId) {
+  // Categoría obligatoria para AMBOS tipos: desde esta iteración un ingreso
+  // también se clasifica (categorías `kind='income'`).
+  if (!form.categoryId) {
     errors.category = 'Seleccioná una categoría.'
     focusCategory()
     return false
@@ -395,6 +411,7 @@ function onSubmit() {
       const payload = {
         amount,
         accountId: form.accountId,
+        categoryId: form.categoryId,
         description,
         incomeDate: form.date,
         incomeTime: time,
@@ -555,10 +572,10 @@ function onSubmit() {
             <span aria-live="polite" class="sr-only">{{ srAmountAnnouncement }}</span>
           </div>
 
-          <!-- 16.2 — 2 columnas dentro del panel: Cuenta (siempre) / Categoría (solo Gasto) -->
+          <!-- 16.2 — 2 columnas dentro del panel: Cuenta / Categoría, ambas
+               siempre visibles (la categoría ya no es exclusiva del Gasto). -->
           <div
-            class="mt-3 grid gap-2 border-t pt-3"
-            :class="form.type === 'expense' ? 'grid-cols-2' : 'grid-cols-1'"
+            class="mt-3 grid grid-cols-2 gap-2 border-t pt-3"
             :style="{ borderColor: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }"
           >
             <!-- Columna Cuenta -->
@@ -608,8 +625,9 @@ function onSubmit() {
               </DropdownMenuContent>
             </DropdownMenu>
 
-            <!-- Columna Categoría (solo Gasto, igual que 14.7) -->
-            <DropdownMenu v-if="form.type === 'expense'">
+            <!-- Columna Categoría (Gasto e Ingreso; el listado se filtra por
+                 `kind` según el tipo activo) -->
+            <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
                   ref="categoryTriggerRef"
@@ -637,7 +655,7 @@ function onSubmit() {
                   @update:model-value="(v) => { form.categoryId = String(v) }"
                 >
                   <DropdownMenuRadioItem
-                    v-for="category in categoriesStore.defaultCategories"
+                    v-for="category in defaultCategoryOptions"
                     :key="category.id"
                     :value="category.id"
                   >
@@ -648,7 +666,7 @@ function onSubmit() {
                     <span class="truncate">{{ category.name }}</span>
                   </DropdownMenuRadioItem>
                 </DropdownMenuRadioGroup>
-                <template v-if="categoriesStore.customCategories.length">
+                <template v-if="customCategoryOptions.length">
                   <DropdownMenuSeparator />
                   <DropdownMenuLabel>Mis categorías</DropdownMenuLabel>
                   <DropdownMenuRadioGroup
@@ -656,7 +674,7 @@ function onSubmit() {
                     @update:model-value="(v) => { form.categoryId = String(v) }"
                   >
                     <DropdownMenuRadioItem
-                      v-for="category in categoriesStore.customCategories"
+                      v-for="category in customCategoryOptions"
                       :key="category.id"
                       :value="category.id"
                     >

@@ -229,7 +229,8 @@ function isPositive(item: TransactionItem): boolean {
 function itemTitle(item: TransactionItem): string {
   switch (item.kind) {
     case 'expense': return item.data.description || item.data.category.name
-    case 'income': return item.data.description || 'Ingreso'
+    // `category` de un ingreso es nullable (ingresos históricos): siempre `?.`.
+    case 'income': return item.data.description || item.data.category?.name || 'Ingreso'
     case 'transfer-out': return `Transferencia a ${accountName(item.data.to_account_id)}`
     case 'transfer-in': return `Transferencia desde ${accountName(item.data.from_account_id)}`
     case 'debt-linked': return `${movementVerb(item.data)} — ${personName(item.data)}`
@@ -244,7 +245,10 @@ function itemTitle(item: TransactionItem): string {
 function itemSubtitle(item: TransactionItem): string {
   switch (item.kind) {
     case 'expense': return `${item.data.category.name} · ${accountName(item.data.account_id)}`
-    case 'income': return item.data.account.name
+    // Mismo formato "Categoría · Cuenta" que el gasto ahora que el ingreso
+    // también se clasifica; los históricos sin categoría caen a "Sin categoría"
+    // en vez de romper (el embed puede venir null).
+    case 'income': return `${item.data.category?.name ?? 'Sin categoría'} · ${item.data.account.name}`
     case 'transfer-out': return accountName(item.data.from_account_id)
     case 'transfer-in': return accountName(item.data.to_account_id)
     case 'debt-linked': return `${personName(item.data)} · ${accountName(item.data.account_id!)}`
