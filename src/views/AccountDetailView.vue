@@ -19,7 +19,7 @@ import { formatAmount } from '@/lib/currency'
 import { readableTextColor } from '@/lib/colors'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { buildAccountBalanceEvolution, type AccountMovementInput, type TrendPoint } from '@/lib/charts'
-import { buildAccountTransactionItems, resolveAccountImpact, type TransactionItem } from '@/lib/transactionItems'
+import { buildAccountTransactionItems, computeRunningBalances, resolveAccountImpact, type TransactionItem } from '@/lib/transactionItems'
 import { movementVerb } from '@/lib/debtDisplay'
 import { supabase } from '@/lib/supabase'
 import { useAccountsStore } from '@/stores/accounts'
@@ -238,6 +238,40 @@ const mergedItems = computed<TransactionItem[]>(() =>
 const linkedExpenseIds = computed(
   () => new Set(recentTransfers.value.map(t => t.expense_id).filter((id): id is string => !!id)),
 )
+
+// Saldo por fila (mismo pedido/estilo estado de cuenta bancario que
+// TransactionsView.vue): arranca en `currentBalance` (server-side) y camina
+// `mergedItems` — ya acotados a esta cuenta — hacia atrás. Solo confiable si
+// NINGUNA de las 4 listas llegó a su propio `currentLimit` (paginación de la
+// sección 7.3): si alguna lo alcanzó, un ítem más viejo que su fecha de corte
+// podría tener movimientos de esa tabla sin cargar. `null` = sin restricción.
+const balanceSafeBoundaryDate = computed<string | null>(() => {
+  const cutoffs: string[] = []
+  if (recentExpenses.value.length >= currentLimit.value) {
+    const oldest = recentExpenses.value.at(-1)?.expense_date
+    if (oldest) cutoffs.push(oldest)
+  }
+  if (recentIncomes.value.length >= currentLimit.value) {
+    const oldest = recentIncomes.value.at(-1)?.income_date
+    if (oldest) cutoffs.push(oldest)
+  }
+  if (recentTransfers.value.length >= currentLimit.value) {
+    const oldest = recentTransfers.value.at(-1)?.transfer_date
+    if (oldest) cutoffs.push(oldest)
+  }
+  if (recentDebtLinked.value.length >= currentLimit.value) {
+    const oldest = recentDebtLinked.value.at(-1)?.movement_date
+    if (oldest) cutoffs.push(oldest)
+  }
+  return cutoffs.length === 0 ? null : cutoffs.reduce((latest, d) => (d > latest ? d : latest))
+})
+
+const runningBalances = computed(() => computeRunningBalances(mergedItems.value, () => currentBalance.value))
+
+function balanceAfter(item: TransactionItem): number | null {
+  if (balanceSafeBoundaryDate.value !== null && item.date <= balanceSafeBoundaryDate.value) return null
+  return runningBalances.value.get(`${item.kind}-${item.id}`) ?? null
+}
 
 function accountName(id: string): string {
   return accountsStore.accountById(id)?.name ?? 'Cuenta'
@@ -508,12 +542,25 @@ const showChart = computed(() => balanceEvolutionPoints.value.length > 1)
                   </div>
                 </div>
 
-                <p
-                  class="shrink-0 text-sm font-semibold tabular-nums"
-                  :class="isPositive(item) ? 'text-success' : 'text-destructive'"
-                >
-                  {{ isPositive(item) ? '+' : '-' }}${{ formatAmount(Math.abs(item.data.amount)) }}
-                </p>
+                <div class="flex shrink-0 flex-col items-end gap-0.5">
+                  <p
+                    class="text-sm font-semibold tabular-nums"
+                    :class="isPositive(item) ? 'text-success' : 'text-destructive'"
+                  >
+                    {{ isPositive(item) ? '+' : '-' }}${{ formatAmount(Math.abs(item.data.amount)) }}
+                  </p>
+                  <!-- Saldo de la cuenta después de este movimiento (mismo
+                       patrón que TransactionsView.vue); se omite si
+                       `balanceAfter` devuelve `null` (ítem más viejo que el
+                       límite seguro de paginación de esta cuenta). -->
+                  <p
+                    v-if="balanceAfter(item) !== null"
+                    class="text-xs tabular-nums"
+                    :class="balanceAfter(item)! < 0 ? 'text-destructive' : 'text-success'"
+                  >
+                    ({{ balanceAfter(item)! < 0 ? '-' : '' }}${{ formatAmount(Math.abs(balanceAfter(item)!)) }})
+                  </p>
+                </div>
 
                 <!-- debts-ux.md sección 13.6/13.8: fila de deuda con cuenta
                      vinculada — menú de única acción "Ver deuda" hacia su
