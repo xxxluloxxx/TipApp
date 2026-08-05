@@ -146,22 +146,24 @@ placeholder para filas sin dato, en ambos listados de abajo.
   Resultado: `"Hoy · 14:32"` cuando hay hora, `"Hoy"` sin cambios cuando no
   la hay — cero impacto visual en filas viejas/sin hora.
 
-## 7. Orden de la lista — se difiere, no se toca esta vez
+## 7. Orden de la lista — revertido, la hora SÍ desempata
 
-**Decisión: no usar la hora nueva para desempatar dentro del mismo día
-calendario en esta iteración.** El criterio actual (`date desc, created_at
-desc`) queda igual. Razón: introducir un desempate por hora crearía un
-criterio de orden **inconsistente dentro del mismo grupo de día** — de las
-filas de un mismo día, unas tendrían hora (ordenables con precisión) y
-otras no (viejas, `null`, cayendo de vuelta a `created_at`), mezclando dos
-lógicas de ordenamiento distintas en la misma lista sin ninguna señal visual
-que explique por qué una fila "salta" respecto de otra. Es una complejidad
-real (arbitrar qué hacer cuando una fila tiene hora y la vecina no) para un
-beneficio acotado (reordenar dentro de un día ya agrupado, donde el usuario
-generalmently no necesita más precisión que "qué día fue"). Queda anotado
-como candidato de una iteración futura, una vez que la mayoría de las filas
-tenga hora real y el caso de uso de reordenar por hora dentro del día se
-sienta un problema genuino, no hipotético.
+**Decisión original (diferida)**: no usar la hora para desempatar dentro del
+mismo día calendario, por el riesgo de mezclar dos lógicas de orden distintas
+en la misma lista (filas con hora vs. filas viejas sin hora). **Revertida**:
+el uso real mostró filas con hora explícita quedando fuera de orden entre sí
+(p. ej. una fila de las 19:52 apareciendo debajo de una de las 17:30 del
+mismo día) porque el desempate por `created_at` no tiene relación con el
+orden de inserción que el usuario espera. Esa confusión es peor que la
+inconsistencia teórica de mezclar dos criterios.
+
+Criterio actual (`buildTransactionItems`, `src/lib/transactionItems.ts`):
+`date desc` primero; dentro del mismo día, si **ambas** filas comparadas
+tienen `time`, se comparan por `time desc`; si cualquiera de las dos no
+tiene `time` (transferencias, deuda vinculada, filas viejas sin hora), el
+desempate cae a `created_at desc`, igual que antes. No hay backfill ni
+placeholder de hora para filas sin dato — el fallback es solo para el
+comparador, nunca se le inventa una hora a la fila.
 
 ## 8. Confirmación de alcance
 

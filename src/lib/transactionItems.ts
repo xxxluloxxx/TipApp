@@ -34,9 +34,10 @@ import type { DebtMovementWithDebt } from '@/stores/debts'
  * Postgres, **solo** poblada para `expense`/`income` (las únicas 2 tablas con
  * columna de hora — `expense_time`/`income_time`). `null`/`undefined` en el
  * resto de los kinds y en filas viejas sin hora; los listados solo la muestran
- * cuando está presente, nunca inventan un placeholder. Es puramente visual: no
- * participa del orden (sección 7, `date desc, created_at desc` sin cambios) ni
- * de ningún agregado.
+ * cuando está presente, nunca inventan un placeholder. Desde el desempate
+ * revertido en `buildTransactionItems`, SÍ participa del orden cuando ambas
+ * filas comparadas la tienen (`created_at` sigue siendo el fallback cuando
+ * alguna de las dos no la tiene) — no participa de ningún agregado.
  */
 export type TransactionItem =
   | { kind: 'expense', id: string, date: string, time: string | null, data: ExpenseWithCategory }
@@ -47,7 +48,12 @@ export type TransactionItem =
 
 /**
  * Mezcla gastos + ingresos + transferencias en una única lista ordenada por
- * fecha desc (empate resuelto por `created_at` desc). Cada transferencia genera
+ * fecha desc (empate resuelto por `time` desc cuando AMBAS filas lo tienen,
+ * y por `created_at` desc en cualquier otro caso — sección 7 de
+ * `transaction-time-ux.md`, revertida a pedido del usuario: el orden por
+ * `created_at` producía resultados visiblemente fuera de orden cuando el
+ * usuario cargaba movimientos del mismo día en un orden de inserción distinto
+ * al de su hora real). Cada transferencia genera
  * **siempre las 2** variantes sintéticas (`transfer-out` y `transfer-in`) —
  * salida y entrada son inseparables, es un único evento con dos caras
  * (sección 6.4). El `id` de ambas es `transfer.id`; el `kind` las distingue,
@@ -84,6 +90,7 @@ export function buildTransactionItems(
 
   return items.sort((a, b) => {
     if (a.date !== b.date) return a.date < b.date ? 1 : -1
+    if (a.time && b.time && a.time !== b.time) return a.time < b.time ? 1 : -1
     return b.data.created_at.localeCompare(a.data.created_at)
   })
 }
