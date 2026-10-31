@@ -133,6 +133,8 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
   const templates = ref<FixedExpense[]>([])
   /** Instancias del período actual, una por plantilla ACTIVA (vista). */
   const currentInstances = ref<FixedExpenseInstanceCurrent[]>([])
+  /** Instancias ya existentes del mes siguiente (solo id/plantilla/estado). */
+  const nextMonthInstances = ref<{ id: string, fixed_expense_id: string, status: string }[]>([])
   /** Fila única de resumen del mes (total/pagados/promedio), o `null` si
    * todavía no cargó / el usuario no tiene ninguna plantilla. */
   const summary = ref<FixedExpensesSummary | null>(null)
@@ -247,6 +249,55 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
     }
     currentInstances.value = data ?? []
     return true
+  }
+
+  /** Primer día del mes siguiente (`period` de la instancia del mes que viene). */
+  function nextPeriodValue(reference: Date = new Date()): string {
+    return formatDateOnly(new Date(reference.getFullYear(), reference.getMonth() + 1, 1))
+  }
+
+  /** Instancias del mes siguiente que ya existen (para saber si un gasto
+   * omitido este mes ya se pagó adelantado). Acotada por `period`. */
+  async function fetchNextMonthInstances(): Promise<boolean> {
+    const { data, error: fetchError } = await supabase
+      .from('fixed_expense_instances')
+      .select('id, fixed_expense_id, status')
+      .eq('period', nextPeriodValue())
+    if (fetchError) {
+      console.error('[fixedExpenses] No se pudieron cargar las instancias del mes siguiente', fetchError)
+      return false
+    }
+    nextMonthInstances.value = data ?? []
+    return true
+  }
+
+  /** Crea (idempotente) la instancia pendiente del mes siguiente de una
+   * plantilla y devuelve su id, para poder pagarla con el mismo RPC. */
+  async function ensureNextMonthInstance(templateId: string): Promise<string | null> {
+    const userId = useAuthStore().user?.id
+    if (!userId) return null
+    const period = nextPeriodValue()
+    const { error: upsertError } = await supabase
+      .from('fixed_expense_instances')
+      .upsert(
+        { user_id: userId, fixed_expense_id: templateId, period, status: 'pending' },
+        { onConflict: 'fixed_expense_id,period', ignoreDuplicates: true },
+      )
+    if (upsertError) {
+      console.error('[fixedExpenses] No se pudo preparar la instancia del mes siguiente', upsertError)
+      return null
+    }
+    const { data, error: fetchError } = await supabase
+      .from('fixed_expense_instances')
+      .select('id')
+      .eq('fixed_expense_id', templateId)
+      .eq('period', period)
+      .single()
+    if (fetchError || !data) {
+      console.error('[fixedExpenses] No se encontró la instancia del mes siguiente', fetchError)
+      return null
+    }
+    return data.id
   }
 
   async function fetchSummary(): Promise<boolean> {
@@ -635,7 +686,7 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
     // El gasto real ya está confirmado: recién ahora se descuenta de la cuenta
     // (mismo signo que un gasto normal) y se refresca el estado del mes.
     useAccountsStore().adjustBalance(payload.accountId, -payload.amount)
-    await Promise.all([fetchCurrentInstances(), fetchSummary()])
+    await Promise.all([fetchCurrentInstances(), fetchSummary(), fetchNextMonthInstances()])
 
     return { expenseId: data }
   }
@@ -654,7 +705,10 @@ export const useFixedExpensesStore = defineStore('fixedExpenses', () => {
     monthlyAverage,
     upcomingInstances,
     instanceByTemplateId,
+    nextMonthInstances,
     ensureCurrentInstances,
+    fetchNextMonthInstances,
+    ensureNextMonthInstance,
     fetchTemplates,
     fetchCurrentInstances,
     fetchSummary,

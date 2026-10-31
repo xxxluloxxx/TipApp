@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { toast } from 'vue-sonner'
 import {
   AlertCircle,
   ArrowDown,
@@ -17,7 +18,7 @@ import {
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
-import { addMonths, currentMonthLabel, formatShortDate, lastDayOfMonth, monthNameOnly } from '@/lib/date'
+import { currentMonthLabel, formatShortDate, lastDayOfMonth, monthNameOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { withAlpha } from '@/lib/colors'
 import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
@@ -73,16 +74,17 @@ async function loadAll() {
     // estado de carga.
     const ensured = await fixedExpensesStore.ensureCurrentInstances()
 
-    const [templatesOk, instancesOk, summaryOk, prevOk, categoriesOk, accountsOk] = await Promise.all([
+    const [templatesOk, instancesOk, summaryOk, prevOk, categoriesOk, accountsOk, nextOk] = await Promise.all([
       fixedExpensesStore.fetchTemplates(),
       fixedExpensesStore.fetchCurrentInstances(),
       fixedExpensesStore.fetchSummary(),
       fixedExpensesStore.fetchPreviousMonthTotal(),
       categoriesStore.fetchCategories(),
       accountsStore.fetchAccounts(),
+      fixedExpensesStore.fetchNextMonthInstances(),
     ])
 
-    if (!ensured || !templatesOk || !instancesOk || !summaryOk || !prevOk || !categoriesOk || !accountsOk) {
+    if (!ensured || !templatesOk || !instancesOk || !summaryOk || !prevOk || !categoriesOk || !accountsOk || !nextOk) {
       loadError.value = true
     }
   } finally {
@@ -95,13 +97,49 @@ onMounted(loadAll)
 const monthLabel = computed(() => currentMonthLabel())
 const monthName = computed(() => monthNameOnly(new Date()))
 
+// Primer día del mes siguiente (base 1 para que el 31 no desborde de mes).
+const nextMonthStart = computed(() => {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth() + 1, 1)
+})
+const nextMonthName = computed(() => monthNameOnly(nextMonthStart.value))
+
 // Una fila omitida este mes sigue viva el mes siguiente: se aclara cuándo toca
 // la próxima (día de pago clampeado en meses cortos).
 function nextOccurrenceLabel(paymentDay: number): string {
-  const nextMonth = addMonths(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 1)
-  nextMonth.setDate(Math.min(paymentDay, lastDayOfMonth(nextMonth)))
-  return formatShortDate(nextMonth)
+  const next = new Date(nextMonthStart.value)
+  next.setDate(Math.min(paymentDay, lastDayOfMonth(next)))
+  return formatShortDate(next)
 }
+
+// Estado del mes siguiente por plantilla: si ya se pagó adelantado, se avisa
+// en vez de ofrecer "Pagar" de nuevo (el RPC falla si la instancia ya está paga).
+const paidNextTemplateIds = computed(() => new Set(
+  fixedExpensesStore.nextMonthInstances
+    .filter(instance => instance.status === 'paid')
+    .map(instance => instance.fixed_expense_id),
+))
+
+const preparingNextTemplateId = ref<string | null>(null)
+
+async function openPayNextMonthSheet(row: FixedExpenseRow) {
+  preparingNextTemplateId.value = row.templateId
+  const instanceId = await fixedExpensesStore.ensureNextMonthInstance(row.templateId)
+  preparingNextTemplateId.value = null
+  if (!instanceId) {
+    toast.error('No pudimos preparar el pago del mes siguiente')
+    return
+  }
+  payTarget.value = {
+    instanceId,
+    name: row.name,
+    amount: row.amount,
+    notes: row.notes,
+    periodLabel: currentMonthLabel(nextMonthStart.value),
+  }
+  isPaySheetOpen.value = true
+}
+
 const hasAnyTemplate = computed(() => fixedExpensesStore.hasAnyTemplate)
 
 // Sección 3.2: hero "Total del mes" — cifra de `summary.total_amount`.
@@ -453,7 +491,9 @@ function deleteTemplate(templateId: string) {
                       {{ item.categoryName }} · Día {{ item.paymentDay }} · {{ monthName }}
                     </p>
                     <p v-if="item.status === 'skipped'" class="truncate text-xs text-muted-foreground">
-                      Próximo: {{ nextOccurrenceLabel(item.paymentDay) }}
+                      {{ paidNextTemplateIds.has(item.templateId)
+                        ? `${nextMonthName}: pagado`
+                        : `Próximo: ${nextOccurrenceLabel(item.paymentDay)}` }}
                     </p>
                   </div>
 
@@ -476,6 +516,17 @@ function deleteTemplate(templateId: string) {
                     @click="openPaySheet(item)"
                   >
                     Pagar
+                  </Button>
+
+                  <Button
+                    v-if="item.isActive && item.status === 'skipped' && !paidNextTemplateIds.has(item.templateId)"
+                    size="sm"
+                    variant="outline"
+                    class="shrink-0"
+                    :disabled="preparingNextTemplateId === item.templateId"
+                    @click="openPayNextMonthSheet(item)"
+                  >
+                    Pagar {{ nextMonthName }}
                   </Button>
 
                   <DropdownMenu>

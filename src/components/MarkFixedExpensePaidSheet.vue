@@ -40,6 +40,8 @@ export interface PayTarget {
   /** Monto de la plantilla (prefill del campo Monto, editable). */
   amount: number
   notes: string | null
+  /** Mes que se paga (p. ej. "noviembre 2026"); default: el mes en curso. */
+  periodLabel?: string
 }
 
 const props = withDefaults(defineProps<{
@@ -209,7 +211,7 @@ async function onSubmit() {
       <SheetHeader>
         <SheetTitle>Marcar como pagado</SheetTitle>
         <SheetDescription v-if="props.target">
-          {{ props.target.name }} · {{ monthLabel }}
+          {{ props.target.name }} · {{ props.target.periodLabel ?? monthLabel }}
         </SheetDescription>
       </SheetHeader>
 
