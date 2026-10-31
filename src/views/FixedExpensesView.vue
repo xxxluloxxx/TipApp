@@ -17,7 +17,7 @@ import {
   RotateCcw,
   Trash2,
 } from '@lucide/vue'
-import { currentMonthLabel } from '@/lib/date'
+import { addMonths, currentMonthLabel, formatShortDate, lastDayOfMonth, monthNameOnly } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { withAlpha } from '@/lib/colors'
 import { buildDonutSlices, type CategoryTotal } from '@/lib/charts'
@@ -93,6 +93,15 @@ async function loadAll() {
 onMounted(loadAll)
 
 const monthLabel = computed(() => currentMonthLabel())
+const monthName = computed(() => monthNameOnly(new Date()))
+
+// Una fila omitida este mes sigue viva el mes siguiente: se aclara cuándo toca
+// la próxima (día de pago clampeado en meses cortos).
+function nextOccurrenceLabel(paymentDay: number): string {
+  const nextMonth = addMonths(new Date(new Date().getFullYear(), new Date().getMonth(), 1), 1)
+  nextMonth.setDate(Math.min(paymentDay, lastDayOfMonth(nextMonth)))
+  return formatShortDate(nextMonth)
+}
 const hasAnyTemplate = computed(() => fixedExpensesStore.hasAnyTemplate)
 
 // Sección 3.2: hero "Total del mes" — cifra de `summary.total_amount`.
@@ -441,7 +450,10 @@ function deleteTemplate(templateId: string) {
                       {{ item.name }}
                     </p>
                     <p class="truncate text-xs text-muted-foreground">
-                      {{ item.categoryName }} · Día {{ item.paymentDay }}
+                      {{ item.categoryName }} · Día {{ item.paymentDay }} · {{ monthName }}
+                    </p>
+                    <p v-if="item.status === 'skipped'" class="truncate text-xs text-muted-foreground">
+                      Próximo: {{ nextOccurrenceLabel(item.paymentDay) }}
                     </p>
                   </div>
 
