@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
 import type { Ref } from 'vue'
+import { toast } from 'vue-sonner'
 import {
+  ArrowLeftRight,
   ChevronDown,
   CircleArrowDown,
   CircleArrowUp,
@@ -17,6 +19,7 @@ import { formatAmount } from '@/lib/currency'
 import { resolveAccountIcon } from '@/lib/accountIcons'
 import { useAccountsStore } from '@/stores/accounts'
 import { useCategoriesStore, type CategoryKind } from '@/stores/categories'
+import { useAccountTransfersStore } from '@/stores/accountTransfers'
 import { useExpensesStore, type ExpenseWithCategory } from '@/stores/expenses'
 import { useIncomesStore, type IncomeWithAccount } from '@/stores/incomes'
 import { Button } from '@/components/ui/button'
@@ -51,7 +54,10 @@ import {
 // `resetForm()`, mismo orden de validación, mismo optimistic update) NO cambia
 // — solo cambia cómo se ingresan/muestran los mismos 5 campos de siempre.
 
-export type TransactionType = 'expense' | 'income'
+// 'transfer' reusa el mismo Sheet (account-transfers-ux.md): el origen es
+// `form.accountId` (la cuenta que colorea el panel) y el destino `toAccountId`.
+// A diferencia de gasto/ingreso, el guardado NO es optimista (RPC atómico).
+export type TransactionType = 'expense' | 'income' | 'transfer'
 
 const props = defineProps<{
   open: boolean
@@ -79,12 +85,15 @@ const props = defineProps<{
 
 const emit = defineEmits<{
   'update:open': [value: boolean]
+  /** Se creó una transferencia: las vistas con listas propias la recargan. */
+  'transfer-saved': []
 }>()
 
 const expensesStore = useExpensesStore()
 const incomesStore = useIncomesStore()
 const categoriesStore = useCategoriesStore()
 const accountsStore = useAccountsStore()
+const accountTransfersStore = useAccountTransfersStore()
 
 const isEditing = computed(() => !!props.transaction)
 const todayValue = computed(() => todayDateInputValue())
@@ -93,6 +102,10 @@ const form = reactive({
   type: 'expense' as TransactionType,
   amount: '',
   accountId: '',
+  /** Solo en Transferencia: cuenta de destino. */
+  toAccountId: '',
+  /** Solo en Transferencia: comisión opcional (vacío = 0). */
+  commission: '',
   categoryId: '',
   date: todayDateInputValue(),
   /** transaction-time-ux.md: hora opcional `"HH:MM"`. Vacía = se guarda `null`. */
@@ -100,7 +113,25 @@ const form = reactive({
   description: '',
 })
 
-const errors = reactive<{ amount?: string, account?: string, category?: string, date?: string }>({})
+const errors = reactive<{
+  amount?: string
+  account?: string
+  toAccount?: string
+  category?: string
+  commission?: string
+  date?: string
+}>({})
+
+// La comisión sugerida de la cuenta de origen pisa el campo hasta que el
+// usuario lo edita a mano (mismo criterio que AccountTransferFormSheet).
+const commissionTouched = ref(false)
+
+const isTransfer = computed(() => form.type === 'transfer')
+// El destino excluye la cuenta de origen elegida.
+const destinationOptions = computed(() =>
+  accountsStore.accounts.filter(account => account.id !== form.accountId),
+)
+const selectedToAccount = computed(() => accountsStore.accountById(form.toAccountId))
 const isSaving = ref(false)
 
 // Sección 14.8: la nota (= Descripción) arranca colapsada en alta, expandida
@@ -116,6 +147,8 @@ const dateInputRef = ref<HTMLInputElement | null>(null)
 // enfocar el botón cerrado al fallar la validación (sin abrir el menú).
 const accountTriggerRef = ref<HTMLButtonElement | null>(null)
 const categoryTriggerRef = ref<HTMLButtonElement | null>(null)
+const toAccountTriggerRef = ref<HTMLButtonElement | null>(null)
+const commissionInputRef = ref<{ $el?: HTMLElement } | null>(null)
 
 // Categorías del picker, filtradas por el `kind` que corresponde al tipo de
 // movimiento activo: un gasto solo puede imputarse a una categoría
@@ -202,8 +235,13 @@ function defaultAccountId(): string {
 function resetForm() {
   errors.amount = undefined
   errors.account = undefined
+  errors.toAccount = undefined
   errors.category = undefined
+  errors.commission = undefined
   errors.date = undefined
+  form.toAccountId = ''
+  form.commission = ''
+  commissionTouched.value = false
 
   if (props.transaction?.kind === 'expense') {
     const expense = props.transaction.expense
@@ -259,6 +297,24 @@ watch(() => props.open, (isOpen) => {
 // guardaría un id "fantasma" que la BD rechazaría.
 watch(() => form.type, () => {
   form.categoryId = ''
+  if (form.type === 'transfer') syncTransferDefaults()
+})
+
+// Al entrar a Transferencia o cambiar el origen: limpia un destino que quedó
+// igual al origen, sugiere la comisión de la cuenta de origen y, si solo queda
+// una cuenta posible de destino, la preselecciona (no hay decisión que tomar).
+function syncTransferDefaults() {
+  if (form.toAccountId === form.accountId) form.toAccountId = ''
+  if (!commissionTouched.value) {
+    const origin = accountsStore.accountById(form.accountId)
+    form.commission = origin && origin.transfer_commission > 0 ? String(origin.transfer_commission) : ''
+  }
+  const options = destinationOptions.value
+  if (!form.toAccountId && options.length === 1) form.toAccountId = options[0]!.id
+}
+
+watch(() => form.accountId, () => {
+  if (form.type === 'transfer') syncTransferDefaults()
 })
 
 function parseAmount(raw: string): number | null {
@@ -269,6 +325,16 @@ function parseAmount(raw: string): number | null {
   if (!/^\d+(?:\.\d+)?$/.test(normalized)) return null
   const value = Number(normalized)
   return Number.isFinite(value) ? value : null
+}
+
+/** Comisión: `>= 0`, vacío se interpreta como 0. */
+function parseCommission(raw: string): number | undefined {
+  const trimmed = raw.trim()
+  if (!trimmed) return 0
+  const normalized = trimmed.replace(',', '.')
+  if (!/^\d+(?:\.\d+)?$/.test(normalized)) return undefined
+  const value = Number(normalized)
+  return Number.isFinite(value) ? value : undefined
 }
 
 // --- Sección 14.6: teclado numérico (muta `form.amount`, el mismo string de
@@ -313,6 +379,12 @@ function focusAccount() {
 function focusCategory() {
   categoryTriggerRef.value?.focus()
 }
+function focusToAccount() {
+  toAccountTriggerRef.value?.focus()
+}
+function focusCommission() {
+  commissionInputRef.value?.$el?.focus()
+}
 function focusDate() {
   dateInputRef.value?.focus()
 }
@@ -320,7 +392,7 @@ function focusDate() {
 // Slot de error único (sección 14.5): el primer error truthy, en el mismo
 // orden fijo de validación (monto → cuenta → categoría → fecha).
 const activeError = computed(
-  () => errors.amount ?? errors.account ?? errors.category ?? errors.date,
+  () => errors.amount ?? errors.account ?? errors.toAccount ?? errors.category ?? errors.commission ?? errors.date,
 )
 
 // Orden fijo de validación (sección 7.3): monto -> cuenta -> categoría (si
@@ -328,7 +400,9 @@ const activeError = computed(
 function validate(): boolean {
   errors.amount = undefined
   errors.account = undefined
+  errors.toAccount = undefined
   errors.category = undefined
+  errors.commission = undefined
   errors.date = undefined
 
   const amount = parseAmount(form.amount)
@@ -344,9 +418,20 @@ function validate(): boolean {
     return false
   }
 
-  // Categoría obligatoria para AMBOS tipos: desde esta iteración un ingreso
-  // también se clasifica (categorías `kind='income'`).
-  if (!form.categoryId) {
+  if (form.type === 'transfer') {
+    if (!form.toAccountId) {
+      errors.toAccount = 'Seleccioná la cuenta de destino.'
+      focusToAccount()
+      return false
+    }
+    if (parseCommission(form.commission) === undefined) {
+      errors.commission = 'Ingresá una comisión válida (0 o mayor), o dejala vacía.'
+      focusCommission()
+      return false
+    }
+  } else if (!form.categoryId) {
+    // Categoría obligatoria para gasto e ingreso (las transferencias no
+    // tienen categoría: la comisión se resuelve server-side).
     errors.category = 'Seleccioná una categoría.'
     focusCategory()
     return false
@@ -379,11 +464,45 @@ function preventCloseWhileSaving(event: Event) {
 
 const sheetTitle = computed(() => {
   if (isEditing.value) return form.type === 'income' ? 'Editar ingreso' : 'Editar gasto'
+  if (form.type === 'transfer') return 'Nueva transferencia'
   return form.type === 'income' ? 'Nuevo ingreso' : 'Nuevo gasto'
 })
 
+async function submitTransfer() {
+  isSaving.value = true
+  try {
+    const result = await accountTransfersStore.createTransfer({
+      fromAccountId: form.accountId,
+      toAccountId: form.toAccountId,
+      amount: parseAmount(form.amount)!,
+      commissionAmount: parseCommission(form.commission) ?? 0,
+      transferDate: form.date,
+      description: form.description.trim() ? form.description.trim() : null,
+    })
+
+    if ('error' in result) {
+      toast.error('No se pudo guardar la transferencia', {
+        description: 'Revisá tu conexión e intentá de nuevo.',
+      })
+      return
+    }
+
+    toast.success('Transferencia registrada')
+    emit('transfer-saved')
+    emit('update:open', false)
+  } finally {
+    isSaving.value = false
+  }
+}
+
 function onSubmit() {
   if (!validate()) return
+
+  // Transferencia: NO optimista (RPC atómico), el Sheet espera la confirmación.
+  if (form.type === 'transfer') {
+    void submitTransfer()
+    return
+  }
 
   isSaving.value = true
   try {
@@ -459,12 +578,12 @@ function onSubmit() {
         novalidate
         @submit.prevent="onSubmit"
       >
-        <!-- 14.3 — Tabs Ingreso / Gasto (2, no 3) -->
+        <!-- 14.3 — Tabs Ingreso / Gasto / Transferencia -->
         <div id="tipo-transaccion-label" class="sr-only">Tipo de movimiento</div>
         <div
           role="radiogroup"
           aria-labelledby="tipo-transaccion-label"
-          class="grid grid-cols-2 gap-2 px-4"
+          class="grid grid-cols-3 gap-2 px-4"
         >
           <button
             type="button"
@@ -487,6 +606,17 @@ function onSubmit() {
             @click="form.type = 'expense'"
           >
             <CircleArrowUp class="size-4" /> Gasto
+          </button>
+          <button
+            type="button"
+            role="radio"
+            :aria-checked="form.type === 'transfer'"
+            :disabled="isEditing || isSaving"
+            class="flex min-h-11 items-center justify-center gap-2 rounded-lg py-3 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+            :class="form.type === 'transfer' ? 'bg-primary/10 text-primary' : 'text-muted-foreground hover:bg-muted'"
+            @click="form.type = 'transfer'"
+          >
+            <ArrowLeftRight class="size-4" /> Transferir
           </button>
         </div>
 
@@ -523,6 +653,7 @@ function onSubmit() {
                  el tap para abrir el picker nativo; el × queda por encima (z-10)
                  y con @click.stop para no abrir el picker al limpiar. -->
             <div
+              v-if="!isTransfer"
               class="relative flex min-h-9 items-center gap-1 rounded-full px-3 text-sm font-medium"
               :style="{ background: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)', color: textColor }"
             >
@@ -578,7 +709,7 @@ function onSubmit() {
             class="mt-3 grid grid-cols-2 gap-2 border-t pt-3"
             :style="{ borderColor: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)' }"
           >
-            <!-- Columna Cuenta -->
+            <!-- Columna Cuenta (en Transferencia: "De la cuenta") -->
             <DropdownMenu>
               <DropdownMenuTrigger as-child>
                 <button
@@ -593,7 +724,7 @@ function onSubmit() {
                     outlineOffset: errors.account ? '2px' : undefined,
                   }"
                 >
-                  <span class="text-xs opacity-80">Cuenta</span>
+                  <span class="text-xs opacity-80">{{ isTransfer ? 'De la cuenta' : 'Cuenta' }}</span>
                   <span class="flex w-full items-center gap-1 text-sm font-bold">
                     <span class="truncate">{{ selectedAccount?.name ?? 'Elegí una cuenta' }}</span>
                     <ChevronDown class="size-3.5 shrink-0 opacity-70" />
@@ -625,9 +756,56 @@ function onSubmit() {
               </DropdownMenuContent>
             </DropdownMenu>
 
+            <!-- Columna "A la cuenta" (solo Transferencia; excluye el origen) -->
+            <DropdownMenu v-if="isTransfer">
+              <DropdownMenuTrigger as-child>
+                <button
+                  ref="toAccountTriggerRef"
+                  type="button"
+                  :disabled="isSaving"
+                  :aria-invalid="!!errors.toAccount"
+                  class="flex min-h-11 flex-col items-start justify-center gap-0.5 rounded-lg px-2 py-1.5 text-left transition-opacity focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-60"
+                  :style="{
+                    color: textColor,
+                    outline: errors.toAccount ? `2px solid ${textColor}` : undefined,
+                    outlineOffset: errors.toAccount ? '2px' : undefined,
+                  }"
+                >
+                  <span class="text-xs opacity-80">A la cuenta</span>
+                  <span class="flex w-full items-center gap-1 text-sm font-bold">
+                    <span class="truncate">{{ selectedToAccount?.name ?? 'Elegí una cuenta' }}</span>
+                    <ChevronDown class="size-3.5 shrink-0 opacity-70" />
+                  </span>
+                </button>
+              </DropdownMenuTrigger>
+              <DropdownMenuContent align="end" class="w-64 min-w-64 max-w-[85vw]">
+                <DropdownMenuLabel>Cuenta de destino</DropdownMenuLabel>
+                <DropdownMenuRadioGroup
+                  :model-value="form.toAccountId"
+                  @update:model-value="(v) => { form.toAccountId = String(v) }"
+                >
+                  <DropdownMenuRadioItem
+                    v-for="account in destinationOptions"
+                    :key="account.id"
+                    :value="account.id"
+                  >
+                    <component
+                      :is="resolveAccountIcon(account.icon)"
+                      class="size-4 shrink-0"
+                      :style="{ color: account.color ?? '#6b7280' }"
+                    />
+                    <span class="flex-1 truncate">{{ account.name }}</span>
+                    <span class="text-xs text-muted-foreground">
+                      ${{ formatAmount(accountsStore.balanceFor(account.id)) }}
+                    </span>
+                  </DropdownMenuRadioItem>
+                </DropdownMenuRadioGroup>
+              </DropdownMenuContent>
+            </DropdownMenu>
+
             <!-- Columna Categoría (Gasto e Ingreso; el listado se filtra por
                  `kind` según el tipo activo) -->
-            <DropdownMenu>
+            <DropdownMenu v-else>
               <DropdownMenuTrigger as-child>
                 <button
                   ref="categoryTriggerRef"
@@ -766,12 +944,30 @@ function onSubmit() {
           </div>
         </div>
 
+        <!-- Comisión (solo Transferencia, opcional): si es > 0 el servidor
+             crea un gasto "Comisiones bancarias". -->
+        <div v-if="isTransfer" class="flex flex-col gap-1 px-4">
+          <Label for="comision">
+            Comisión <span class="font-normal text-muted-foreground">(opcional)</span>
+          </Label>
+          <Input
+            id="comision"
+            ref="commissionInputRef"
+            v-model="form.commission"
+            inputmode="decimal"
+            placeholder="0"
+            :disabled="isSaving"
+            :aria-invalid="!!errors.commission"
+            @input="commissionTouched = true"
+          />
+        </div>
+
       </form>
 
       <SheetFooter class="p-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))]">
         <Button type="submit" form="transaction-form" class="w-full" :disabled="isSaving">
           <Loader2 v-if="isSaving" class="size-4 animate-spin" />
-          {{ isSaving ? 'Guardando…' : (isEditing ? 'Guardar cambios' : 'Guardar movimiento') }}
+          {{ isSaving ? 'Guardando…' : (isEditing ? 'Guardar cambios' : (isTransfer ? 'Guardar transferencia' : 'Guardar movimiento')) }}
         </Button>
       </SheetFooter>
     </SheetContent>

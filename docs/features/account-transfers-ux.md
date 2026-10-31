@@ -1349,3 +1349,20 @@ type NavRouteName =
    - Si se restringe o no la edición directa de la fila de comisión desde
      `/transacciones` (sección 6.3) — recomendación dada, decisión final
      pendiente del Product Owner.
+
+---
+
+## Alta desde el formulario de movimientos (2026-10-31)
+
+`TransactionFormSheet` suma una tercera pestaña **Transferir** (junto a Ingreso/Gasto), solo en modo alta
+(en edición las pestañas siguen deshabilitadas; editar una transferencia sigue siendo desde `/transferencias`).
+
+- Mismo layout de calculadora: el panel se colorea con la cuenta de **origen** ("De la cuenta") y al lado va
+  "A la cuenta" (excluye el origen; si queda una sola opción se preselecciona).
+- Sin categoría ni hora (no aplican). Comisión opcional bajo la nota: se prellena con
+  `accounts.transfer_commission` del origen hasta que el usuario la edita; si es > 0 el servidor crea el gasto
+  "Comisiones bancarias" (regla sin cambios).
+- Guardado **NO optimista**: usa `createTransfer` (RPC `create_account_transfer`); el Sheet queda en
+  "Guardando…" hasta la confirmación y emite `transfer-saved` para que `TransactionsView` recargue su lista
+  (AccountDetailView ya refresca al cerrar).
+- La pantalla `/transferencias` y su ítem del drawer se mantienen por ahora.

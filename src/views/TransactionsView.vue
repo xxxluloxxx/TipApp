@@ -878,6 +878,7 @@ function goToDebt(debtId: string) {
       :transaction="editingTransaction"
       :expense-sync-targets="expenseSyncTargets"
       :income-sync-targets="incomeSyncTargets"
+      @transfer-saved="loadFilteredTransactions"
     />
   </div>
 </template>
