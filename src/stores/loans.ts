@@ -365,6 +365,19 @@ export const useLoansStore = defineStore('loans', () => {
         })
         return
       }
+      // Las cuotas pendientes que seguían en la cuota mensual vieja pasan a la
+      // nueva; las que se editaron a mano se respetan.
+      if (previous.monthly_installment_amount !== payload.monthlyInstallmentAmount) {
+        const { error: cascadeError } = await supabase
+          .from('loan_installments')
+          .update({ amount: payload.monthlyInstallmentAmount })
+          .eq('loan_id', id)
+          .eq('status', 'pending')
+          .eq('amount', previous.monthly_installment_amount ?? 0)
+        if (!cascadeError) {
+          await Promise.all([fetchInstallments(id), fetchProgress()])
+        }
+      }
       toast.success('Cambios guardados')
     }
 
@@ -407,6 +420,48 @@ export const useLoansStore = defineStore('loans', () => {
    * `loan_progress` para que los agregados del tab Resumen (progreso, próxima
    * cuota, estado) queden exactos.
    */
+  /** Cambia el monto de UNA cuota (optimista con rollback). Releer el progreso
+   * después: `remaining_amount` y la próxima cuota se derivan server-side. */
+  function updateInstallmentAmount(installment: LoanInstallment, amount: number): void {
+    const idx = installments.value.findIndex(i => i.id === installment.id)
+    if (idx === -1) return
+    const previous = installments.value[idx]!
+    const optimistic: LoanInstallment = { ...previous, amount }
+    const applyRow = (row: LoanInstallment) => {
+      const next = [...installments.value]
+      const at = next.findIndex(i => i.id === row.id)
+      if (at !== -1) next.splice(at, 1, row)
+      installments.value = next
+    }
+    applyRow(optimistic)
+
+    const persist = async (): Promise<void> => {
+      const { error } = await supabase
+        .from('loan_installments')
+        .update({ amount })
+        .eq('id', installment.id)
+
+      if (error) {
+        applyRow(previous)
+        toast.error('No se pudo cambiar la cuota', {
+          description: 'Revisá tu conexión e intentá de nuevo.',
+          action: {
+            label: 'Reintentar',
+            onClick: () => {
+              applyRow(optimistic)
+              void persist()
+            },
+          },
+        })
+        return
+      }
+      toast.success('Cuota actualizada')
+      await fetchProgress()
+    }
+
+    void persist()
+  }
+
   function toggleInstallment(installment: LoanInstallment): void {
     const idx = installments.value.findIndex(i => i.id === installment.id)
     if (idx === -1) return
@@ -657,6 +712,7 @@ export const useLoansStore = defineStore('loans', () => {
     updateLoan,
     deleteLoan,
     toggleInstallment,
+    updateInstallmentAmount,
     addDebtor,
     removeDebtor,
     registerPayment,

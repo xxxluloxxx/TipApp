@@ -248,7 +248,7 @@ async function onSubmit() {
         </div>
 
         <div class="flex flex-col gap-1.5">
-          <Label for="total-prestamo">Monto total</Label>
+          <Label for="total-prestamo">Monto prestado</Label>
           <div class="flex items-center gap-1.5">
             <span class="text-sm text-muted-foreground">$</span>
             <Input
@@ -326,7 +326,7 @@ async function onSubmit() {
             No se puede modificar: ya generó el cronograma de cuotas.
           </p>
           <p v-else class="text-xs text-muted-foreground">
-            Cantidad total de cuotas del préstamo. Se generan todas las cuotas del cronograma al guardar.
+            Cantidad de cuotas. Se generan todas con el valor de "Cuota mensual" al guardar; después podés editar el monto de un mes puntual.
           </p>
           <p v-if="errors.termMonths" class="text-xs text-destructive">
             {{ errors.termMonths }}
@@ -335,7 +335,7 @@ async function onSubmit() {
 
         <p v-if="isEditing && props.loan?.estimated_end_date" class="text-xs text-muted-foreground">
           Fin estimado: {{ formatDateChip(props.loan.estimated_end_date) }} ·
-          {{ formatAmount(props.loan.total_amount ?? 0) }} en {{ props.loan.term_months }} cuotas.
+          {{ props.loan.term_months }} cuotas.
         </p>
       </form>
 

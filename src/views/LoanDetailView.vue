@@ -6,6 +6,7 @@ import {
   CirclePlus,
   EllipsisVertical,
   Pencil,
+  SquarePen,
   Plus,
   RotateCcw,
   Trash2,
@@ -22,6 +23,7 @@ import {
   type LoanInstallmentDisplayStatus,
 } from '@/stores/loans'
 import AppHeader from '@/components/AppHeader.vue'
+import LoanInstallmentAmountSheet from '@/components/LoanInstallmentAmountSheet.vue'
 import LoanFormSheet from '@/components/LoanFormSheet.vue'
 import LoanDebtorFormSheet from '@/components/LoanDebtorFormSheet.vue'
 import LoanDebtorPaymentFormSheet from '@/components/LoanDebtorPaymentFormSheet.vue'
@@ -121,6 +123,13 @@ function monthYearLabel(dateOnly: string): string {
 
 function toggleInstallment(installment: LoanInstallment) {
   loansStore.toggleInstallment(installment)
+}
+
+const isInstallmentSheetOpen = ref(false)
+const editingInstallment = ref<LoanInstallment | null>(null)
+function openEditInstallment(installment: LoanInstallment) {
+  editingInstallment.value = installment
+  isInstallmentSheetOpen.value = true
 }
 
 // --- Sheets ---
@@ -241,7 +250,7 @@ function deleteLoanAndGoBack() {
             <div class="grid grid-cols-2 gap-3 sm:grid-cols-4">
               <Card size="sm">
                 <CardHeader class="pb-1">
-                  <CardDescription>Total</CardDescription>
+                  <CardDescription>Monto prestado</CardDescription>
                 </CardHeader>
                 <div class="px-4 pb-3">
                   <p class="font-semibold tabular-nums">
@@ -375,27 +384,40 @@ function deleteLoanAndGoBack() {
             <div v-else class="flex flex-col">
               <template v-for="(installment, idx) in installments" :key="installment.id">
                 <Separator v-if="idx > 0" />
-                <button
-                  type="button"
-                  class="flex min-h-11 w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                  @click="toggleInstallment(installment)"
-                >
-                  <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium tabular-nums">
-                    {{ installment.installment_number }}
-                  </span>
-                  <div class="flex min-w-0 flex-1 flex-col">
-                    <p class="text-sm font-medium capitalize">
-                      {{ monthYearLabel(installment.due_date) }}
+                <div class="flex items-center">
+                  <button
+                    type="button"
+                    class="flex min-h-11 min-w-0 flex-1 items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+                    @click="toggleInstallment(installment)"
+                  >
+                    <span class="flex size-9 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-medium tabular-nums">
+                      {{ installment.installment_number }}
+                    </span>
+                    <div class="flex min-w-0 flex-1 flex-col">
+                      <p class="text-sm font-medium capitalize">
+                        {{ monthYearLabel(installment.due_date) }}
+                      </p>
+                      <p class="text-xs text-muted-foreground">
+                        {{ formatDateChip(installment.due_date) }}
+                      </p>
+                    </div>
+                    <p class="shrink-0 text-sm font-semibold tabular-nums">
+                      ${{ formatAmount(installment.amount) }}
                     </p>
-                    <p class="text-xs text-muted-foreground">
-                      {{ formatDateChip(installment.due_date) }}
-                    </p>
-                  </div>
-                  <p class="shrink-0 text-sm font-semibold tabular-nums">
-                    ${{ formatAmount(installment.amount) }}
-                  </p>
-                  <LoanInstallmentStatusBadge :status="installmentDisplayStatus(installment)" />
-                </button>
+                    <LoanInstallmentStatusBadge :status="installmentDisplayStatus(installment)" />
+                  </button>
+                  <Button
+                    v-if="installment.status !== 'paid'"
+                    variant="ghost"
+                    size="icon"
+                    class="size-11 shrink-0"
+                    :aria-label="`Editar monto de la cuota ${installment.installment_number}`"
+                    @click="openEditInstallment(installment)"
+                  >
+                    <SquarePen class="size-4" />
+                  </Button>
+                  <span v-else class="size-11 shrink-0" />
+                </div>
               </template>
             </div>
           </TabsContent>
@@ -500,6 +522,11 @@ function deleteLoanAndGoBack() {
       :existing-person-ids="loan.debtors.map(d => d.debtPersonId)"
       :loan-total-amount="loan.totalAmount"
       :assigned-total="loan.debtorsTotal"
+    />
+    <LoanInstallmentAmountSheet
+      v-model:open="isInstallmentSheetOpen"
+      :installment="editingInstallment"
+      :period-label="editingInstallment ? monthYearLabel(editingInstallment.due_date) : ''"
     />
     <LoanDebtorPaymentFormSheet v-model:open="isPaymentSheetOpen" :debtor="paymentDebtor" />
   </div>

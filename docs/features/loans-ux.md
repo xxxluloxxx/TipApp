@@ -1417,3 +1417,18 @@ usuario le debe a él).
 - Borrar el pago devuelve la deuda propia automáticamente (se deriva de los pagos).
 - Migraciones: `20260802090000_...` (primer intento, reemplazado) y
   `20260802100000_loan_debtor_counter_debt.sql`.
+
+## 16. Cuotas = la cuota mensual indicada, editables una a una (2026-08-02)
+
+- `create_loan` ya **no calcula** `total_amount / term_months`: genera las
+  `term_months` cuotas con `monthly_installment_amount` (reemplaza el criterio
+  de redondeo de la sección 1.1). `total_amount` es solo informativo ("Monto
+  prestado", sirve para préstamos con intereses).
+- `loan_progress.remaining_amount` = suma de las cuotas **pendientes** (antes
+  `total_amount - pagado`).
+- Cada cuota pendiente se puede editar con el lápiz de la fila
+  (`LoanInstallmentAmountSheet`, optimista). Solo cambia esa cuota.
+- Editar la "Cuota mensual" del préstamo propaga el nuevo valor a las cuotas
+  pendientes que seguían en el valor viejo; las editadas a mano se respetan.
+- Migración: `20260802110000_loan_installments_use_monthly_amount.sql` (también
+  corrigió los cronogramas existentes).
