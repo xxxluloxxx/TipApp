@@ -1395,3 +1395,21 @@ features — confirmado punto por punto contra lo que pidió el encargo:
   el guard de la sección 5.4, y el `unique(loan_id, debt_person_id)`
   recomendado). Ninguna tabla de esta feature toca `expenses`/`incomes`/
   `account_balances` — aislamiento total confirmado en todo el documento.
+
+---
+
+## 15. Pago con compensación contra una deuda (2026-08-02)
+
+Caso: el préstamo es del usuario pero lo reparten con otras personas (p. ej. el
+papá debe 150/mes; da 75 en efectivo y los otros 75 se abonan a lo que el
+usuario le debe a él, en Deudas).
+
+- `LoanDebtorPaymentFormSheet`: "Monto" pasa a ser el **total** del pago. Si la
+  persona tiene una deuda `borrowed` con saldo > 0, aparece "Compensado con lo
+  que le debo" (opcional). Efectivo = total − compensado.
+- Con compensación el guardado es **NO optimista**: RPC atómico
+  `record_loan_debtor_payment` crea el pago (amount = total, `offset_amount`) y
+  un `debt_movements` negativo **sin cuenta** (no toca `account_balances`,
+  `expenses` ni `incomes`). Sin compensación sigue el insert optimista de antes.
+- Borrar el pago borra su abono (trigger `loan_debtor_payments_delete_offset_movement`).
+- Migración: `20260802090000_loan_debtor_payment_debt_offset.sql`.

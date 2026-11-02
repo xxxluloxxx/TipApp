@@ -1067,6 +1067,8 @@ export type Database = {
           created_at: string
           id: string
           loan_debtor_id: string
+          offset_amount: number
+          offset_debt_movement_id: string | null
           payment_date: string
           user_id: string
         }
@@ -1075,6 +1077,8 @@ export type Database = {
           created_at?: string
           id?: string
           loan_debtor_id: string
+          offset_amount?: number
+          offset_debt_movement_id?: string | null
           payment_date?: string
           user_id: string
         }
@@ -1083,6 +1087,8 @@ export type Database = {
           created_at?: string
           id?: string
           loan_debtor_id?: string
+          offset_amount?: number
+          offset_debt_movement_id?: string | null
           payment_date?: string
           user_id?: string
         }
@@ -1656,6 +1662,16 @@ export type Database = {
           p_start_date: string
           p_term_months: number
           p_total_amount: number
+        }
+        Returns: string
+      }
+      record_loan_debtor_payment: {
+        Args: {
+          p_cash: number
+          p_debt_id?: string
+          p_loan_debtor_id: string
+          p_offset?: number
+          p_payment_date?: string
         }
         Returns: string
       }

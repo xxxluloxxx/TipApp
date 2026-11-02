@@ -4,6 +4,7 @@ import { toast } from 'vue-sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
+import { useDebtsStore } from '@/stores/debts'
 import type { Tables } from '@/types/database.types'
 
 export type Loan = Tables<'loans'>
@@ -101,6 +102,15 @@ export interface AddDebtorPayload {
 export interface RegisterPaymentPayload {
   loanDebtorId: string
   amount: number
+  paymentDate: string
+}
+
+/** Pago con parte compensada contra una deuda del usuario con esa persona. */
+export interface RegisterOffsetPaymentPayload {
+  loanDebtorId: string
+  cash: number
+  offset: number
+  debtId: string
   paymentDate: string
 }
 
@@ -600,6 +610,26 @@ export const useLoansStore = defineStore('loans', () => {
     void persist()
   }
 
+  /**
+   * NO optimista: crea el pago y el abono en Deudas en un solo RPC atómico
+   * (`record_loan_debtor_payment`). Refresca saldos del préstamo y de deudas.
+   */
+  async function registerPaymentWithOffset(payload: RegisterOffsetPaymentPayload): Promise<{ error: true } | { ok: true }> {
+    const { error } = await supabase.rpc('record_loan_debtor_payment', {
+      p_loan_debtor_id: payload.loanDebtorId,
+      p_cash: payload.cash,
+      p_offset: payload.offset,
+      p_debt_id: payload.debtId,
+      p_payment_date: payload.paymentDate,
+    })
+    if (error) {
+      console.error('[loans] No se pudo registrar el pago con compensación', error)
+      return { error: true }
+    }
+    await Promise.all([fetchDebtorBalances(), useDebtsStore().fetchBalances()])
+    return { ok: true }
+  }
+
   return {
     progress,
     summary,
@@ -622,5 +652,6 @@ export const useLoansStore = defineStore('loans', () => {
     addDebtor,
     removeDebtor,
     registerPayment,
+    registerPaymentWithOffset,
   }
 })

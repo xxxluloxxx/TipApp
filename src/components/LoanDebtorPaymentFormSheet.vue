@@ -1,7 +1,10 @@
 <script setup lang="ts">
 import { computed, reactive, ref, watch } from 'vue'
+import { toast } from 'vue-sonner'
 import { isFutureDate, todayDateInputValue } from '@/lib/date'
 import { useLoansStore, type LoanDebtorItem } from '@/stores/loans'
+import { useDebtsStore } from '@/stores/debts'
+import { formatAmount } from '@/lib/currency'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -29,26 +32,41 @@ const emit = defineEmits<{
 }>()
 
 const loansStore = useLoansStore()
+const debtsStore = useDebtsStore()
+
+// Deuda mía con esta persona (direction 'borrowed', saldo > 0): habilita
+// compensar parte del pago contra ella (record_loan_debtor_payment).
+const offsetDebt = computed(() =>
+  props.debtor
+    ? debtsStore.borrowedDebts.find(d => d.personId === props.debtor!.debtPersonId && d.balance > 0) ?? null
+    : null,
+)
+const isSaving = ref(false)
 
 const todayValue = computed(() => todayDateInputValue())
 
 const form = reactive({
   amount: '',
+  offset: '',
   date: todayDateInputValue(),
 })
-const errors = reactive<{ amount?: string, date?: string }>({})
+const errors = reactive<{ amount?: string, offset?: string, date?: string }>({})
 
 const dateInputRef = ref<HTMLInputElement | null>(null)
 
 function resetForm() {
   errors.amount = undefined
   errors.date = undefined
+  errors.offset = undefined
   form.amount = ''
+  form.offset = ''
   form.date = todayDateInputValue()
 }
 
 watch(() => props.open, (isOpen) => {
-  if (isOpen) resetForm()
+  if (!isOpen) return
+  resetForm()
+  void debtsStore.fetchDebts().then(ok => ok && debtsStore.fetchBalances())
 })
 
 function parseAmount(raw: string): number | null {
@@ -69,6 +87,15 @@ function validate(): boolean {
     errors.amount = 'Ingresá un monto mayor a 0.'
     return false
   }
+  const offset = form.offset.trim() ? parseAmount(form.offset) : 0
+  if (offset === null || offset < 0 || offset > amount) {
+    errors.offset = 'Ingresá un monto entre 0 y el total del pago.'
+    return false
+  }
+  if (offset > 0 && !offsetDebt.value) {
+    errors.offset = 'No tenés una deuda con esta persona para compensar.'
+    return false
+  }
   if (!form.date) {
     errors.date = 'Seleccioná una fecha.'
     return false
@@ -84,12 +111,42 @@ function handleOpenChange(value: boolean) {
   emit('update:open', value)
 }
 
-function onSubmit() {
+async function onSubmit() {
   if (!validate() || !props.debtor) return
+
+  const total = parseAmount(form.amount)!
+  const offset = form.offset.trim() ? parseAmount(form.offset)! : 0
+
+  if (offset > 0 && offsetDebt.value) {
+    // NO optimista: pago + abono en Deudas en un solo RPC atómico.
+    isSaving.value = true
+    try {
+      const result = await loansStore.registerPaymentWithOffset({
+        loanDebtorId: props.debtor.loanDebtorId,
+        cash: total - offset,
+        offset,
+        debtId: offsetDebt.value.id,
+        paymentDate: form.date,
+      })
+      if ('error' in result) {
+        toast.error('No pudimos registrar el pago', {
+          description: 'Revisá tu conexión e intentá de nuevo.',
+        })
+        return
+      }
+      toast.success('Pago registrado', {
+        description: `Se abonaron ${'$' + formatAmount(offset)} a tu deuda.`,
+      })
+      emit('update:open', false)
+    } finally {
+      isSaving.value = false
+    }
+    return
+  }
 
   loansStore.registerPayment({
     loanDebtorId: props.debtor.loanDebtorId,
-    amount: parseAmount(form.amount)!,
+    amount: total,
     paymentDate: form.date,
   })
   emit('update:open', false)
@@ -106,7 +163,7 @@ function onSubmit() {
 
       <form id="loan-payment-form" class="flex flex-col gap-4 px-4" novalidate @submit.prevent="onSubmit">
         <div class="flex flex-col gap-1.5">
-          <Label for="monto-pago">Monto</Label>
+          <Label for="monto-pago">Monto total del pago</Label>
           <div class="flex items-center gap-1.5">
             <span class="text-sm text-muted-foreground">$</span>
             <Input
@@ -121,6 +178,30 @@ function onSubmit() {
           </div>
           <p v-if="errors.amount" class="text-xs text-destructive">
             {{ errors.amount }}
+          </p>
+        </div>
+
+        <div v-if="offsetDebt" class="flex flex-col gap-1.5">
+          <Label for="monto-compensado">
+            Compensado con lo que le debo <span class="font-normal text-muted-foreground">(opcional)</span>
+          </Label>
+          <div class="flex items-center gap-1.5">
+            <span class="text-sm text-muted-foreground">$</span>
+            <Input
+              id="monto-compensado"
+              v-model="form.offset"
+              inputmode="decimal"
+              type="text"
+              placeholder="0"
+              class="tabular-nums"
+              :aria-invalid="!!errors.offset"
+            />
+          </div>
+          <p v-if="errors.offset" class="text-xs text-destructive">
+            {{ errors.offset }}
+          </p>
+          <p class="text-xs text-muted-foreground">
+            Le debés ${{ formatAmount(offsetDebt.balance) }}. Esta parte no entra como efectivo: se abona a esa deuda.
           </p>
         </div>
 
@@ -142,8 +223,8 @@ function onSubmit() {
       </form>
 
       <SheetFooter>
-        <Button type="submit" form="loan-payment-form" class="w-full">
-          Registrar pago
+        <Button type="submit" form="loan-payment-form" class="w-full" :disabled="isSaving">
+          {{ isSaving ? 'Guardando…' : 'Registrar pago' }}
         </Button>
       </SheetFooter>
     </SheetContent>
