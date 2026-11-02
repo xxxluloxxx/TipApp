@@ -477,6 +477,9 @@ function deleteLoanAndGoBack() {
                     <span v-if="debtor.lastPaymentDate">Último pago: {{ formatDateChip(debtor.lastPaymentDate) }}</span>
                     <span v-else>Sin pagos todavía</span>
                   </div>
+                  <p v-if="debtor.counterDebtAmount > 0" class="text-xs text-muted-foreground">
+                    Yo le debo ${{ formatAmount(debtor.counterDebtRemaining) }} de ${{ formatAmount(debtor.counterDebtAmount) }}
+                  </p>
                 </div>
               </template>
             </div>

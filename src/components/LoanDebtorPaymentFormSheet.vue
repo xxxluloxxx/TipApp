@@ -3,7 +3,6 @@ import { computed, reactive, ref, watch } from 'vue'
 import { toast } from 'vue-sonner'
 import { isFutureDate, todayDateInputValue } from '@/lib/date'
 import { useLoansStore, type LoanDebtorItem } from '@/stores/loans'
-import { useDebtsStore } from '@/stores/debts'
 import { formatAmount } from '@/lib/currency'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -32,15 +31,9 @@ const emit = defineEmits<{
 }>()
 
 const loansStore = useLoansStore()
-const debtsStore = useDebtsStore()
-
-// Deuda mía con esta persona (direction 'borrowed', saldo > 0): habilita
-// compensar parte del pago contra ella (record_loan_debtor_payment).
-const offsetDebt = computed(() =>
-  props.debtor
-    ? debtsStore.borrowedDebts.find(d => d.personId === props.debtor!.debtPersonId && d.balance > 0) ?? null
-    : null,
-)
+// Lo que le debo a esta persona (dentro de Préstamos): permite compensar parte
+// del pago contra eso (record_loan_debtor_payment).
+const counterDebtRemaining = computed(() => props.debtor?.counterDebtRemaining ?? 0)
 const isSaving = ref(false)
 
 const todayValue = computed(() => todayDateInputValue())
@@ -64,9 +57,7 @@ function resetForm() {
 }
 
 watch(() => props.open, (isOpen) => {
-  if (!isOpen) return
-  resetForm()
-  void debtsStore.fetchDebts().then(ok => ok && debtsStore.fetchBalances())
+  if (isOpen) resetForm()
 })
 
 function parseAmount(raw: string): number | null {
@@ -92,8 +83,8 @@ function validate(): boolean {
     errors.offset = 'Ingresá un monto entre 0 y el total del pago.'
     return false
   }
-  if (offset > 0 && !offsetDebt.value) {
-    errors.offset = 'No tenés una deuda con esta persona para compensar.'
+  if (offset > counterDebtRemaining.value) {
+    errors.offset = `Le debés $${formatAmount(counterDebtRemaining.value)}; no podés compensar más.`
     return false
   }
   if (!form.date) {
@@ -117,7 +108,7 @@ async function onSubmit() {
   const total = parseAmount(form.amount)!
   const offset = form.offset.trim() ? parseAmount(form.offset)! : 0
 
-  if (offset > 0 && offsetDebt.value) {
+  if (offset > 0) {
     // NO optimista: pago + abono en Deudas en un solo RPC atómico.
     isSaving.value = true
     try {
@@ -125,7 +116,6 @@ async function onSubmit() {
         loanDebtorId: props.debtor.loanDebtorId,
         cash: total - offset,
         offset,
-        debtId: offsetDebt.value.id,
         paymentDate: form.date,
       })
       if ('error' in result) {
@@ -135,7 +125,7 @@ async function onSubmit() {
         return
       }
       toast.success('Pago registrado', {
-        description: `Se abonaron ${'$' + formatAmount(offset)} a tu deuda.`,
+        description: `Se abonaron ${'$' + formatAmount(offset)} a lo que le debés.`,
       })
       emit('update:open', false)
     } finally {
@@ -181,7 +171,7 @@ async function onSubmit() {
           </p>
         </div>
 
-        <div v-if="offsetDebt" class="flex flex-col gap-1.5">
+        <div v-if="counterDebtRemaining > 0" class="flex flex-col gap-1.5">
           <Label for="monto-compensado">
             Compensado con lo que le debo <span class="font-normal text-muted-foreground">(opcional)</span>
           </Label>
@@ -201,7 +191,7 @@ async function onSubmit() {
             {{ errors.offset }}
           </p>
           <p class="text-xs text-muted-foreground">
-            Le debés ${{ formatAmount(offsetDebt.balance) }}. Esta parte no entra como efectivo: se abona a esa deuda.
+            Le debés ${{ formatAmount(counterDebtRemaining) }}. Esta parte no entra como efectivo: se descuenta de esa deuda.
           </p>
         </div>
 

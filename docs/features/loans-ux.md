@@ -1398,18 +1398,22 @@ features — confirmado punto por punto contra lo que pidió el encargo:
 
 ---
 
-## 15. Pago con compensación contra una deuda (2026-08-02)
+## 15. Compensar un pago contra lo que yo le debo a la persona (2026-08-02)
 
 Caso: el préstamo es del usuario pero lo reparten con otras personas (p. ej. el
-papá debe 150/mes; da 75 en efectivo y los otros 75 se abonan a lo que el
-usuario le debe a él, en Deudas).
+papá debe 150/mes; da 75 en efectivo y los otros 75 se descuentan de lo que el
+usuario le debe a él).
 
-- `LoanDebtorPaymentFormSheet`: "Monto" pasa a ser el **total** del pago. Si la
-  persona tiene una deuda `borrowed` con saldo > 0, aparece "Compensado con lo
-  que le debo" (opcional). Efectivo = total − compensado.
-- Con compensación el guardado es **NO optimista**: RPC atómico
-  `record_loan_debtor_payment` crea el pago (amount = total, `offset_amount`) y
-  un `debt_movements` negativo **sin cuenta** (no toca `account_balances`,
-  `expenses` ni `incomes`). Sin compensación sigue el insert optimista de antes.
-- Borrar el pago borra su abono (trigger `loan_debtor_payments_delete_offset_movement`).
-- Migración: `20260802090000_loan_debtor_payment_debt_offset.sql`.
+- **Vive 100% dentro de Préstamos, no usa Deudas.** `loan_debtors.counter_debt_amount`
+  = lo que yo le debo a esa persona (opcional al agregarla). La vista
+  `loan_debtor_balances` expone `counter_debt_amount` y `counter_debt_remaining`
+  (= monto − suma de `offset_amount` de sus pagos).
+- `LoanDebtorPaymentFormSheet`: "Monto" es el **total** del pago. Si
+  `counter_debt_remaining > 0` aparece "Compensado con lo que le debo"
+  (opcional, ≤ lo que le debo). Efectivo = total − compensado.
+- Con compensación el guardado es **NO optimista**: RPC `record_loan_debtor_payment`
+  inserta el pago (`amount` = total, `offset_amount`). Sin compensación sigue el
+  insert optimista. Nada toca `expenses`, `incomes`, cuentas ni Deudas.
+- Borrar el pago devuelve la deuda propia automáticamente (se deriva de los pagos).
+- Migraciones: `20260802090000_...` (primer intento, reemplazado) y
+  `20260802100000_loan_debtor_counter_debt.sql`.

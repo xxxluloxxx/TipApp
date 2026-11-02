@@ -4,7 +4,6 @@ import { toast } from 'vue-sonner'
 import { supabase } from '@/lib/supabase'
 import { useAuthStore } from '@/stores/auth'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
-import { useDebtsStore } from '@/stores/debts'
 import type { Tables } from '@/types/database.types'
 
 export type Loan = Tables<'loans'>
@@ -39,6 +38,10 @@ export interface LoanDebtorItem {
   amountAssigned: number
   amountReceived: number
   balanceRemaining: number
+  /** Lo que YO le debo a esta persona (llevado dentro de Préstamos) y lo que
+   * queda tras las compensaciones de sus pagos. */
+  counterDebtAmount: number
+  counterDebtRemaining: number
   lastPaymentDate: string | null
   /** `true` si esta persona ya tiene al menos un pago recibido — se deriva de
    * `last_payment_date != null` (no hace falta un conteo dedicado aparte: la
@@ -97,6 +100,8 @@ export interface AddDebtorPayload {
   loanId: string
   debtPersonId: string
   amountOwed: number
+  /** Lo que el usuario le debe a esta persona (opcional, default 0). */
+  counterDebtAmount?: number
 }
 
 export interface RegisterPaymentPayload {
@@ -105,12 +110,11 @@ export interface RegisterPaymentPayload {
   paymentDate: string
 }
 
-/** Pago con parte compensada contra una deuda del usuario con esa persona. */
+/** Pago con parte compensada contra lo que el usuario le debe a esa persona. */
 export interface RegisterOffsetPaymentPayload {
   loanDebtorId: string
   cash: number
   offset: number
-  debtId: string
   paymentDate: string
 }
 
@@ -144,6 +148,8 @@ export const useLoansStore = defineStore('loans', () => {
       amountAssigned: num(row.amount_owed),
       amountReceived: num(row.amount_received),
       balanceRemaining: num(row.balance_remaining),
+      counterDebtAmount: num(row.counter_debt_amount),
+      counterDebtRemaining: num(row.counter_debt_remaining),
       lastPaymentDate: row.last_payment_date,
       hasPayments: row.last_payment_date != null,
     }
@@ -472,6 +478,8 @@ export const useLoansStore = defineStore('loans', () => {
       amount_owed: payload.amountOwed,
       amount_received: 0,
       balance_remaining: payload.amountOwed,
+      counter_debt_amount: payload.counterDebtAmount ?? 0,
+      counter_debt_remaining: payload.counterDebtAmount ?? 0,
       last_payment_date: null,
       last_payment_amount: null,
       user_id: userId,
@@ -485,6 +493,7 @@ export const useLoansStore = defineStore('loans', () => {
           loan_id: payload.loanId,
           debt_person_id: payload.debtPersonId,
           amount_owed: payload.amountOwed,
+          counter_debt_amount: payload.counterDebtAmount ?? 0,
           user_id: userId,
         })
         .select('id')
@@ -612,21 +621,20 @@ export const useLoansStore = defineStore('loans', () => {
 
   /**
    * NO optimista: crea el pago y el abono en Deudas en un solo RPC atómico
-   * (`record_loan_debtor_payment`). Refresca saldos del préstamo y de deudas.
+   * (`record_loan_debtor_payment`). Refresca los saldos de las personas.
    */
   async function registerPaymentWithOffset(payload: RegisterOffsetPaymentPayload): Promise<{ error: true } | { ok: true }> {
     const { error } = await supabase.rpc('record_loan_debtor_payment', {
       p_loan_debtor_id: payload.loanDebtorId,
       p_cash: payload.cash,
       p_offset: payload.offset,
-      p_debt_id: payload.debtId,
       p_payment_date: payload.paymentDate,
     })
     if (error) {
       console.error('[loans] No se pudo registrar el pago con compensación', error)
       return { error: true }
     }
-    await Promise.all([fetchDebtorBalances(), useDebtsStore().fetchBalances()])
+    await fetchDebtorBalances()
     return { ok: true }
   }
 

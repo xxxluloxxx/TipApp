@@ -50,8 +50,9 @@ const loansStore = useLoansStore()
 const form = reactive({
   personId: '',
   amount: '',
+  counterDebt: '',
 })
-const errors = reactive<{ personId?: string, amount?: string }>({})
+const errors = reactive<{ personId?: string, amount?: string, counterDebt?: string }>({})
 
 const availablePeople = computed(() =>
   debtPeopleStore.people.filter(person => !props.existingPersonIds.includes(person.id)),
@@ -62,6 +63,8 @@ function resetForm() {
   errors.amount = undefined
   form.personId = ''
   form.amount = ''
+  form.counterDebt = ''
+  errors.counterDebt = undefined
 }
 
 watch(() => props.open, (isOpen) => {
@@ -101,6 +104,10 @@ function validate(): boolean {
     errors.amount = 'Ingresá un monto mayor a 0.'
     return false
   }
+  if (form.counterDebt.trim() && parseAmount(form.counterDebt) === null) {
+    errors.counterDebt = 'Ingresá un monto válido.'
+    return false
+  }
   return true
 }
 
@@ -121,6 +128,7 @@ function onSubmit() {
     loanId: props.loanId,
     debtPersonId: form.personId,
     amountOwed: parseAmount(form.amount)!,
+    counterDebtAmount: form.counterDebt.trim() ? parseAmount(form.counterDebt)! : 0,
   })
   emit('update:open', false)
 }
@@ -177,6 +185,30 @@ function onSubmit() {
           </p>
           <p v-if="errors.amount" class="text-xs text-destructive">
             {{ errors.amount }}
+          </p>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <Label for="deuda-propia">
+            Lo que yo le debo a esta persona <span class="font-normal text-muted-foreground">(opcional)</span>
+          </Label>
+          <div class="flex items-center gap-1.5">
+            <span class="text-sm text-muted-foreground">$</span>
+            <Input
+              id="deuda-propia"
+              v-model="form.counterDebt"
+              inputmode="decimal"
+              type="text"
+              placeholder="0"
+              class="tabular-nums"
+              :aria-invalid="!!errors.counterDebt"
+            />
+          </div>
+          <p v-if="errors.counterDebt" class="text-xs text-destructive">
+            {{ errors.counterDebt }}
+          </p>
+          <p class="text-xs text-muted-foreground">
+            Después podés descontarla al registrar sus pagos. Es aparte de la sección Deudas.
           </p>
         </div>
       </form>

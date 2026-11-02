@@ -1068,7 +1068,6 @@ export type Database = {
           id: string
           loan_debtor_id: string
           offset_amount: number
-          offset_debt_movement_id: string | null
           payment_date: string
           user_id: string
         }
@@ -1078,7 +1077,6 @@ export type Database = {
           id?: string
           loan_debtor_id: string
           offset_amount?: number
-          offset_debt_movement_id?: string | null
           payment_date?: string
           user_id: string
         }
@@ -1088,7 +1086,6 @@ export type Database = {
           id?: string
           loan_debtor_id?: string
           offset_amount?: number
-          offset_debt_movement_id?: string | null
           payment_date?: string
           user_id?: string
         }
@@ -1112,6 +1109,7 @@ export type Database = {
       loan_debtors: {
         Row: {
           amount_owed: number
+          counter_debt_amount: number
           created_at: string
           debt_person_id: string
           id: string
@@ -1121,6 +1119,7 @@ export type Database = {
         }
         Insert: {
           amount_owed: number
+          counter_debt_amount?: number
           created_at?: string
           debt_person_id: string
           id?: string
@@ -1130,6 +1129,7 @@ export type Database = {
         }
         Update: {
           amount_owed?: number
+          counter_debt_amount?: number
           created_at?: string
           debt_person_id?: string
           id?: string
@@ -1481,6 +1481,8 @@ export type Database = {
           amount_owed: number | null
           amount_received: number | null
           balance_remaining: number | null
+          counter_debt_amount: number | null
+          counter_debt_remaining: number | null
           debt_person_id: string | null
           last_payment_amount: number | null
           last_payment_date: string | null
@@ -1668,7 +1670,6 @@ export type Database = {
       record_loan_debtor_payment: {
         Args: {
           p_cash: number
-          p_debt_id?: string
           p_loan_debtor_id: string
           p_offset?: number
           p_payment_date?: string
