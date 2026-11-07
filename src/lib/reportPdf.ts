@@ -7,10 +7,11 @@ import { parseDateOnly } from '@/lib/date'
 
 export interface ReportPdfMovement {
   date: string
-  type: 'Gasto' | 'Ingreso'
+  type: 'Gasto' | 'Ingreso' | 'Transferencia' | 'Deuda'
   category: string
   account: string
   description: string
+  /** Con signo: gastos negativos, ingresos positivos; en transferencias, el monto movido. */
   amount: number
 }
 
@@ -173,7 +174,7 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
         m.category,
         m.account,
         m.description,
-        money(m.type === 'Gasto' ? -m.amount : m.amount),
+        money(m.amount),
       ]),
       columnStyles: { 5: { halign: 'right' } },
       ...alignHead([5]),

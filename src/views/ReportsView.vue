@@ -80,12 +80,16 @@ interface TransferRow {
   amount: number
   from_account_id: string
   to_account_id: string
+  transfer_date?: string
+  description?: string | null
 }
 
 interface DebtMovementRow {
   amount: number
   account_id: string | null
-  debt: { direction: string | null } | null
+  movement_date?: string
+  description?: string | null
+  debt: { direction: string | null, person: { name: string } | null } | null
 }
 
 const router = useRouter()
@@ -492,13 +496,13 @@ async function loadReport() {
         .limit(1000),
       supabase
         .from('account_transfers')
-        .select('amount, from_account_id, to_account_id')
+        .select('amount, from_account_id, to_account_id, transfer_date, description')
         .gte('transfer_date', current.startKey)
         .lt('transfer_date', current.nextKey)
         .limit(1000),
       supabase
         .from('debt_movements')
-        .select('amount, account_id, debt:debts(direction)')
+        .select('amount, account_id, movement_date, description, debt:debts(direction, person:debt_people(name))')
         .gte('movement_date', current.startKey)
         .lt('movement_date', current.nextKey)
         .limit(1000),
@@ -554,7 +558,7 @@ async function loadReport() {
         category: e.category?.name ?? '-',
         account: accountNameById.get(e.account_id) ?? '-',
         description: e.description ?? '',
-        amount: e.amount,
+        amount: -e.amount,
       })),
       ...incomeRows.map((i): ReportPdfMovement => ({
         date: i.income_date,
@@ -564,6 +568,25 @@ async function loadReport() {
         description: i.description ?? '',
         amount: i.amount,
       })),
+      ...transferRows.map((t): ReportPdfMovement => ({
+        date: t.transfer_date ?? '',
+        type: 'Transferencia',
+        category: '-',
+        account: `${accountNameById.get(t.from_account_id) ?? '-'} -> ${accountNameById.get(t.to_account_id) ?? '-'}`,
+        description: t.description ?? '',
+        amount: t.amount,
+      })),
+      // Solo los que mueven plata de una cuenta (mismo criterio que Transacciones).
+      ...debtMovementRows
+        .filter(d => d.account_id)
+        .map((d): ReportPdfMovement => ({
+          date: d.movement_date ?? '',
+          type: 'Deuda',
+          category: d.debt?.person?.name ?? '-',
+          account: accountNameById.get(d.account_id!) ?? '-',
+          description: d.description ?? '',
+          amount: d.debt?.direction === 'lent' ? -d.amount : d.amount,
+        })),
     ].sort((a, b) => b.date.localeCompare(a.date))
     monthlyActivityCount.value = expenseRows.length + incomeRows.length + transferRows.length + debtMovementRows.length
 
