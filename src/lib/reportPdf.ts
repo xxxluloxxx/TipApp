@@ -17,6 +17,9 @@ export interface ReportPdfMovement {
 export interface ReportPdfData {
   periodLabel: string
   rangeText: string
+  /** Suma de las cuentas con saldo positivo al inicio del periodo. */
+  openingBalance: number
+  openingAccounts: Array<{ name: string, balance: number }>
   incomeTotal: number
   expenseTotal: number
   netTotal: number
@@ -78,6 +81,15 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
   const afterTable = () => {
     y = ((doc as unknown as { lastAutoTable?: { finalY: number } }).lastAutoTable?.finalY ?? y) + 22
   }
+  // `columnStyles` solo alinea el cuerpo: las cabeceras de las columnas
+  // numéricas se alinean aparte para que queden sobre sus valores.
+  const alignHead = (rightColumns: number[]) => ({
+    didParseCell: (hook: { section: string, column: { index: number }, cell: { styles: { halign: string } } }) => {
+      if (hook.section === 'head' && rightColumns.includes(hook.column.index)) {
+        hook.cell.styles.halign = 'right'
+      }
+    },
+  })
   const common = {
     margin: { left: margin, right: margin },
     styles: { fontSize: 9, cellPadding: 4 },
@@ -88,10 +100,29 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
   autoTable(doc, {
     ...common,
     startY: y,
-    head: [['Ingresos', 'Gastos', 'Balance']],
-    body: [[money(data.incomeTotal), money(data.expenseTotal), money(data.netTotal)]],
+    head: [['Saldo al inicio', 'Ingresos', 'Gastos', 'Balance del periodo']],
+    body: [[money(data.openingBalance), money(data.incomeTotal), money(data.expenseTotal), money(data.netTotal)]],
+    columnStyles: { 0: { halign: 'right' }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+    ...alignHead([0, 1, 2, 3]),
   })
   afterTable()
+
+  if (data.openingAccounts.length > 0) {
+    section('Saldo al inicio por cuenta (solo cuentas en positivo)')
+    autoTable(doc, {
+      ...common,
+      startY: y,
+      head: [['Cuenta', 'Saldo']],
+      body: [
+        ...data.openingAccounts.map(a => [a.name, money(a.balance)]),
+      ],
+      foot: [['Total', money(data.openingBalance)]],
+      footStyles: { fillColor: [229, 231, 235] as [number, number, number], textColor: 0 },
+      columnStyles: { 1: { halign: 'right' } },
+      ...alignHead([1]),
+    })
+    afterTable()
+  }
 
   if (data.insights.length > 0) {
     section('Hallazgos')
@@ -112,6 +143,7 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
       head: [['Categoría', 'Monto', '%']],
       body: data.categories.map(c => [c.name, money(c.amount), c.percent]),
       columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+      ...alignHead([1, 2]),
     })
     afterTable()
   }
@@ -124,6 +156,7 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
       head: [['Cuenta', 'Ingresos', 'Gastos', 'Neto']],
       body: data.accounts.map(a => [a.name, money(a.incomes), money(a.expenses), money(a.net)]),
       columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
+      ...alignHead([1, 2, 3]),
     })
     afterTable()
   }
@@ -143,6 +176,7 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
         money(m.type === 'Gasto' ? -m.amount : m.amount),
       ]),
       columnStyles: { 5: { halign: 'right' } },
+      ...alignHead([5]),
     })
   }
 

@@ -1667,6 +1667,10 @@ export type Database = {
         }
         Returns: string
       }
+      account_balances_before: {
+        Args: { p_date: string }
+        Returns: { account_id: string, name: string, balance: number }[]
+      }
       record_loan_debtor_payment: {
         Args: {
           p_cash: number

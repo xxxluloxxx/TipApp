@@ -98,6 +98,10 @@ const selectedPeriod = ref(`month:${monthKey(new Date())}`)
 const customFrom = ref(todayDateInputValue())
 const customTo = ref(todayDateInputValue())
 const isExporting = ref(false)
+// Saldo de cada cuenta al inicio del periodo (RPC `account_balances_before`):
+// "con cuánto empieza" = suma de las cuentas que están en positivo.
+const openingAccounts = ref<Array<{ name: string, balance: number }>>([])
+const openingBalance = computed(() => openingAccounts.value.reduce((sum, a) => sum + a.balance, 0))
 const movementRows = ref<ReportPdfMovement[]>([])
 
 const incomeTotal = ref(0)
@@ -470,6 +474,7 @@ async function loadReport() {
       previousExpensesRes,
       debtBalancesRes,
       loansSummaryRes,
+      openingRes,
     ] = await Promise.all([
       supabase.from('accounts').select('id, name').order('sort_order', { ascending: true }),
       supabase
@@ -505,6 +510,7 @@ async function loadReport() {
         .limit(1000),
       supabase.from('debt_balances').select('balance, direction'),
       supabase.from('loans_summary').select('total_pending, total_receivable_remaining, active_loans_count').maybeSingle(),
+      supabase.rpc('account_balances_before', { p_date: current.startKey }),
     ])
 
     if (
@@ -516,6 +522,7 @@ async function loadReport() {
       || previousExpensesRes.error
       || debtBalancesRes.error
       || loansSummaryRes.error
+      || openingRes.error
     ) {
       loadError.value = true
       return
@@ -526,6 +533,11 @@ async function loadReport() {
     const transferRows = (transfersRes.data ?? []) as unknown as TransferRow[]
     const debtMovementRows = (debtMovementsRes.data ?? []) as unknown as DebtMovementRow[]
     const previousExpenseRows = (previousExpensesRes.data ?? []) as unknown as ExpenseRow[]
+
+    openingAccounts.value = (openingRes.data ?? [])
+      .filter(account => account.balance > 0)
+      .map(account => ({ name: account.name, balance: account.balance }))
+      .sort((a, b) => b.balance - a.balance)
 
     incomeTotal.value = incomeRows.reduce((sum, income) => sum + income.amount, 0)
     expenseTotal.value = expenseRows.reduce((sum, expense) => sum + expense.amount, 0)
@@ -590,6 +602,8 @@ async function exportPdf() {
     await exportReportPdf({
       periodLabel: periodLabel.value,
       rangeText: rangeText.value,
+      openingBalance: openingBalance.value,
+      openingAccounts: openingAccounts.value,
       incomeTotal: incomeTotal.value,
       expenseTotal: expenseTotal.value,
       netTotal: netTotal.value,
@@ -812,6 +826,24 @@ const moreReportsLinks = [
       </template>
 
       <template v-else>
+        <Card>
+          <CardHeader>
+            <CardDescription>Saldo al inicio</CardDescription>
+            <CardTitle class="mt-1 text-2xl font-bold tabular-nums">
+              ${{ formatAmount(openingBalance) }}
+            </CardTitle>
+            <p class="mt-1 text-xs text-muted-foreground">
+              Suma de las cuentas con saldo positivo al {{ range ? shortDateLabel(range.startKey) : '' }}.
+            </p>
+          </CardHeader>
+          <ul v-if="openingAccounts.length > 0" class="flex flex-col gap-1 px-6 pb-4 text-sm">
+            <li v-for="account in openingAccounts" :key="account.name" class="flex items-center justify-between gap-3">
+              <span class="truncate text-muted-foreground">{{ account.name }}</span>
+              <span class="shrink-0 font-medium tabular-nums">${{ formatAmount(account.balance) }}</span>
+            </li>
+          </ul>
+        </Card>
+
         <Card>
           <CardHeader>
             <div class="flex items-start justify-between gap-3">

@@ -945,3 +945,13 @@ porque no hay acciones destructivas en estas 3 pantallas de solo lectura.)
   lista de movimientos (gastos e ingresos) del periodo, hasta 1000 filas.
 - Las pantallas `/reportes/resumen`, `/detalle-mes` y `/comparacion` siguen
   siendo mensuales (sin cambios).
+
+### Saldo al inicio y alineación del PDF (2026-11-07)
+
+- `/reportes` y el PDF muestran **"Saldo al inicio"**: suma de las cuentas con
+  saldo positivo al primer día del periodo, con el desglose por cuenta. Sale
+  del RPC `account_balances_before(p_date)` (misma fórmula que la vista
+  `account_balances`, solo movimientos con fecha < `p_date`). Migración
+  `20260807090000_account_balances_before_function.sql`.
+- PDF: las cabeceras de las columnas numéricas se alinean a la derecha (antes
+  solo el cuerpo, `columnStyles` no afecta la cabecera de autotable).
