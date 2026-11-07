@@ -955,3 +955,11 @@ porque no hay acciones destructivas en estas 3 pantallas de solo lectura.)
   `20260807090000_account_balances_before_function.sql`.
 - PDF: las cabeceras de las columnas numéricas se alinean a la derecha (antes
   solo el cuerpo, `columnStyles` no afecta la cabecera de autotable).
+
+### Movimientos del PDF agrupados por cuenta (2026-11-07)
+
+- La lista de movimientos del PDF es una tabla **por cuenta** (fecha, tipo,
+  categoría/contraparte, descripción, monto) con una fila "Neto" por cuenta.
+- Incluye gastos, ingresos, transferencias y movimientos de deuda ligados a
+  cuenta. Cada transferencia aparece en las dos cuentas: "Transf. enviada" (−)
+  en el origen y "Transf. recibida" (+) en el destino.

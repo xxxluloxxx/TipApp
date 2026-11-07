@@ -7,8 +7,9 @@ import { parseDateOnly } from '@/lib/date'
 
 export interface ReportPdfMovement {
   date: string
-  type: 'Gasto' | 'Ingreso' | 'Transferencia' | 'Deuda'
+  type: 'Gasto' | 'Ingreso' | 'Transf. enviada' | 'Transf. recibida' | 'Deuda'
   category: string
+  accountId: string
   account: string
   description: string
   /** Con signo: gastos negativos, ingresos positivos; en transferencias, el monto movido. */
@@ -162,23 +163,51 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
     afterTable()
   }
 
+  // Movimientos agrupados por cuenta (una tabla por cuenta). Las transferencias
+  // aparecen en las dos cuentas: como enviada en el origen y recibida en el destino.
   if (data.movements.length > 0) {
-    section(`Movimientos (${data.movements.length})`)
-    autoTable(doc, {
-      ...common,
-      startY: y,
-      head: [['Fecha', 'Tipo', 'Categoría', 'Cuenta', 'Descripción', 'Monto']],
-      body: data.movements.map(m => [
-        shortDate(m.date),
-        m.type,
-        m.category,
-        m.account,
-        m.description,
-        money(m.amount),
-      ]),
-      columnStyles: { 5: { halign: 'right' } },
-      ...alignHead([5]),
-    })
+    const byAccount = new Map<string, ReportPdfMovement[]>()
+    for (const movement of data.movements) {
+      const list = byAccount.get(movement.accountId) ?? []
+      list.push(movement)
+      byAccount.set(movement.accountId, list)
+    }
+    const order = new Map(data.accounts.map((a, index) => [a.name, index]))
+    const groups = [...byAccount.values()].sort((a, b) =>
+      (order.get(a[0]!.account) ?? 999) - (order.get(b[0]!.account) ?? 999),
+    )
+
+    section(`Movimientos por cuenta (${data.movements.length})`)
+    y += 4
+    for (const group of groups) {
+      const net = group.reduce((sum, m) => sum + m.amount, 0)
+      // Evita dejar el título de una cuenta huérfano al final de la página.
+      if (y > doc.internal.pageSize.getHeight() - 110) {
+        doc.addPage()
+        y = 50
+      }
+      doc.setFont('helvetica', 'bold')
+      doc.setFontSize(10.5)
+      doc.text(group[0]!.account, margin, y)
+      doc.setFont('helvetica', 'normal')
+      y += 5
+      autoTable(doc, {
+        ...common,
+        startY: y,
+        head: [['Fecha', 'Tipo', 'Categoría / contraparte', 'Descripción', 'Monto']],
+        body: group.map(m => [shortDate(m.date), m.type, m.category, m.description, money(m.amount)]),
+        foot: [['', '', '', `Neto (${group.length} mov.)`, money(net)]],
+        footStyles: { fillColor: [229, 231, 235] as [number, number, number], textColor: 0 },
+        columnStyles: { 4: { halign: 'right' } },
+        ...alignHead([4]),
+        didParseCell: (hook: { section: string, column: { index: number }, cell: { styles: { halign: string } } }) => {
+          if (hook.column.index === 4 && (hook.section === 'head' || hook.section === 'foot')) {
+            hook.cell.styles.halign = 'right'
+          }
+        },
+      })
+      afterTable()
+    }
   }
 
   const pages = doc.getNumberOfPages()

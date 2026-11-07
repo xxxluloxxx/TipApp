@@ -551,12 +551,14 @@ async function loadReport() {
     accounts.value = summarizeAccounts(accountsRes.data ?? [], expenseRows, incomeRows, transferRows, debtMovementRows)
     insights.value = buildInsights(expenseRows, categories.value, accounts.value)
     const accountNameById = new Map((accountsRes.data ?? []).map(a => [a.id, a.name]))
+    const accountName = (id: string) => accountNameById.get(id) ?? '-'
     movementRows.value = [
       ...expenseRows.map((e): ReportPdfMovement => ({
         date: e.expense_date,
         type: 'Gasto',
         category: e.category?.name ?? '-',
-        account: accountNameById.get(e.account_id) ?? '-',
+        accountId: e.account_id,
+        account: accountName(e.account_id),
         description: e.description ?? '',
         amount: -e.amount,
       })),
@@ -564,18 +566,32 @@ async function loadReport() {
         date: i.income_date,
         type: 'Ingreso',
         category: '-',
-        account: accountNameById.get(i.account_id) ?? '-',
+        accountId: i.account_id,
+        account: accountName(i.account_id),
         description: i.description ?? '',
         amount: i.amount,
       })),
-      ...transferRows.map((t): ReportPdfMovement => ({
-        date: t.transfer_date ?? '',
-        type: 'Transferencia',
-        category: '-',
-        account: `${accountNameById.get(t.from_account_id) ?? '-'} -> ${accountNameById.get(t.to_account_id) ?? '-'}`,
-        description: t.description ?? '',
-        amount: t.amount,
-      })),
+      // Cada transferencia aparece en las dos cuentas (salida y entrada).
+      ...transferRows.flatMap((t): ReportPdfMovement[] => [
+        {
+          date: t.transfer_date ?? '',
+          type: 'Transf. enviada',
+          category: `A ${accountName(t.to_account_id)}`,
+          accountId: t.from_account_id,
+          account: accountName(t.from_account_id),
+          description: t.description ?? '',
+          amount: -t.amount,
+        },
+        {
+          date: t.transfer_date ?? '',
+          type: 'Transf. recibida',
+          category: `De ${accountName(t.from_account_id)}`,
+          accountId: t.to_account_id,
+          account: accountName(t.to_account_id),
+          description: t.description ?? '',
+          amount: t.amount,
+        },
+      ]),
       // Solo los que mueven plata de una cuenta (mismo criterio que Transacciones).
       ...debtMovementRows
         .filter(d => d.account_id)
@@ -583,7 +599,8 @@ async function loadReport() {
           date: d.movement_date ?? '',
           type: 'Deuda',
           category: d.debt?.person?.name ?? '-',
-          account: accountNameById.get(d.account_id!) ?? '-',
+          accountId: d.account_id!,
+          account: accountName(d.account_id!),
           description: d.description ?? '',
           amount: d.debt?.direction === 'lent' ? -d.amount : d.amount,
         })),
