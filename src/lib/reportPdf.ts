@@ -1,4 +1,6 @@
 import { formatAmount } from '@/lib/currency'
+import type { CellHookData } from 'jspdf-autotable'
+import { hexToRgb } from '@/lib/colors'
 import { parseDateOnly } from '@/lib/date'
 
 // Exporta el reporte del periodo elegido a un PDF de texto (no captura de
@@ -28,12 +30,32 @@ export interface ReportPdfData {
   categories: Array<{ name: string, amount: number, percent: string }>
   accounts: Array<{ name: string, incomes: number, expenses: number, net: number }>
   insights: Array<{ label: string, value: string }>
+  /** Color (`#rrggbb`) de cada cuenta por id, para su cabecera en la lista de movimientos. */
+  accountColors: Record<string, string>
   movements: ReportPdfMovement[]
 }
 
 function money(value: number): string {
   const sign = value < 0 ? '-' : ''
   return `${sign}$${formatAmount(Math.abs(value))}`
+}
+
+type Rgb = [number, number, number]
+const RED: Rgb = [185, 28, 28]
+const GREEN: Rgb = [21, 128, 61]
+const DEFAULT_ACCOUNT_COLOR: Rgb = [55, 65, 81]
+
+/** Verde si entra plata (crédito), rojo si sale (débito), sin color si es 0. */
+function signColor(value: number): Rgb | null {
+  if (value > 0) return GREEN
+  if (value < 0) return RED
+  return null
+}
+
+function readableOn(color: Rgb): Rgb {
+  const [r, g, b] = color
+  const luminance = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return luminance > 0.6 ? [17, 24, 39] : [255, 255, 255]
 }
 
 function shortDate(value: string): string {
@@ -105,7 +127,14 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
     head: [['Saldo al inicio', 'Ingresos', 'Gastos', 'Balance del periodo']],
     body: [[money(data.openingBalance), money(data.incomeTotal), money(data.expenseTotal), money(data.netTotal)]],
     columnStyles: { 0: { halign: 'right' }, 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-    ...alignHead([0, 1, 2, 3]),
+    didParseCell: (hook: CellHookData) => {
+      if (hook.section === 'head') {
+        hook.cell.styles.halign = 'right'
+        return
+      }
+      const color = [signColor(data.openingBalance), GREEN, RED, signColor(data.netTotal)][hook.column.index]
+      if (color) hook.cell.styles.textColor = color
+    },
   })
   afterTable()
 
@@ -121,7 +150,11 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
       foot: [['Total', money(data.openingBalance)]],
       footStyles: { fillColor: [229, 231, 235] as [number, number, number], textColor: 0 },
       columnStyles: { 1: { halign: 'right' } },
-      ...alignHead([1]),
+      didParseCell: (hook: CellHookData) => {
+        if (hook.column.index === 1 && (hook.section === 'head' || hook.section === 'foot')) {
+          hook.cell.styles.halign = 'right'
+        }
+      },
     })
     afterTable()
   }
@@ -144,7 +177,7 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
       startY: y,
       head: [['Categoría', 'Monto', '%']],
       body: data.categories.map(c => [c.name, money(c.amount), c.percent]),
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' } },
+      columnStyles: { 1: { halign: 'right', textColor: RED }, 2: { halign: 'right' } },
       ...alignHead([1, 2]),
     })
     afterTable()
@@ -157,8 +190,19 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
       startY: y,
       head: [['Cuenta', 'Ingresos', 'Gastos', 'Neto']],
       body: data.accounts.map(a => [a.name, money(a.incomes), money(a.expenses), money(a.net)]),
-      columnStyles: { 1: { halign: 'right' }, 2: { halign: 'right' }, 3: { halign: 'right' } },
-      ...alignHead([1, 2, 3]),
+      columnStyles: {
+        1: { halign: 'right', textColor: GREEN },
+        2: { halign: 'right', textColor: RED },
+        3: { halign: 'right' },
+      },
+      didParseCell: (hook: CellHookData) => {
+        if (hook.section === 'head' && hook.column.index > 0) {
+          hook.cell.styles.halign = 'right'
+        } else if (hook.section === 'body' && hook.column.index === 3) {
+          const color = signColor(data.accounts[hook.row.index]?.net ?? 0)
+          if (color) hook.cell.styles.textColor = color
+        }
+      },
     })
     afterTable()
   }
@@ -178,32 +222,45 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
     )
 
     section(`Movimientos por cuenta (${data.movements.length})`)
-    y += 4
+    y += 18
     for (const group of groups) {
+      // Más reciente primero dentro de cada cuenta.
+      group.sort((x, y2) => y2.date.localeCompare(x.date))
       const net = group.reduce((sum, m) => sum + m.amount, 0)
+      const accountColor = hexToRgb(data.accountColors[group[0]!.accountId] ?? '') ?? DEFAULT_ACCOUNT_COLOR
       // Evita dejar el título de una cuenta huérfano al final de la página.
       if (y > doc.internal.pageSize.getHeight() - 110) {
         doc.addPage()
         y = 50
       }
+      // Cabecera con el color de la cuenta.
+      doc.setFillColor(...accountColor)
+      doc.roundedRect(margin, y - 12, doc.internal.pageSize.getWidth() - margin * 2, 20, 3, 3, 'F')
       doc.setFont('helvetica', 'bold')
       doc.setFontSize(10.5)
-      doc.text(group[0]!.account, margin, y)
+      doc.setTextColor(...readableOn(accountColor))
+      doc.text(group[0]!.account, margin + 8, y + 2)
+      doc.setTextColor(0)
       doc.setFont('helvetica', 'normal')
-      y += 5
+      y += 14
       autoTable(doc, {
         ...common,
         startY: y,
+        headStyles: { fillColor: accountColor, textColor: readableOn(accountColor) },
         head: [['Fecha', 'Tipo', 'Categoría / contraparte', 'Descripción', 'Monto']],
         body: group.map(m => [shortDate(m.date), m.type, m.category, m.description, money(m.amount)]),
         foot: [['', '', '', `Neto (${group.length} mov.)`, money(net)]],
-        footStyles: { fillColor: [229, 231, 235] as [number, number, number], textColor: 0 },
+        footStyles: { fillColor: [229, 231, 235] as Rgb, textColor: 0 },
         columnStyles: { 4: { halign: 'right' } },
-        ...alignHead([4]),
-        didParseCell: (hook: { section: string, column: { index: number }, cell: { styles: { halign: string } } }) => {
+        didParseCell: (hook: CellHookData) => {
           if (hook.column.index === 4 && (hook.section === 'head' || hook.section === 'foot')) {
             hook.cell.styles.halign = 'right'
           }
+          // Débito (sale plata) en rojo, crédito (entra plata) en verde: toda la fila.
+          const color = hook.section === 'body'
+            ? signColor(group[hook.row.index]?.amount ?? 0)
+            : hook.section === 'foot' && hook.column.index >= 3 ? signColor(net) : null
+          if (color) hook.cell.styles.textColor = color
         },
       })
       afterTable()

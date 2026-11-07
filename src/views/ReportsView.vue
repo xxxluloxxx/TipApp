@@ -107,6 +107,7 @@ const isExporting = ref(false)
 const openingAccounts = ref<Array<{ name: string, balance: number }>>([])
 const openingBalance = computed(() => openingAccounts.value.reduce((sum, a) => sum + a.balance, 0))
 const movementRows = ref<ReportPdfMovement[]>([])
+const accountColorById = ref(new Map<string, string>())
 
 const incomeTotal = ref(0)
 const expenseTotal = ref(0)
@@ -480,7 +481,7 @@ async function loadReport() {
       loansSummaryRes,
       openingRes,
     ] = await Promise.all([
-      supabase.from('accounts').select('id, name').order('sort_order', { ascending: true }),
+      supabase.from('accounts').select('id, name, color').order('sort_order', { ascending: true }),
       supabase
         .from('expenses')
         .select('amount, expense_date, account_id, description, category:categories(id, name, color)')
@@ -550,6 +551,9 @@ async function loadReport() {
     categories.value = summarizeCategories(expenseRows, previousExpenseRows)
     accounts.value = summarizeAccounts(accountsRes.data ?? [], expenseRows, incomeRows, transferRows, debtMovementRows)
     insights.value = buildInsights(expenseRows, categories.value, accounts.value)
+    accountColorById.value = new Map(
+      (accountsRes.data ?? []).flatMap(a => (a.color ? [[a.id, a.color] as [string, string]] : [])),
+    )
     const accountNameById = new Map((accountsRes.data ?? []).map(a => [a.id, a.name]))
     const accountName = (id: string) => accountNameById.get(id) ?? '-'
     movementRows.value = [
@@ -644,6 +648,7 @@ async function exportPdf() {
       rangeText: rangeText.value,
       openingBalance: openingBalance.value,
       openingAccounts: openingAccounts.value,
+      accountColors: Object.fromEntries(accountColorById.value),
       incomeTotal: incomeTotal.value,
       expenseTotal: expenseTotal.value,
       netTotal: netTotal.value,

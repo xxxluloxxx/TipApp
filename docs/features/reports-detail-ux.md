@@ -963,3 +963,13 @@ porque no hay acciones destructivas en estas 3 pantallas de solo lectura.)
 - Incluye gastos, ingresos, transferencias y movimientos de deuda ligados a
   cuenta. Cada transferencia aparece en las dos cuentas: "Transf. enviada" (−)
   en el origen y "Transf. recibida" (+) en el destino.
+
+### Colores del PDF (2026-11-07)
+
+- Cada cuenta de la lista de movimientos lleva su color (`accounts.color`) en
+  la barra de título y en la cabecera de su tabla.
+- Filas: débito (sale plata: gasto, transferencia enviada, deuda "prestada") en
+  rojo; crédito (entra plata) en verde — toda la fila, incluida la descripción.
+  Resumen, categorías y movimiento por cuenta también colorean ingresos (verde),
+  gastos (rojo) y netos según el signo.
+- Dentro de cada cuenta los movimientos van del más reciente al más antiguo.
