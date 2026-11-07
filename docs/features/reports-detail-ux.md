@@ -974,3 +974,13 @@ porque no hay acciones destructivas en estas 3 pantallas de solo lectura.)
   gastos (rojo) y netos según el signo.
 - Dentro de cada cuenta los movimientos van del más antiguo al más reciente
   (pedido del usuario: primero el día 3, último el 6).
+
+### Saldo que queda en cada movimiento del PDF (2026-11-07)
+
+- En cada tabla por cuenta, debajo del monto va entre paréntesis el saldo de
+  la cuenta **después** del movimiento (como en Transacciones): verde si es
+  ≥ 0, rojo si queda negativo. La base es el saldo de la cuenta al inicio del
+  periodo (`account_balances_before`, todas las cuentas, con signo) y se va
+  acumulando en orden cronológico (fecha, luego hora si ambos la tienen, luego
+  `created_at`). La barra de la cuenta muestra "Saldo al inicio" y el pie,
+  "Neto" y "Saldo final".

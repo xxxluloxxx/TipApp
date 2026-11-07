@@ -64,6 +64,8 @@ interface Insight {
 interface ExpenseRow {
   amount: number
   expense_date: string
+  expense_time?: string | null
+  created_at?: string
   account_id: string
   description?: string | null
   category: { id: string, name: string, color: string | null } | null
@@ -72,6 +74,8 @@ interface ExpenseRow {
 interface IncomeRow {
   amount: number
   income_date: string
+  income_time?: string | null
+  created_at?: string
   account_id: string
   description?: string | null
 }
@@ -81,6 +85,7 @@ interface TransferRow {
   from_account_id: string
   to_account_id: string
   transfer_date?: string
+  created_at?: string
   description?: string | null
 }
 
@@ -88,6 +93,7 @@ interface DebtMovementRow {
   amount: number
   account_id: string | null
   movement_date?: string
+  created_at?: string
   description?: string | null
   debt: { direction: string | null, person: { name: string } | null } | null
 }
@@ -108,6 +114,8 @@ const openingAccounts = ref<Array<{ name: string, balance: number }>>([])
 const openingBalance = computed(() => openingAccounts.value.reduce((sum, a) => sum + a.balance, 0))
 const movementRows = ref<ReportPdfMovement[]>([])
 const accountColorById = ref(new Map<string, string>())
+// Saldo (con signo) de TODAS las cuentas al inicio del periodo: base del saldo corrido del PDF.
+const openingById = ref(new Map<string, number>())
 
 const incomeTotal = ref(0)
 const expenseTotal = ref(0)
@@ -484,26 +492,26 @@ async function loadReport() {
       supabase.from('accounts').select('id, name, color').order('sort_order', { ascending: true }),
       supabase
         .from('expenses')
-        .select('amount, expense_date, account_id, description, category:categories(id, name, color)')
+        .select('amount, expense_date, expense_time, created_at, account_id, description, category:categories(id, name, color)')
         .gte('expense_date', current.startKey)
         .lt('expense_date', current.nextKey)
         .order('expense_date', { ascending: false })
         .limit(1000),
       supabase
         .from('incomes')
-        .select('amount, income_date, account_id, description')
+        .select('amount, income_date, income_time, created_at, account_id, description')
         .gte('income_date', current.startKey)
         .lt('income_date', current.nextKey)
         .limit(1000),
       supabase
         .from('account_transfers')
-        .select('amount, from_account_id, to_account_id, transfer_date, description')
+        .select('amount, from_account_id, to_account_id, transfer_date, created_at, description')
         .gte('transfer_date', current.startKey)
         .lt('transfer_date', current.nextKey)
         .limit(1000),
       supabase
         .from('debt_movements')
-        .select('amount, account_id, movement_date, description, debt:debts(direction, person:debt_people(name))')
+        .select('amount, account_id, movement_date, created_at, description, debt:debts(direction, person:debt_people(name))')
         .gte('movement_date', current.startKey)
         .lt('movement_date', current.nextKey)
         .limit(1000),
@@ -539,6 +547,7 @@ async function loadReport() {
     const debtMovementRows = (debtMovementsRes.data ?? []) as unknown as DebtMovementRow[]
     const previousExpenseRows = (previousExpensesRes.data ?? []) as unknown as ExpenseRow[]
 
+    openingById.value = new Map((openingRes.data ?? []).map(a => [a.account_id, a.balance]))
     openingAccounts.value = (openingRes.data ?? [])
       .filter(account => account.balance > 0)
       .map(account => ({ name: account.name, balance: account.balance }))
@@ -560,6 +569,8 @@ async function loadReport() {
       ...expenseRows.map((e): ReportPdfMovement => ({
         date: e.expense_date,
         type: 'Gasto',
+        time: e.expense_time ?? null,
+        createdAt: e.created_at ?? '',
         category: e.category?.name ?? '-',
         accountId: e.account_id,
         account: accountName(e.account_id),
@@ -569,6 +580,8 @@ async function loadReport() {
       ...incomeRows.map((i): ReportPdfMovement => ({
         date: i.income_date,
         type: 'Ingreso',
+        time: i.income_time ?? null,
+        createdAt: i.created_at ?? '',
         category: '-',
         accountId: i.account_id,
         account: accountName(i.account_id),
@@ -580,6 +593,8 @@ async function loadReport() {
         {
           date: t.transfer_date ?? '',
           type: 'Transf. enviada',
+          time: null,
+          createdAt: t.created_at ?? '',
           category: `A ${accountName(t.to_account_id)}`,
           accountId: t.from_account_id,
           account: accountName(t.from_account_id),
@@ -589,6 +604,8 @@ async function loadReport() {
         {
           date: t.transfer_date ?? '',
           type: 'Transf. recibida',
+          time: null,
+          createdAt: t.created_at ?? '',
           category: `De ${accountName(t.from_account_id)}`,
           accountId: t.to_account_id,
           account: accountName(t.to_account_id),
@@ -602,6 +619,8 @@ async function loadReport() {
         .map((d): ReportPdfMovement => ({
           date: d.movement_date ?? '',
           type: 'Deuda',
+          time: null,
+          createdAt: d.created_at ?? '',
           category: d.debt?.person?.name ?? '-',
           accountId: d.account_id!,
           account: accountName(d.account_id!),
@@ -649,6 +668,7 @@ async function exportPdf() {
       openingBalance: openingBalance.value,
       openingAccounts: openingAccounts.value,
       accountColors: Object.fromEntries(accountColorById.value),
+      openingByAccountId: Object.fromEntries(openingById.value),
       incomeTotal: incomeTotal.value,
       expenseTotal: expenseTotal.value,
       netTotal: netTotal.value,
