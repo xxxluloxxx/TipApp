@@ -6,10 +6,12 @@ import {
   ArrowDown,
   ArrowUp,
   CalendarSync,
+  Download,
   ChevronRight,
   FileText,
   GitCompareArrows,
   Landmark,
+  Loader2,
   Layers,
   LayoutDashboard,
   Plus,
@@ -28,9 +30,13 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
 import { formatAmount } from '@/lib/currency'
-import { addMonths, currentMonthLabel, formatDateOnly, monthNameOnly, parseDateOnly, startOfMonth } from '@/lib/date'
+import { addMonths, currentMonthLabel, formatDateOnly, monthNameOnly, parseDateOnly, startOfMonth, todayDateInputValue } from '@/lib/date'
+import { exportReportPdf, type ReportPdfMovement } from '@/lib/reportPdf'
 import { supabase } from '@/lib/supabase'
+import { toast } from 'vue-sonner'
 
 interface CategoryTotal {
   id: string
@@ -59,6 +65,7 @@ interface ExpenseRow {
   amount: number
   expense_date: string
   account_id: string
+  description?: string | null
   category: { id: string, name: string, color: string | null } | null
 }
 
@@ -66,6 +73,7 @@ interface IncomeRow {
   amount: number
   income_date: string
   account_id: string
+  description?: string | null
 }
 
 interface TransferRow {
@@ -84,7 +92,13 @@ const router = useRouter()
 
 const isInitialLoading = ref(true)
 const loadError = ref(false)
-const selectedMonth = ref(monthKey(new Date()))
+// Periodo del reporte: un mes (`month:YYYY-MM`), un atajo (`preset:*`) o un
+// rango libre (`custom`, con `customFrom`/`customTo` inclusivos).
+const selectedPeriod = ref(`month:${monthKey(new Date())}`)
+const customFrom = ref(todayDateInputValue())
+const customTo = ref(todayDateInputValue())
+const isExporting = ref(false)
+const movementRows = ref<ReportPdfMovement[]>([])
 
 const incomeTotal = ref(0)
 const expenseTotal = ref(0)
@@ -107,16 +121,125 @@ function monthFromKey(value: string): Date {
   return new Date(year ?? new Date().getFullYear(), (month ?? 1) - 1, 1)
 }
 
-function monthRange(value: string) {
-  const start = monthFromKey(value)
-  const next = addMonths(start, 1)
+interface PeriodRange {
+  startKey: string
+  /** Primer día NO incluido (límite `lt` de las queries). */
+  nextKey: string
+  /** Último día incluido, para mostrar. */
+  endKey: string
+  label: string
+  previousLabel: string
+  previous: { startKey: string, nextKey: string }
+  isCurrent: boolean
+}
+
+function dayStart(date: Date): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate())
+}
+
+function addDays(date: Date, delta: number): Date {
+  return new Date(date.getFullYear(), date.getMonth(), date.getDate() + delta)
+}
+
+function rangeLabelText(start: Date, endInclusive: Date): string {
+  const fmt = (d: Date) => `${d.getDate()} ${monthNameOnly(d).slice(0, 3)} ${d.getFullYear()}`
+  return start.getTime() === endInclusive.getTime() ? fmt(start) : `${fmt(start)} – ${fmt(endInclusive)}`
+}
+
+const PRESET_LABELS: Record<string, string> = {
+  today: 'Hoy',
+  yesterday: 'Ayer',
+  last7: 'Últimos 7 días',
+  lastWeekend: 'Fin de semana anterior',
+  last2months: 'Últimos 2 meses',
+  custom: 'Rango personalizado',
+}
+
+function buildPeriodRange(): PeriodRange | null {
+  const today = dayStart(new Date())
+  const value = selectedPeriod.value
+  let start: Date
+  let endInclusive: Date
+  let label: string
+
+  if (value.startsWith('month:')) {
+    start = monthFromKey(value.slice(6))
+    endInclusive = addDays(addMonths(start, 1), -1)
+    label = currentMonthLabel(start)
+    const prevStart = addMonths(start, -1)
+    return {
+      startKey: formatDateOnly(start),
+      nextKey: formatDateOnly(addDays(endInclusive, 1)),
+      endKey: formatDateOnly(endInclusive),
+      label,
+      previousLabel: monthNameOnly(prevStart),
+      previous: { startKey: formatDateOnly(prevStart), nextKey: formatDateOnly(start) },
+      isCurrent: today.getTime() >= start.getTime() && today.getTime() <= endInclusive.getTime(),
+    }
+  }
+
+  switch (value) {
+    case 'preset:today':
+      start = today
+      endInclusive = today
+      break
+    case 'preset:yesterday':
+      start = addDays(today, -1)
+      endInclusive = start
+      break
+    case 'preset:last7':
+      start = addDays(today, -6)
+      endInclusive = today
+      break
+    case 'preset:lastWeekend': {
+      // Último domingo ya terminado (estrictamente antes de hoy) y su sábado.
+      const sunday = addDays(today, -(today.getDay() === 0 ? 7 : today.getDay()))
+      endInclusive = sunday
+      start = addDays(sunday, -1)
+      break
+    }
+    case 'preset:last2months':
+      start = addMonths(startOfMonth(today), -1)
+      endInclusive = today
+      break
+    case 'custom': {
+      if (!customFrom.value || !customTo.value) return null
+      start = parseDateOnly(customFrom.value)
+      endInclusive = parseDateOnly(customTo.value)
+      if (endInclusive.getTime() < start.getTime()) return null
+      break
+    }
+    default:
+      return null
+  }
+
+  label = PRESET_LABELS[value.replace('preset:', '')] ?? PRESET_LABELS.custom!
+  const lengthDays = Math.round((endInclusive.getTime() - start.getTime()) / 86_400_000) + 1
+  const prevStart = addDays(start, -lengthDays)
   return {
-    start,
-    next,
     startKey: formatDateOnly(start),
-    nextKey: formatDateOnly(next),
+    nextKey: formatDateOnly(addDays(endInclusive, 1)),
+    endKey: formatDateOnly(endInclusive),
+    label,
+    previousLabel: 'el periodo anterior',
+    previous: { startKey: formatDateOnly(prevStart), nextKey: formatDateOnly(start) },
+    isCurrent: today.getTime() >= start.getTime() && today.getTime() <= endInclusive.getTime(),
   }
 }
+
+const range = computed(() => buildPeriodRange())
+const customRangeInvalid = computed(() =>
+  selectedPeriod.value === 'custom' && range.value === null,
+)
+
+const presetOptions = [
+  { value: 'preset:today', label: PRESET_LABELS.today! },
+  { value: 'preset:yesterday', label: PRESET_LABELS.yesterday! },
+  { value: 'preset:last7', label: PRESET_LABELS.last7! },
+  { value: 'preset:lastWeekend', label: PRESET_LABELS.lastWeekend! },
+  { value: 'preset:last2months', label: PRESET_LABELS.last2months! },
+  { value: 'custom', label: PRESET_LABELS.custom! },
+]
 
 function shortDateLabel(value: string): string {
   const date = parseDateOnly(value)
@@ -130,7 +253,7 @@ const monthOptions = computed(() => {
     const label = currentMonthLabel(date)
     const [month = label, year = ''] = label.split(' ')
     return {
-      value: monthKey(date),
+      value: `month:${monthKey(date)}`,
       label,
       month,
       year,
@@ -139,9 +262,14 @@ const monthOptions = computed(() => {
   })
 })
 
-const monthLabel = computed(() => currentMonthLabel(monthFromKey(selectedMonth.value)))
+const periodLabel = computed(() => range.value?.label ?? PRESET_LABELS.custom!)
+const rangeText = computed(() => {
+  const r = range.value
+  if (!r) return ''
+  return rangeLabelText(parseDateOnly(r.startKey), parseDateOnly(r.endKey))
+})
 
-const isCurrentMonth = computed(() => selectedMonth.value === monthKey(new Date()))
+const isCurrentPeriod = computed(() => range.value?.isCurrent ?? false)
 
 const netTotal = computed(() => incomeTotal.value - expenseTotal.value)
 
@@ -158,7 +286,7 @@ const expenseDelta = computed(() => {
     direction: delta > 0 ? 'up' : 'down',
     percent: Math.abs(delta),
     label: delta > 0 ? 'más' : 'menos',
-    previousMonth: monthNameOnly(addMonths(monthFromKey(selectedMonth.value), -1)),
+    previousMonth: range.value?.previousLabel ?? '',
   }
 })
 
@@ -325,8 +453,12 @@ async function loadReport() {
   loadError.value = false
   isInitialLoading.value = true
 
-  const current = monthRange(selectedMonth.value)
-  const previous = monthRange(monthKey(addMonths(current.start, -1)))
+  const current = range.value
+  if (!current) {
+    isInitialLoading.value = false
+    return
+  }
+  const previous = current.previous
 
   try {
     const [
@@ -342,14 +474,14 @@ async function loadReport() {
       supabase.from('accounts').select('id, name').order('sort_order', { ascending: true }),
       supabase
         .from('expenses')
-        .select('amount, expense_date, account_id, category:categories(id, name, color)')
+        .select('amount, expense_date, account_id, description, category:categories(id, name, color)')
         .gte('expense_date', current.startKey)
         .lt('expense_date', current.nextKey)
         .order('expense_date', { ascending: false })
         .limit(1000),
       supabase
         .from('incomes')
-        .select('amount, income_date, account_id')
+        .select('amount, income_date, account_id, description')
         .gte('income_date', current.startKey)
         .lt('income_date', current.nextKey)
         .limit(1000),
@@ -402,6 +534,25 @@ async function loadReport() {
     categories.value = summarizeCategories(expenseRows, previousExpenseRows)
     accounts.value = summarizeAccounts(accountsRes.data ?? [], expenseRows, incomeRows, transferRows, debtMovementRows)
     insights.value = buildInsights(expenseRows, categories.value, accounts.value)
+    const accountNameById = new Map((accountsRes.data ?? []).map(a => [a.id, a.name]))
+    movementRows.value = [
+      ...expenseRows.map((e): ReportPdfMovement => ({
+        date: e.expense_date,
+        type: 'Gasto',
+        category: e.category?.name ?? '-',
+        account: accountNameById.get(e.account_id) ?? '-',
+        description: e.description ?? '',
+        amount: e.amount,
+      })),
+      ...incomeRows.map((i): ReportPdfMovement => ({
+        date: i.income_date,
+        type: 'Ingreso',
+        category: '-',
+        account: accountNameById.get(i.account_id) ?? '-',
+        description: i.description ?? '',
+        amount: i.amount,
+      })),
+    ].sort((a, b) => b.date.localeCompare(a.date))
     monthlyActivityCount.value = expenseRows.length + incomeRows.length + transferRows.length + debtMovementRows.length
 
     totalReceivable.value = 0
@@ -427,9 +578,43 @@ function goToNewTransaction() {
   void router.push({ name: 'transactions', query: { new: '1' } })
 }
 
-watch(selectedMonth, () => {
+watch([selectedPeriod, customFrom, customTo], () => {
+  if (customRangeInvalid.value) return
   void loadReport()
 })
+
+async function exportPdf() {
+  if (isExporting.value || !range.value) return
+  isExporting.value = true
+  try {
+    await exportReportPdf({
+      periodLabel: periodLabel.value,
+      rangeText: rangeText.value,
+      incomeTotal: incomeTotal.value,
+      expenseTotal: expenseTotal.value,
+      netTotal: netTotal.value,
+      categories: visibleCategories.value.map(c => ({
+        name: c.name,
+        amount: c.amount,
+        percent: categoryPercent(c.amount),
+      })),
+      accounts: visibleAccounts.value.map(a => ({
+        name: a.name,
+        incomes: a.incomes,
+        expenses: a.expenses,
+        net: accountNet(a),
+      })),
+      insights: insights.value,
+      movements: movementRows.value,
+    })
+    toast.success('PDF generado')
+  } catch (error) {
+    console.error('[reports] No se pudo generar el PDF', error)
+    toast.error('No pudimos generar el PDF', { description: 'Intentá de nuevo.' })
+  } finally {
+    isExporting.value = false
+  }
+}
 
 onMounted(loadReport)
 
@@ -464,16 +649,25 @@ const moreReportsLinks = [
               <p id="reports-period-label" class="text-xs font-medium text-muted-foreground">
                 Periodo del reporte
               </p>
-              <Select v-model="selectedMonth">
+              <Select v-model="selectedPeriod">
                 <SelectTrigger
                   aria-describedby="reports-period-label"
                   class="mt-1 !h-10 !w-full !justify-center !gap-1.5 !rounded-md !bg-background !px-3 text-base font-semibold transition-colors hover:!bg-accent hover:!text-accent-foreground"
                 >
                   <SelectValue class="truncate capitalize">
-                    {{ monthLabel }}
+                    {{ periodLabel }}
                   </SelectValue>
                 </SelectTrigger>
                 <SelectContent class="min-w-64 p-1">
+                  <SelectItem
+                    v-for="option in presetOptions"
+                    :key="option.value"
+                    :value="option.value"
+                    :text-value="option.label"
+                    class="rounded-md py-2.5 pr-9 pl-3"
+                  >
+                    <span class="font-medium">{{ option.label }}</span>
+                  </SelectItem>
                   <SelectItem
                     v-for="option in monthOptions"
                     :key="option.value"
@@ -498,9 +692,38 @@ const moreReportsLinks = [
               </Select>
             </div>
 
+            <div v-if="selectedPeriod === 'custom'" class="grid w-full max-w-64 grid-cols-2 gap-2 text-left">
+              <div class="flex flex-col gap-1">
+                <Label for="reporte-desde" class="text-xs">Desde</Label>
+                <Input id="reporte-desde" v-model="customFrom" type="date" :max="customTo" />
+              </div>
+              <div class="flex flex-col gap-1">
+                <Label for="reporte-hasta" class="text-xs">Hasta</Label>
+                <Input id="reporte-hasta" v-model="customTo" type="date" :min="customFrom" />
+              </div>
+            </div>
+            <p v-if="customRangeInvalid" class="text-xs text-destructive">
+              Elegí un rango válido (la fecha final no puede ser anterior a la inicial).
+            </p>
+
+            <p v-if="rangeText" class="text-xs tabular-nums text-muted-foreground">
+              {{ rangeText }}
+            </p>
+
             <Badge variant="secondary">
-              {{ isCurrentMonth ? 'Mes en curso' : 'Cerrado' }}
+              {{ isCurrentPeriod ? 'En curso' : 'Cerrado' }}
             </Badge>
+
+            <Button
+              variant="outline"
+              size="sm"
+              :disabled="isExporting || isInitialLoading || loadError || !hasMonthlyActivity"
+              @click="exportPdf"
+            >
+              <Loader2 v-if="isExporting" class="size-4 animate-spin" />
+              <Download v-else class="size-4" />
+              Exportar PDF
+            </Button>
           </div>
         </div>
       </section>
@@ -575,13 +798,13 @@ const moreReportsLinks = [
         <div class="flex min-h-[50vh] flex-col items-center justify-center gap-3 text-center">
           <FileText class="size-12 text-muted-foreground" />
           <h2 class="text-lg font-semibold">
-            Sin movimientos en {{ monthLabel }}
+            Sin movimientos en {{ periodLabel }}
           </h2>
           <p class="max-w-xs text-sm text-muted-foreground">
             Cuando registres ingresos, gastos, transferencias o movimientos de deuda,
             este reporte se va a completar automáticamente.
           </p>
-          <Button v-if="isCurrentMonth" @click="goToNewTransaction">
+          <Button v-if="isCurrentPeriod" @click="goToNewTransaction">
             <Plus class="size-4" />
             Agregar transacción
           </Button>
@@ -593,7 +816,7 @@ const moreReportsLinks = [
           <CardHeader>
             <div class="flex items-start justify-between gap-3">
               <div>
-                <CardDescription>Resultado del mes</CardDescription>
+                <CardDescription>Resultado del periodo</CardDescription>
                 <CardTitle class="mt-1 text-3xl font-bold tabular-nums" :class="netClass(netTotal)">
                   {{ signedMoney(netTotal) }}
                 </CardTitle>

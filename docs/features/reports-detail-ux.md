@@ -928,3 +928,20 @@ porque no hay acciones destructivas en estas 3 pantallas de solo lectura.)
    ("Generar reporte") no se diseña ni se menciona más allá de esta
    exclusión. `npm run build` limpio antes de cerrar, mismo estándar del
    resto del proyecto.
+
+---
+
+## Periodo libre y exportar a PDF en `/reportes` (2026-11-07)
+
+- El selector de periodo de `ReportsView` ahora ofrece, además de los 12 meses:
+  Hoy, Ayer, Últimos 7 días, Fin de semana anterior (sábado y domingo del
+  último fin de semana terminado), Últimos 2 meses y **Rango personalizado**
+  (Desde/Hasta, inclusivos). Valores del Select: `month:YYYY-MM`, `preset:*`,
+  `custom`.
+- Comparación ("vs. …"): para un mes es el mes anterior; para el resto, el
+  periodo inmediatamente anterior de la misma duración.
+- Botón **Exportar PDF** (`src/lib/reportPdf.ts`, jsPDF + autotable cargados
+  on-demand): resumen, hallazgos, gastos por categoría, movimiento por cuenta y
+  lista de movimientos (gastos e ingresos) del periodo, hasta 1000 filas.
+- Las pantallas `/reportes/resumen`, `/detalle-mes` y `/comparacion` siguen
+  siendo mensuales (sin cambios).
