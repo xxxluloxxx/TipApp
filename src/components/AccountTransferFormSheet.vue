@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import { Loader2 } from '@lucide/vue'
 import { toast } from 'vue-sonner'
-import { isFutureDate, todayDateInputValue } from '@/lib/date'
+import { formatTimeShort, isFutureDate, nowTimeInputValue, todayDateInputValue } from '@/lib/date'
 import { useAccountsStore } from '@/stores/accounts'
 import { useAccountTransfersStore, type AccountTransfer } from '@/stores/accountTransfers'
 import { Button } from '@/components/ui/button'
@@ -54,6 +54,7 @@ const form = reactive({
   amount: '',
   commission: '',
   date: todayDateInputValue(),
+  time: nowTimeInputValue(),
   description: '',
 })
 
@@ -92,6 +93,7 @@ function resetForm() {
     // transferencia, nunca el `transfer_commission` actual de la cuenta.
     form.commission = String(props.transfer.commission_amount)
     form.date = props.transfer.transfer_date
+    form.time = props.transfer.transfer_time ? formatTimeShort(props.transfer.transfer_time) : ''
     form.description = props.transfer.description ?? ''
     commissionTouched.value = true
   } else {
@@ -100,6 +102,7 @@ function resetForm() {
     form.amount = ''
     form.commission = ''
     form.date = todayDateInputValue()
+    form.time = nowTimeInputValue()
     form.description = ''
     commissionTouched.value = false
   }
@@ -222,6 +225,7 @@ async function onSubmit() {
       amount,
       commissionAmount: commission,
       transferDate: form.date,
+      transferTime: form.time ? form.time : null,
       description: form.description.trim() ? form.description.trim() : null,
     }
 
@@ -346,18 +350,32 @@ async function onSubmit() {
           </p>
         </div>
 
-        <div class="flex flex-col gap-1.5">
-          <Label for="fecha-transferencia">Fecha</Label>
-          <input
-            id="fecha-transferencia"
-            v-model="form.date"
-            type="date"
-            :max="todayValue"
-            :disabled="isSaving"
-            :aria-invalid="!!errors.date"
-            class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive h-9 w-full rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 aria-invalid:ring-3 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
-          >
-          <p v-if="errors.date" class="text-xs text-destructive">
+        <div class="grid grid-cols-2 gap-3">
+          <div class="flex flex-col gap-1.5">
+            <Label for="fecha-transferencia">Fecha</Label>
+            <input
+              id="fecha-transferencia"
+              v-model="form.date"
+              type="date"
+              :max="todayValue"
+              :disabled="isSaving"
+              :aria-invalid="!!errors.date"
+              class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:border-destructive h-9 w-full rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 aria-invalid:ring-3 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+            >
+          </div>
+          <div class="flex flex-col gap-1.5">
+            <Label for="hora-transferencia">
+              Hora <span class="font-normal text-muted-foreground">(opcional)</span>
+            </Label>
+            <input
+              id="hora-transferencia"
+              v-model="form.time"
+              type="time"
+              :disabled="isSaving"
+              class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+            >
+          </div>
+          <p v-if="errors.date" class="col-span-2 text-xs text-destructive">
             {{ errors.date }}
           </p>
         </div>

@@ -20,6 +20,7 @@ import {
   currentMonthLabel,
   formatDateOnly,
   formatExpenseDateHeading,
+  formatTimeShort,
   startOfMonth,
 } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
@@ -312,6 +313,9 @@ async function confirmDelete() {
                       <span class="truncate">{{ accountName(transfer.to_account_id) }}</span>
                     </span>
                   </div>
+                  <p v-if="transfer.transfer_time" class="text-xs text-muted-foreground">
+                    {{ formatTimeShort(transfer.transfer_time) }}
+                  </p>
                   <p v-if="transfer.description" class="truncate text-xs text-muted-foreground">
                     {{ transfer.description }}
                   </p>

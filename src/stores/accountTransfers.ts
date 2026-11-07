@@ -18,6 +18,8 @@ export interface TransferPayload {
    * en ese caso el backend no crea ninguna fila de `expenses`). */
   commissionAmount: number
   transferDate: string
+  /** Hora opcional `"HH:MM"`; `null` = sin hora. */
+  transferTime: string | null
   description: string | null
 }
 
@@ -183,6 +185,7 @@ export const useAccountTransfersStore = defineStore('accountTransfers', () => {
       p_amount: payload.amount,
       p_commission_amount: payload.commissionAmount,
       p_transfer_date: payload.transferDate,
+      p_transfer_time: payload.transferTime ?? undefined,
       p_description: payload.description ?? undefined,
     })
 
@@ -208,6 +211,7 @@ export const useAccountTransfersStore = defineStore('accountTransfers', () => {
       p_amount: payload.amount,
       p_commission_amount: payload.commissionAmount,
       p_transfer_date: payload.transferDate,
+      p_transfer_time: payload.transferTime ?? undefined,
       // La columna `description` es nullable, pero el tipo generado del RPC la
       // declara `string` (no `string | null`) — el cast preserva el `null` en
       // runtime para poder limpiar la descripción en una edición.

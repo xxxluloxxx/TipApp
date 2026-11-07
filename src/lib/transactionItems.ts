@@ -42,8 +42,8 @@ import type { DebtMovementWithDebt } from '@/stores/debts'
 export type TransactionItem =
   | { kind: 'expense', id: string, date: string, time: string | null, data: ExpenseWithCategory }
   | { kind: 'income', id: string, date: string, time: string | null, data: IncomeWithAccount }
-  | { kind: 'transfer-out', id: string, date: string, time?: null, data: AccountTransfer }
-  | { kind: 'transfer-in', id: string, date: string, time?: null, data: AccountTransfer }
+  | { kind: 'transfer-out', id: string, date: string, time?: string | null, data: AccountTransfer }
+  | { kind: 'transfer-in', id: string, date: string, time?: string | null, data: AccountTransfer }
   | { kind: 'debt-linked', id: string, date: string, time?: null, data: DebtMovementWithDebt }
 
 /**
@@ -81,8 +81,8 @@ export function buildTransactionItems(
     items.push({ kind: 'income', id: income.id, date: income.income_date, time: income.income_time, data: income })
   }
   for (const transfer of transfers) {
-    items.push({ kind: 'transfer-out', id: transfer.id, date: transfer.transfer_date, data: transfer })
-    items.push({ kind: 'transfer-in', id: transfer.id, date: transfer.transfer_date, data: transfer })
+    items.push({ kind: 'transfer-out', id: transfer.id, date: transfer.transfer_date, time: transfer.transfer_time, data: transfer })
+    items.push({ kind: 'transfer-in', id: transfer.id, date: transfer.transfer_date, time: transfer.transfer_time, data: transfer })
   }
   for (const movement of debtLinkedMovements) {
     items.push({ kind: 'debt-linked', id: movement.id, date: movement.movement_date, data: movement })

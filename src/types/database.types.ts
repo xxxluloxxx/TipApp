@@ -50,6 +50,7 @@ export type Database = {
           id: string
           to_account_id: string
           transfer_date: string
+          transfer_time: string | null
           updated_at: string
           user_id: string
         }
@@ -63,6 +64,7 @@ export type Database = {
           id?: string
           to_account_id: string
           transfer_date?: string
+          transfer_time?: string | null
           updated_at?: string
           user_id: string
         }
@@ -76,6 +78,7 @@ export type Database = {
           id?: string
           to_account_id?: string
           transfer_date?: string
+          transfer_time?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1599,6 +1602,7 @@ export type Database = {
           p_from_account_id: string
           p_to_account_id: string
           p_transfer_date?: string
+          p_transfer_time?: string
         }
         Returns: string
       }
@@ -1735,6 +1739,7 @@ export type Database = {
           p_to_account_id: string
           p_transfer_date: string
           p_transfer_id: string
+          p_transfer_time?: string
         }
         Returns: string
       }

@@ -85,6 +85,7 @@ interface TransferRow {
   from_account_id: string
   to_account_id: string
   transfer_date?: string
+  transfer_time?: string | null
   created_at?: string
   description?: string | null
 }
@@ -505,7 +506,7 @@ async function loadReport() {
         .limit(1000),
       supabase
         .from('account_transfers')
-        .select('amount, from_account_id, to_account_id, transfer_date, created_at, description')
+        .select('amount, from_account_id, to_account_id, transfer_date, transfer_time, created_at, description')
         .gte('transfer_date', current.startKey)
         .lt('transfer_date', current.nextKey)
         .limit(1000),
@@ -593,7 +594,7 @@ async function loadReport() {
         {
           date: t.transfer_date ?? '',
           type: 'Transf. enviada',
-          time: null,
+          time: t.transfer_time ?? null,
           createdAt: t.created_at ?? '',
           category: `A ${accountName(t.to_account_id)}`,
           accountId: t.from_account_id,
@@ -604,7 +605,7 @@ async function loadReport() {
         {
           date: t.transfer_date ?? '',
           type: 'Transf. recibida',
-          time: null,
+          time: t.transfer_time ?? null,
           createdAt: t.created_at ?? '',
           category: `De ${accountName(t.from_account_id)}`,
           accountId: t.to_account_id,

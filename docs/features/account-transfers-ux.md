@@ -1366,3 +1366,7 @@ type NavRouteName =
   "Guardando…" hasta la confirmación y emite `transfer-saved` para que `TransactionsView` recargue su lista
   (AccountDetailView ya refresca al cerrar).
 - La pantalla `/transferencias` y su ítem del drawer se mantienen por ahora.
+
+## Hora de la transferencia
+
+`account_transfers.transfer_time` (`time null`) guarda la hora opcional, igual que `expense_time`/`income_time`. Es informativa: fecha sigue siendo la fuente de verdad para filtros y saldos. Los RPC `create_account_transfer`/`update_account_transfer` aceptan `p_transfer_time` y la copian al gasto de comisión. Se captura en ambos formularios (Transacciones y /transferencias, por defecto la hora actual), se muestra en Transacciones y /transferencias, ordena los movimientos del mismo día y aparece en el PDF de reportes.

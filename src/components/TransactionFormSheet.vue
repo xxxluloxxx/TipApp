@@ -477,6 +477,7 @@ async function submitTransfer() {
       amount: parseAmount(form.amount)!,
       commissionAmount: parseCommission(form.commission) ?? 0,
       transferDate: form.date,
+      transferTime: form.time ? form.time : null,
       description: form.description.trim() ? form.description.trim() : null,
     })
 
@@ -653,7 +654,6 @@ function onSubmit() {
                  el tap para abrir el picker nativo; el × queda por encima (z-10)
                  y con @click.stop para no abrir el picker al limpiar. -->
             <div
-              v-if="!isTransfer"
               class="relative flex min-h-9 items-center gap-1 rounded-full px-3 text-sm font-medium"
               :style="{ background: panelIsDark ? 'rgba(255,255,255,0.18)' : 'rgba(0,0,0,0.12)', color: textColor }"
             >
