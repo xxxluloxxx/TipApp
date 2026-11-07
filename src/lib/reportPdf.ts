@@ -224,8 +224,8 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
     section(`Movimientos por cuenta (${data.movements.length})`)
     y += 18
     for (const group of groups) {
-      // Más reciente primero dentro de cada cuenta.
-      group.sort((x, y2) => y2.date.localeCompare(x.date))
+      // Más antiguo primero dentro de cada cuenta (el último renglón es el más reciente).
+      group.sort((x, y2) => x.date.localeCompare(y2.date))
       const net = group.reduce((sum, m) => sum + m.amount, 0)
       const accountColor = hexToRgb(data.accountColors[group[0]!.accountId] ?? '') ?? DEFAULT_ACCOUNT_COLOR
       // Evita dejar el título de una cuenta huérfano al final de la página.

@@ -972,4 +972,5 @@ porque no hay acciones destructivas en estas 3 pantallas de solo lectura.)
   rojo; crédito (entra plata) en verde — toda la fila, incluida la descripción.
   Resumen, categorías y movimiento por cuenta también colorean ingresos (verde),
   gastos (rojo) y netos según el signo.
-- Dentro de cada cuenta los movimientos van del más reciente al más antiguo.
+- Dentro de cada cuenta los movimientos van del más antiguo al más reciente
+  (pedido del usuario: primero el día 3, último el 6).
