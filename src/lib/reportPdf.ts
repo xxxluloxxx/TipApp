@@ -267,6 +267,9 @@ export async function exportReportPdf(data: ReportPdfData): Promise<string> {
       autoTable(doc, {
         ...common,
         startY: y,
+        // Una fila nunca se parte entre páginas: el saldo se dibuja en la 2.ª línea de su celda.
+        rowPageBreak: 'avoid',
+        showFoot: 'lastPage',
         headStyles: { fillColor: accountColor, textColor: onAccount },
         head: [['Fecha', 'Tipo', 'Categoría / contraparte', 'Descripción', 'Monto / saldo']],
         // 2.ª línea en blanco: reserva el alto donde se dibuja el saldo que queda.
