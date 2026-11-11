@@ -12,7 +12,7 @@ import {
   User,
   Wallet,
 } from '@lucide/vue'
-import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading } from '@/lib/date'
+import { currentMonthLabel, formatDateOnly, formatExpenseDateHeading, formatTimeShort } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { buildDebtBalanceEvolution } from '@/lib/charts'
 import { useAccountsStore } from '@/stores/accounts'
@@ -384,7 +384,7 @@ function openAddDebt() {
                         {{ movementVerb(mov) }} · {{ personNameFor(mov) }}
                       </p>
                       <p class="truncate text-xs text-muted-foreground">
-                        {{ formatExpenseDateHeading(mov.movement_date) }}
+                        {{ formatExpenseDateHeading(mov.movement_date) }}<template v-if="mov.movement_time"> · {{ formatTimeShort(mov.movement_time) }}</template>
                         <span v-if="accountNameFor(mov)">· <Wallet class="inline size-3" /> {{ accountNameFor(mov) }}</span>
                       </p>
                     </div>

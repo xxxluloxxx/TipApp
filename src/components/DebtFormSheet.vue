@@ -3,7 +3,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { Loader2, UserRoundPlus } from '@lucide/vue'
 import { toast } from 'vue-sonner'
-import { isFutureDate, todayDateInputValue } from '@/lib/date'
+import { isFutureDate, nowTimeInputValue, todayDateInputValue } from '@/lib/date'
 import { useAccountsStore } from '@/stores/accounts'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
 import { useDebtsStore, type Debt, type DebtDirection } from '@/stores/debts'
@@ -59,6 +59,7 @@ const form = reactive({
   description: '',
   amount: '',
   date: todayDateInputValue(),
+  time: nowTimeInputValue(),
   accountId: null as string | null,
 })
 
@@ -83,6 +84,7 @@ function resetForm() {
     form.description = props.debt.description ?? ''
     form.amount = ''
     form.date = todayDateInputValue()
+    form.time = nowTimeInputValue()
     form.accountId = null
   } else {
     // Sección 5.1: Dirección sin default preseleccionado, fuerza elección
@@ -92,6 +94,7 @@ function resetForm() {
     form.description = ''
     form.amount = ''
     form.date = todayDateInputValue()
+    form.time = nowTimeInputValue()
     form.accountId = null
   }
 }
@@ -210,6 +213,7 @@ async function onSubmit() {
       amount,
       accountId: form.accountId,
       movementDate: form.date,
+      movementTime: form.time ? form.time : null,
       description: form.description.trim() ? form.description.trim() : null,
     })
 
@@ -348,6 +352,17 @@ async function onSubmit() {
             <p v-if="errors.date" class="text-xs text-destructive">
               {{ errors.date }}
             </p>
+          </div>
+
+          <div class="flex flex-col gap-1.5">
+            <Label for="hora-deuda">Hora <span class="font-normal text-muted-foreground">(opcional)</span></Label>
+            <input
+              id="hora-deuda"
+              v-model="form.time"
+              type="time"
+              :disabled="isSaving"
+              class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+            >
           </div>
 
           <div class="flex flex-col gap-1.5">

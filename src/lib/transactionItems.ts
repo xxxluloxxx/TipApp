@@ -44,7 +44,7 @@ export type TransactionItem =
   | { kind: 'income', id: string, date: string, time: string | null, data: IncomeWithAccount }
   | { kind: 'transfer-out', id: string, date: string, time?: string | null, data: AccountTransfer }
   | { kind: 'transfer-in', id: string, date: string, time?: string | null, data: AccountTransfer }
-  | { kind: 'debt-linked', id: string, date: string, time?: null, data: DebtMovementWithDebt }
+  | { kind: 'debt-linked', id: string, date: string, time?: string | null, data: DebtMovementWithDebt }
 
 /**
  * Mezcla gastos + ingresos + transferencias en una única lista ordenada por
@@ -85,7 +85,7 @@ export function buildTransactionItems(
     items.push({ kind: 'transfer-in', id: transfer.id, date: transfer.transfer_date, time: transfer.transfer_time, data: transfer })
   }
   for (const movement of debtLinkedMovements) {
-    items.push({ kind: 'debt-linked', id: movement.id, date: movement.movement_date, data: movement })
+    items.push({ kind: 'debt-linked', id: movement.id, date: movement.movement_date, time: movement.movement_time, data: movement })
   }
 
   return items.sort((a, b) => {

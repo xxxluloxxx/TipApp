@@ -44,6 +44,8 @@ export interface CreateDebtPayload {
   amount: number
   accountId: string | null
   movementDate: string
+  /** Hora opcional `"HH:MM"`; `null` = sin hora. */
+  movementTime: string | null
   description: string | null
 }
 
@@ -58,6 +60,7 @@ export interface DebtMovementPayload {
    * (sección 7.1) — este store nunca decide el signo, solo lo persiste. */
   amount: number
   movementDate: string
+  movementTime: string | null
   description: string | null
   accountId: string | null
 }
@@ -93,6 +96,9 @@ function sortMovementsDesc(list: DebtMovementWithDebt[]): DebtMovementWithDebt[]
   return [...list].sort((a, b) => {
     if (a.movement_date !== b.movement_date) {
       return a.movement_date < b.movement_date ? 1 : -1
+    }
+    if (a.movement_time && b.movement_time && a.movement_time !== b.movement_time) {
+      return a.movement_time < b.movement_time ? 1 : -1
     }
     return a.created_at < b.created_at ? 1 : -1
   })
@@ -372,6 +378,7 @@ export const useDebtsStore = defineStore('debts', () => {
       p_amount: payload.amount,
       p_account_id: payload.accountId ?? undefined,
       p_movement_date: payload.movementDate,
+      p_movement_time: payload.movementTime ?? undefined,
       p_description: payload.description ?? undefined,
     })
 
@@ -509,6 +516,7 @@ export const useDebtsStore = defineStore('debts', () => {
       account_id: payload.accountId,
       amount: payload.amount,
       movement_date: payload.movementDate,
+      movement_time: payload.movementTime,
       description: payload.description,
       created_at: nowIso,
       updated_at: nowIso,
@@ -534,6 +542,7 @@ export const useDebtsStore = defineStore('debts', () => {
           account_id: payload.accountId,
           amount: payload.amount,
           movement_date: payload.movementDate,
+          movement_time: payload.movementTime,
           description: payload.description,
           user_id: userId,
         })
@@ -591,6 +600,7 @@ export const useDebtsStore = defineStore('debts', () => {
       account_id: payload.accountId,
       amount: payload.amount,
       movement_date: payload.movementDate,
+      movement_time: payload.movementTime,
       description: payload.description,
       debt,
       _pending: true,
@@ -619,6 +629,7 @@ export const useDebtsStore = defineStore('debts', () => {
           account_id: payload.accountId,
           amount: payload.amount,
           movement_date: payload.movementDate,
+          movement_time: payload.movementTime,
           description: payload.description,
         })
         .eq('id', id)

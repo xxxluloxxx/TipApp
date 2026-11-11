@@ -10,7 +10,7 @@ import {
   Trash2,
   Wallet,
 } from '@lucide/vue'
-import { formatExpenseDateHeading } from '@/lib/date'
+import { formatExpenseDateHeading, formatTimeShort } from '@/lib/date'
 import { formatAmount } from '@/lib/currency'
 import { movementVerb } from '@/lib/debtDisplay'
 import { useAccountsStore } from '@/stores/accounts'
@@ -249,7 +249,7 @@ function confirmDeleteDebt() {
                     {{ movementVerb(mov) }}
                   </p>
                   <p class="truncate text-xs text-muted-foreground">
-                    {{ formatExpenseDateHeading(mov.movement_date) }}
+                    {{ formatExpenseDateHeading(mov.movement_date) }}<template v-if="mov.movement_time"> · {{ formatTimeShort(mov.movement_time) }}</template>
                     <span v-if="mov.description"> · {{ mov.description }}</span>
                   </p>
                   <p v-if="mov.account_id" class="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">

@@ -2,7 +2,7 @@
 import { computed, reactive, ref, watch } from 'vue'
 import type { Ref } from 'vue'
 import { Loader2 } from '@lucide/vue'
-import { isFutureDate, todayDateInputValue } from '@/lib/date'
+import { formatTimeShort, isFutureDate, nowTimeInputValue, todayDateInputValue } from '@/lib/date'
 import { useAccountsStore } from '@/stores/accounts'
 import { useDebtsStore, type Debt, type DebtMovementWithDebt } from '@/stores/debts'
 import { Button } from '@/components/ui/button'
@@ -75,6 +75,7 @@ const form = reactive({
   kind: 'up' as MovementKind,
   amount: '',
   date: todayDateInputValue(),
+  time: nowTimeInputValue(),
   description: '',
   accountId: null as string | null,
 })
@@ -96,12 +97,14 @@ function resetForm() {
     form.kind = props.movement.amount >= 0 ? 'up' : 'down'
     form.amount = String(Math.abs(props.movement.amount))
     form.date = props.movement.movement_date
+    form.time = props.movement.movement_time ? formatTimeShort(props.movement.movement_time) : ''
     form.description = props.movement.description ?? ''
     form.accountId = props.movement.account_id
   } else {
     form.kind = props.presetKind ?? 'up'
     form.amount = ''
     form.date = todayDateInputValue()
+    form.time = nowTimeInputValue()
     form.description = ''
     form.accountId = null
   }
@@ -171,6 +174,7 @@ function onSubmit() {
       debtId: props.debt.id,
       amount: signedAmount,
       movementDate: form.date,
+      movementTime: form.time ? form.time : null,
       description: form.description.trim() ? form.description.trim() : null,
       accountId: form.accountId,
     }
@@ -261,6 +265,17 @@ function onSubmit() {
           <p v-if="errors.date" class="text-xs text-destructive">
             {{ errors.date }}
           </p>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <Label for="hora-movimiento">Hora <span class="font-normal text-muted-foreground">(opcional)</span></Label>
+          <input
+            id="hora-movimiento"
+            v-model="form.time"
+            type="time"
+            :disabled="isSaving"
+            class="dark:bg-input/30 border-input focus-visible:border-ring focus-visible:ring-ring/50 h-9 w-full rounded-md border bg-transparent px-2.5 py-1 text-base shadow-xs outline-none transition-[color,box-shadow] focus-visible:ring-3 disabled:cursor-not-allowed disabled:opacity-50 md:text-sm"
+          >
         </div>
 
         <div class="flex flex-col gap-1.5">

@@ -94,6 +94,7 @@ interface DebtMovementRow {
   amount: number
   account_id: string | null
   movement_date?: string
+  movement_time?: string | null
   created_at?: string
   description?: string | null
   debt: { direction: string | null, person: { name: string } | null } | null
@@ -512,7 +513,7 @@ async function loadReport() {
         .limit(1000),
       supabase
         .from('debt_movements')
-        .select('amount, account_id, movement_date, created_at, description, debt:debts(direction, person:debt_people(name))')
+        .select('amount, account_id, movement_date, movement_time, created_at, description, debt:debts(direction, person:debt_people(name))')
         .gte('movement_date', current.startKey)
         .lt('movement_date', current.nextKey)
         .limit(1000),

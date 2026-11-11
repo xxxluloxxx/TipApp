@@ -501,6 +501,7 @@ export type Database = {
           description: string | null
           id: string
           movement_date: string
+          movement_time: string | null
           updated_at: string
           user_id: string
         }
@@ -512,6 +513,7 @@ export type Database = {
           description?: string | null
           id?: string
           movement_date?: string
+          movement_time?: string | null
           updated_at?: string
           user_id: string
         }
@@ -523,6 +525,7 @@ export type Database = {
           description?: string | null
           id?: string
           movement_date?: string
+          movement_time?: string | null
           updated_at?: string
           user_id?: string
         }
@@ -1617,6 +1620,7 @@ export type Database = {
           p_description?: string
           p_direction: string
           p_movement_date?: string
+          p_movement_time?: string
           p_person_id: string
         }
         Returns: string
