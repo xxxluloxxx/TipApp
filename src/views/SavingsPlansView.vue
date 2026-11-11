@@ -74,9 +74,28 @@ async function toggle(plan: SavingsPlan) {
 async function pay(installment: SavingsInstallment) {
   payingId.value = installment.id
   try {
-    const ok = await store.payInstallment(installment, todayDateInputValue(), nowTimeInputValue())
+    // La transferencia se fecha el día de la cuota (si ya pasó); la hora solo
+    // se guarda si es hoy, porque la hora actual no sería la del descuento.
+    const today = todayDateInputValue()
+    const isPast = installment.due_date < today
+    const ok = await store.payInstallment(
+      installment,
+      isPast ? installment.due_date : today,
+      isPast ? null : nowTimeInputValue(),
+    )
     if (ok) toast.success('Cuota registrada', { description: 'Se creó la transferencia entre las dos cuentas.' })
     else toast.error('No se pudo registrar la cuota', { description: 'Revisa tu conexión e intenta de nuevo.' })
+  } finally {
+    payingId.value = null
+  }
+}
+
+async function markDone(installment: SavingsInstallment) {
+  payingId.value = installment.id
+  try {
+    const ok = await store.markInstallmentDone(installment)
+    if (ok) toast.success('Cuota marcada como hecha', { description: 'No se tocaron los saldos de tus cuentas.' })
+    else toast.error('No se pudo marcar la cuota', { description: 'Revisa tu conexión e intenta de nuevo.' })
   } finally {
     payingId.value = null
   }
@@ -183,10 +202,22 @@ async function confirmDelete() {
                     <span v-if="inst.status === 'done'" class="flex items-center gap-1 text-xs font-medium text-success">
                       <Check class="size-4" /> Hecha
                     </span>
-                    <Button v-else size="sm" :disabled="payingId !== null" @click="pay(inst)">
-                      <Loader2 v-if="payingId === inst.id" class="size-4 animate-spin" />
-                      Registrar
-                    </Button>
+                    <div v-else class="flex shrink-0 items-center gap-1.5">
+                      <Button
+                        v-if="isOverdue(inst.due_date)"
+                        variant="ghost"
+                        size="sm"
+                        :disabled="payingId !== null"
+                        title="Ya me la descontaron antes: marcar sin tocar los saldos"
+                        @click="markDone(inst)"
+                      >
+                        Ya descontada
+                      </Button>
+                      <Button size="sm" :disabled="payingId !== null" @click="pay(inst)">
+                        <Loader2 v-if="payingId === inst.id" class="size-4 animate-spin" />
+                        Registrar
+                      </Button>
+                    </div>
                   </div>
                 </template>
               </template>

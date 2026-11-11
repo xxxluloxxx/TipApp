@@ -101,6 +101,18 @@ export const useSavingsPlansStore = defineStore('savingsPlans', () => {
     return true
   }
 
+  /** Marca una cuota como hecha SIN crear transferencia ni tocar saldos
+   * (cuotas previas al uso de la app, cuyo descuento ya ocurrió). */
+  async function markInstallmentDone(installment: SavingsInstallment): Promise<boolean> {
+    const { error } = await supabase.rpc('mark_savings_installment_done', { p_installment_id: installment.id })
+    if (error) {
+      console.error('[savingsPlans] No se pudo marcar la cuota', error)
+      return false
+    }
+    await Promise.all([fetchInstallments(installment.plan_id), fetchAll()])
+    return true
+  }
+
   /** Borra el plan y sus cuotas. Las transferencias ya hechas se conservan. */
   async function deletePlan(planId: string): Promise<boolean> {
     const { error } = await supabase.from('savings_plans').delete().eq('id', planId)
@@ -112,5 +124,5 @@ export const useSavingsPlansStore = defineStore('savingsPlans', () => {
     return true
   }
 
-  return { plans, progress, installments, fetchAll, fetchInstallments, createPlan, payInstallment, deletePlan }
+  return { plans, progress, installments, fetchAll, fetchInstallments, createPlan, payInstallment, markInstallmentDone, deletePlan }
 })

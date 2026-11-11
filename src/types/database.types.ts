@@ -1827,6 +1827,10 @@ export type Database = {
         }
         Returns: string
       }
+      mark_savings_installment_done: {
+        Args: { p_installment_id: string }
+        Returns: undefined
+      }
       pay_savings_installment: {
         Args: {
           p_installment_id: string
