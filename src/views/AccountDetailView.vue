@@ -33,6 +33,7 @@ import AppHeader from '@/components/AppHeader.vue'
 import AccountFormSheet from '@/components/AccountFormSheet.vue'
 import AccountBalanceAdjustmentSheet from '@/components/AccountBalanceAdjustmentSheet.vue'
 import TransactionFormSheet from '@/components/TransactionFormSheet.vue'
+import AccountTransferFormSheet from '@/components/AccountTransferFormSheet.vue'
 import TrendAreaChart from '@/components/charts/TrendAreaChart.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
@@ -389,6 +390,42 @@ function onTransactionSheetClose(open: boolean) {
   isTransactionSheetOpen.value = open
   if (!open) refreshAfterMutation()
 }
+// Edición/borrado de la transferencia dueña de una fila (sus 2 caras o el
+// gasto de comisión) directo desde el detalle de la cuenta.
+function transferFor(item: TransactionItem): AccountTransfer | undefined {
+  if (item.kind === 'transfer-out' || item.kind === 'transfer-in') return item.data
+  return recentTransfers.value.find(transfer => transfer.expense_id === item.id)
+}
+const editingTransfer = ref<AccountTransfer | null>(null)
+const isTransferSheetOpen = ref(false)
+function openEditTransfer(item: TransactionItem) {
+  const transfer = transferFor(item)
+  if (!transfer) return
+  editingTransfer.value = transfer
+  isTransferSheetOpen.value = true
+}
+function onTransferSheetOpen(open: boolean) {
+  isTransferSheetOpen.value = open
+  if (!open) refreshAfterMutation()
+}
+const transferToDelete = ref<AccountTransfer | null>(null)
+const isDeletingTransfer = ref(false)
+function askDeleteTransfer(item: TransactionItem) {
+  transferToDelete.value = transferFor(item) ?? null
+}
+async function confirmDeleteTransfer() {
+  if (!transferToDelete.value) return
+  isDeletingTransfer.value = true
+  try {
+    const ok = await accountTransfersStore.deleteTransfer(transferToDelete.value.id)
+    if (ok) {
+      transferToDelete.value = null
+      refreshAfterMutation()
+    }
+  } finally {
+    isDeletingTransfer.value = false
+  }
+}
 function onAdjustSaved() {
   refreshAfterMutation()
 }
@@ -618,11 +655,27 @@ const showChart = computed(() => balanceEvolutionPoints.value.length > 1)
                     </DropdownMenuItem>
                   </DropdownMenuContent>
                 </DropdownMenu>
-                <!-- Sección 7.4: solo gasto/ingreso propios tienen menú. Las 2
-                     caras de transferencia y el gasto de comisión se
-                     editan/borran solo desde /transferencias (account-transfers
-                     -ux.md sección 6.3/6.4), así que acá van sin menú. -->
-                <DropdownMenu v-else-if="!isTransfer(item) && !isTransferCommission(item)">
+                <!-- Las 2 caras de transferencia y el gasto de comisión se
+                     editan/eliminan acá actuando sobre la transferencia dueña. -->
+                <DropdownMenu v-else-if="isTransfer(item) || isTransferCommission(item)">
+                  <DropdownMenuTrigger as-child>
+                    <Button variant="ghost" size="icon" aria-label="Más acciones para esta transferencia">
+                      <EllipsisVertical class="size-5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end">
+                    <DropdownMenuItem @select="openEditTransfer(item)">
+                      <Pencil class="size-4" />
+                      Editar transferencia
+                    </DropdownMenuItem>
+                    <DropdownMenuItem variant="destructive" @select="askDeleteTransfer(item)">
+                      <Trash2 class="size-4" />
+                      Eliminar transferencia
+                    </DropdownMenuItem>
+                  </DropdownMenuContent>
+                </DropdownMenu>
+                <!-- Sección 7.4: gasto/ingreso propios. -->
+                <DropdownMenu v-else>
                   <DropdownMenuTrigger as-child>
                     <Button variant="ghost" size="icon" aria-label="Más acciones para este movimiento">
                       <EllipsisVertical class="size-5" />
@@ -701,5 +754,28 @@ const showChart = computed(() => balanceEvolutionPoints.value.length > 1)
       :preset-account-id="accountId"
       @update:open="onTransactionSheetClose"
     />
+
+    <AccountTransferFormSheet
+      :open="isTransferSheetOpen"
+      :transfer="editingTransfer"
+      @update:open="onTransferSheetOpen"
+    />
+
+    <AlertDialog :open="!!transferToDelete" @update:open="(v: boolean) => { if (!v && !isDeletingTransfer) transferToDelete = null }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar esta transferencia?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Se revierte el movimiento entre las dos cuentas (y su comisión, si tenía). Esta acción no se puede deshacer.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="isDeletingTransfer">Cancelar</AlertDialogCancel>
+          <Button variant="destructive" :disabled="isDeletingTransfer" @click="confirmDeleteTransfer">
+            {{ isDeletingTransfer ? 'Eliminando…' : 'Eliminar' }}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

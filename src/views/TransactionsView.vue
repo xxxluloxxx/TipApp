@@ -37,6 +37,7 @@ import { readableTextColor } from '@/lib/colors'
 import { normalizeSearchText } from '@/lib/text'
 import AppHeader from '@/components/AppHeader.vue'
 import TransactionFormSheet from '@/components/TransactionFormSheet.vue'
+import AccountTransferFormSheet from '@/components/AccountTransferFormSheet.vue'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Card } from '@/components/ui/card'
@@ -512,8 +513,41 @@ function isTransferCommission(item: TransactionItem): boolean {
   return item.kind === 'expense' && linkedExpenseIds.value.has(item.id)
 }
 
-function goToTransfers() {
-  router.push({ name: 'account-transfers' })
+// Edición/borrado de la transferencia dueña de una fila (sus 2 caras o el
+// gasto de comisión) directo desde el listado.
+function transferFor(item: TransactionItem): AccountTransfer | undefined {
+  if (item.kind === 'transfer-out' || item.kind === 'transfer-in') return item.data
+  return filteredTransfers.value.find(transfer => transfer.expense_id === item.id)
+}
+const editingTransfer = ref<AccountTransfer | null>(null)
+const isTransferSheetOpen = ref(false)
+function openEditTransfer(item: TransactionItem) {
+  const transfer = transferFor(item)
+  if (!transfer) return
+  editingTransfer.value = transfer
+  isTransferSheetOpen.value = true
+}
+function onTransferSheetOpen(open: boolean) {
+  isTransferSheetOpen.value = open
+  if (!open) void loadFilteredTransactions()
+}
+const transferToDelete = ref<AccountTransfer | null>(null)
+const isDeletingTransfer = ref(false)
+function askDeleteTransfer(item: TransactionItem) {
+  transferToDelete.value = transferFor(item) ?? null
+}
+async function confirmDeleteTransfer() {
+  if (!transferToDelete.value) return
+  isDeletingTransfer.value = true
+  try {
+    const ok = await accountTransfersStore.deleteTransfer(transferToDelete.value.id)
+    if (ok) {
+      transferToDelete.value = null
+      void loadFilteredTransactions()
+    }
+  } finally {
+    isDeletingTransfer.value = false
+  }
 }
 
 // debts-ux.md sección 13.6: la única acción de una fila `debt-linked` — navega
@@ -810,9 +844,13 @@ function goToDebt(debtId: string) {
                            comisión (6.3): no se edita/borra desde acá, sólo se
                            navega a la transferencia dueña. -->
                       <template v-if="isTransfer(item) || isTransferCommission(item)">
-                        <DropdownMenuItem @select="goToTransfers">
-                          <ArrowRightLeft class="size-4" />
-                          Ver transferencia
+                        <DropdownMenuItem @select="openEditTransfer(item)">
+                          <Pencil class="size-4" />
+                          Editar transferencia
+                        </DropdownMenuItem>
+                        <DropdownMenuItem variant="destructive" @select="askDeleteTransfer(item)">
+                          <Trash2 class="size-4" />
+                          Eliminar transferencia
                         </DropdownMenuItem>
                       </template>
                       <!-- debts-ux.md sección 13.6: fila de deuda con cuenta
@@ -880,5 +918,28 @@ function goToDebt(debtId: string) {
       :income-sync-targets="incomeSyncTargets"
       @transfer-saved="loadFilteredTransactions"
     />
+
+    <AccountTransferFormSheet
+      :open="isTransferSheetOpen"
+      :transfer="editingTransfer"
+      @update:open="onTransferSheetOpen"
+    />
+
+    <AlertDialog :open="!!transferToDelete" @update:open="(v: boolean) => { if (!v && !isDeletingTransfer) transferToDelete = null }">
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>¿Eliminar esta transferencia?</AlertDialogTitle>
+          <AlertDialogDescription>
+            Se revierte el movimiento entre las dos cuentas (y su comisión, si tenía). Esta acción no se puede deshacer.
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        <AlertDialogFooter>
+          <AlertDialogCancel :disabled="isDeletingTransfer">Cancelar</AlertDialogCancel>
+          <Button variant="destructive" :disabled="isDeletingTransfer" @click="confirmDeleteTransfer">
+            {{ isDeletingTransfer ? 'Eliminando…' : 'Eliminar' }}
+          </Button>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
   </div>
 </template>

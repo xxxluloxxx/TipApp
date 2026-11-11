@@ -1370,3 +1370,7 @@ type NavRouteName =
 ## Hora de la transferencia
 
 `account_transfers.transfer_time` (`time null`) guarda la hora opcional, igual que `expense_time`/`income_time`. Es informativa: fecha sigue siendo la fuente de verdad para filtros y saldos. Los RPC `create_account_transfer`/`update_account_transfer` aceptan `p_transfer_time` y la copian al gasto de comisión. Se captura en ambos formularios (Transacciones y /transferencias, por defecto la hora actual), se muestra en Transacciones y /transferencias, ordena los movimientos del mismo día y aparece en el PDF de reportes.
+
+## Editar/eliminar desde Transacciones y detalle de cuenta
+
+Las filas de transferencia (salida/entrada) y el gasto de comisión vinculado ahora tienen menú "Editar transferencia" / "Eliminar transferencia" en `/transacciones` y `/cuentas/:id`. Actúan sobre la transferencia dueña (mismo `AccountTransferFormSheet` y `deleteTransfer`). Recuerda que editar crea un id nuevo.
