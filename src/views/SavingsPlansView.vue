@@ -74,15 +74,9 @@ async function toggle(plan: SavingsPlan) {
 async function pay(installment: SavingsInstallment) {
   payingId.value = installment.id
   try {
-    // La transferencia se fecha el día de la cuota (si ya pasó); la hora solo
-    // se guarda si es hoy, porque la hora actual no sería la del descuento.
-    const today = todayDateInputValue()
-    const isPast = installment.due_date < today
-    const ok = await store.payInstallment(
-      installment,
-      isPast ? installment.due_date : today,
-      isPast ? null : nowTimeInputValue(),
-    )
+    // Se registra con la fecha y hora de hoy: es cuando el usuario confirma
+    // el movimiento, y así aparece entre los recientes de la cuenta.
+    const ok = await store.payInstallment(installment, todayDateInputValue(), nowTimeInputValue())
     if (ok) toast.success('Cuota registrada', { description: 'Se creó la transferencia entre las dos cuentas.' })
     else toast.error('No se pudo registrar la cuota', { description: 'Revisa tu conexión e intenta de nuevo.' })
   } finally {
