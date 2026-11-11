@@ -91,6 +91,7 @@ Todo elegido para permanecer dentro de los planes gratuitos.
 | Deudas/Préstamos (1:1) | `/deudas`, `/deudas/:id`, `/deudas/personas` | `debts-ux.md` |
 | Gastos fijos | `/gastos-fijos` | `fixed-expenses-ux.md` |
 | Préstamos (en cuotas) | `/prestamos`, `/prestamos/:id` | `loans-ux.md` |
+| Ahorro programado | `/ahorros` | `savings-plans-ux.md` |
 | Partidos en vivo + cupones | `/partidos`, `/partidos/:id` | `live-matches-ux.md`, `live-coupons-ux.md` |
 | Iron (consumo de tabaco) | `/iron`, `/iron/historial`, `/iron/tendencias` | `iron-ux.md` |
 

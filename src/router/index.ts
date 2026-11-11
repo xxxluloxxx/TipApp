@@ -144,6 +144,12 @@ const router = createRouter({
       component: () => import('@/views/LoanDetailView.vue'),
       meta: { requiresAuth: true },
     },
+    {
+      path: '/ahorros',
+      name: 'savings-plans',
+      component: () => import('@/views/SavingsPlansView.vue'),
+      meta: { requiresAuth: true },
+    },
     // Sección 2 de live-matches-ux.md: dashboard + detalle, sin colisión de
     // segmento literal-vs-dinámico (como Deudas), no hace falta orden especial.
     {

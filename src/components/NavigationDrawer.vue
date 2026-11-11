@@ -13,6 +13,7 @@ import {
   Landmark,
   LogOut,
   Menu,
+  PiggyBank,
   Settings,
   Tag,
   Wallet,
@@ -51,6 +52,7 @@ type NavRouteName =
   | 'debts'
   | 'fixed-expenses'
   | 'loans'
+  | 'savings-plans'
   | 'categories'
   | 'statistics'
   | 'reports'
@@ -184,6 +186,16 @@ function logoutFromDrawer() {
         >
           <Landmark class="size-5 shrink-0" />
           Préstamos
+        </button>
+        <button
+          type="button"
+          class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          :class="isActive('savings-plans') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+          :aria-current="isActive('savings-plans') ? 'page' : undefined"
+          @click="navigateFromDrawer('savings-plans')"
+        >
+          <PiggyBank class="size-5 shrink-0" />
+          Ahorro programado
         </button>
         <button
           type="button"

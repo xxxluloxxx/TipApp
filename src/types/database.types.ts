@@ -1260,6 +1260,87 @@ export type Database = {
         }
         Relationships: []
       }
+      savings_plan_installments: {
+        Row: {
+          amount: number
+          created_at: string
+          done_at: string | null
+          due_date: string
+          id: string
+          installment_number: number
+          plan_id: string
+          status: string
+          transfer_id: string | null
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          done_at?: string | null
+          due_date: string
+          id?: string
+          installment_number: number
+          plan_id: string
+          status?: string
+          transfer_id?: string | null
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          done_at?: string | null
+          due_date?: string
+          id?: string
+          installment_number?: number
+          plan_id?: string
+          status?: string
+          transfer_id?: string | null
+          user_id?: string
+        }
+        Relationships: []
+      }
+      savings_plans: {
+        Row: {
+          amount: number
+          created_at: string
+          day_of_month: number
+          from_account_id: string
+          id: string
+          name: string
+          start_date: string
+          term_months: number
+          to_account_id: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          day_of_month: number
+          from_account_id: string
+          id?: string
+          name: string
+          start_date: string
+          term_months: number
+          to_account_id: string
+          updated_at?: string
+          user_id: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          day_of_month?: number
+          from_account_id?: string
+          id?: string
+          name?: string
+          start_date?: string
+          term_months?: number
+          to_account_id?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       profiles: {
         Row: {
           accent_color: string | null
@@ -1520,6 +1601,17 @@ export type Database = {
           },
         ]
       }
+      savings_plan_progress: {
+        Row: {
+          done_count: number | null
+          next_due_date: string | null
+          plan_id: string | null
+          saved_amount: number | null
+          total_amount: number | null
+          total_count: number | null
+        }
+        Relationships: []
+      }
       loan_progress: {
         Row: {
           description: string | null
@@ -1722,6 +1814,26 @@ export type Database = {
           money_spent: number
           period_start: string
         }[]
+      }
+      create_savings_plan: {
+        Args: {
+          p_amount: number
+          p_day_of_month: number
+          p_from_account_id: string
+          p_name: string
+          p_start_date: string
+          p_term_months: number
+          p_to_account_id: string
+        }
+        Returns: string
+      }
+      pay_savings_installment: {
+        Args: {
+          p_installment_id: string
+          p_transfer_date: string
+          p_transfer_time?: string
+        }
+        Returns: string
       }
       pay_fixed_expense_instance: {
         Args: {
