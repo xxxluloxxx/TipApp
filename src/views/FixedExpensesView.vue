@@ -586,7 +586,7 @@ function deleteTemplate(templateId: string) {
       v-if="hasAnyTemplate && !isInitialLoading && !loadError"
       type="button"
       aria-label="Nuevo gasto fijo"
-      class="fixed bottom-6 right-4 z-10 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[var(--shadow-elevated)] transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:right-6 lg:right-8"
+      class="fixed bottom-[calc(4.5rem+env(safe-area-inset-bottom))] right-4 z-10 flex size-14 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-[var(--shadow-elevated)] transition-transform hover:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 sm:right-6 lg:right-8"
       style="margin-bottom: env(safe-area-inset-bottom)"
       @click="openAddTemplateSheet"
     >

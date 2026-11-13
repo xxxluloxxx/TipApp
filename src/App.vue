@@ -3,6 +3,7 @@ import { onMounted, watch } from 'vue'
 import { useRegisterSW } from 'virtual:pwa-register/vue'
 import { useAuthStore } from '@/stores/auth'
 import { Toaster } from '@/components/ui/sonner'
+import BottomNav from '@/components/BottomNav.vue'
 
 const authStore = useAuthStore()
 
@@ -62,6 +63,7 @@ watch(needRefresh, (value) => {
 
   <template v-else>
     <RouterView />
+    <BottomNav />
     <Toaster rich-colors />
   </template>
 </template>

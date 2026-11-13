@@ -51,8 +51,9 @@ Todo elegido para permanecer dentro de los planes gratuitos.
   `bet_slip_summary`, etc.), **nunca** resumiendo listas cacheadas en cliente
   (que están capadas a 200 filas). Las comparaciones mes a mes usan queries
   acotadas por rango de fecha, no la lista en memoria.
-- **Navegación**: único patrón es el **drawer lateral** (`Sheet`) en todos los
-  anchos. Sin bottom tabs, sin sidebar persistente en desktop, sin flecha
+- **Navegación**: **drawer lateral** (`Sheet`) con todas las secciones, más una
+  **barra inferior fija** (`BottomNav.vue`) con Inicio/Transacciones/Cuentas
+  (pedido del usuario). Sin sidebar persistente en desktop, sin flecha
   "Volver" en headers (se eliminó en commit `60ec21d`).
 - **Accesibilidad**: color nunca como único indicador de estado (badges con
   ícono+texto, hallazgo CVD rojo↔verde); área táctil mínima 44×44px;
@@ -95,7 +96,7 @@ Todo elegido para permanecer dentro de los planes gratuitos.
 | Partidos en vivo + cupones | `/partidos`, `/partidos/:id` | `live-matches-ux.md`, `live-coupons-ux.md` |
 | Iron (consumo de tabaco) | `/iron`, `/iron/historial`, `/iron/tendencias` | `iron-ux.md` |
 
-Otros docs: `nav-drawer-ux.md`, `icon-color-chip-ux.md`, `design-system.md`.
+Otros docs: `nav-drawer-ux.md` (la barra inferior `BottomNav.vue` se agregó después, sin doc propio), `icon-color-chip-ux.md`, `design-system.md`.
 
 ## Decisiones clave no obvias del código
 

@@ -539,7 +539,7 @@ const dashboardSyncTargets = [monthExpenses]
       v-if="hasCards"
       size="icon"
       class="fixed right-4 h-14 w-14 rounded-full shadow-[var(--shadow-elevated)] sm:right-6"
-      style="bottom: calc(1.5rem + env(safe-area-inset-bottom))"
+      style="bottom: calc(4.5rem + env(safe-area-inset-bottom))"
       aria-label="Agregar gasto de tarjeta"
       @click="openAddExpense"
     >
