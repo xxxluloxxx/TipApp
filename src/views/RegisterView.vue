@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
+import PasswordInput from '@/components/PasswordInput.vue'
 import { Label } from '@/components/ui/label'
 
 const router = useRouter()
@@ -87,8 +88,8 @@ async function onSubmit() {
 </script>
 
 <template>
-  <div class="flex min-h-screen flex-col items-center justify-center px-4">
-    <div class="w-full max-w-sm">
+  <div class="flex min-h-dvh flex-col items-center px-4 py-8 pb-[calc(2rem+env(safe-area-inset-bottom))]">
+    <div class="my-auto w-full max-w-sm">
       <div class="mb-6 flex flex-col items-center gap-1 text-center">
         <h1 class="text-2xl font-bold">
           TipApp
@@ -141,10 +142,9 @@ async function onSubmit() {
 
           <div class="flex flex-col gap-1.5">
             <Label for="password">Contraseña</Label>
-            <Input
+            <PasswordInput
               id="password"
               v-model="password"
-              type="password"
               autocomplete="new-password"
               required
               :disabled="isSubmitting"
@@ -161,10 +161,9 @@ async function onSubmit() {
 
           <div class="flex flex-col gap-1.5">
             <Label for="confirm-password">Confirmar contraseña</Label>
-            <Input
+            <PasswordInput
               id="confirm-password"
               v-model="confirmPassword"
-              type="password"
               autocomplete="new-password"
               required
               :disabled="isSubmitting"
