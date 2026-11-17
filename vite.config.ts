@@ -15,11 +15,8 @@ export default defineConfig({
     VitePWA({
       // Estrategia injectManifest: el SW se escribe a mano en `src/sw.ts`
       // (Vite lo compila con esbuild e inyecta el precache en
-      // `self.__WB_MANIFEST`). Se migró desde generateSW porque Web Push
-      // (live-matches-ux.md sección 6) necesita listeners propios de `push`/
-      // `notificationclick` que generateSW no permite agregar. El precache y
-      // el auto-update que ya funcionaban en producción se preservan dentro
-      // de `src/sw.ts` (ver comentario ahí).
+      // `self.__WB_MANIFEST`). El precache y el auto-update se preservan
+      // dentro de `src/sw.ts` (ver comentario ahí).
       strategies: 'injectManifest',
       srcDir: 'src',
       filename: 'sw.ts',

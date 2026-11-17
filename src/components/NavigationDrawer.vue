@@ -29,9 +29,8 @@ import { Sheet, SheetContent, SheetFooter, SheetTitle, SheetTrigger } from '@/co
 // Sheet lateral con perfil + nav de 11 ítems (highlight de ruta activa) +
 // "Cerrar sesión". Antes vivía solo dentro de HomeView.vue; se extrajo para
 // que todas las vistas lo compartan sin duplicar el markup.
-// Las features de utilidad NO financiera ("Partidos en vivo" e "Iron") NO
-// están en el drawer a propósito: se mantienen descubribles solo desde Ajustes
-// (Partidos en la card de Notificaciones; Iron en su propia card).
+// La feature de utilidad NO financiera "Iron" NO está en el drawer a
+// propósito: se mantiene descubrible solo desde Ajustes (en su propia card).
 
 const router = useRouter()
 const route = useRoute()

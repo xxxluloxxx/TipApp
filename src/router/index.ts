@@ -150,20 +150,6 @@ const router = createRouter({
       component: () => import('@/views/SavingsPlansView.vue'),
       meta: { requiresAuth: true },
     },
-    // Sección 2 de live-matches-ux.md: dashboard + detalle, sin colisión de
-    // segmento literal-vs-dinámico (como Deudas), no hace falta orden especial.
-    {
-      path: '/partidos',
-      name: 'matches',
-      component: () => import('@/views/LiveMatchesView.vue'),
-      meta: { requiresAuth: true },
-    },
-    {
-      path: '/partidos/:id',
-      name: 'match-detail',
-      component: () => import('@/views/MatchDetailView.vue'),
-      meta: { requiresAuth: true },
-    },
     // Sección 3.1 de iron-ux.md: panorama + historial + tendencias. Los tres
     // segmentos son literales (sin `:id` dinámico bajo `/iron`), no requiere
     // orden especial.

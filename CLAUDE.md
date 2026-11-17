@@ -22,10 +22,20 @@ grupos, miembros, splits ni settlement entre usuarios reales). "Deudas/
 Préstamos" y "Préstamos" **no son** eso: son registros personales 1:1, sin
 login/invitación de la contraparte.
 
-**Feature de utilidad no financiera (intencional)**: **"Partidos en vivo"**
-— seguimiento de partidos de fútbol + cupones de apuestas. Convive a propósito
-con el dominio financiero en la misma PWA (mismo login), pedido explícito del
-Product Owner. No es una inconsistencia de producto.
+**Feature de utilidad no financiera (intencional)**: **"Iron"** (consumo de
+tabaco). Convive a propósito con el dominio financiero en la misma PWA (mismo
+login). No es una inconsistencia de producto.
+
+**Feature eliminada (2026-11-17)**: **"Partidos en vivo" + cupones de apuestas**
+(rutas `/partidos`, Edge Functions `add-match`/`search-matches`/`create-bet-slip`/
+`poll-matches`, tablas `live_matches`/`bet_slip*`/`push_subscriptions`, Web Push,
+OCR con Tesseract). Su cron `poll_matches_every_20s` llenó `cron.job_run_details`
+(1,4 GB) y el proyecto superó la cuota free de 500 MB (`exceed_db_size_quota`,
+HTTP 402: Auth/API bloqueadas). Migración `20261117100000_remove_live_matches.sql`.
+Las migraciones `20260717*`/`20260718*` quedan como historial. **Si se agrega otro
+cron frecuente de `pg_cron`, programar también una limpieza de
+`cron.job_run_details`.** Secretos de Edge Functions ya sin uso (borrar si
+siguen): `FLASHSCORE_FSIGN`, `VAPID_*`, `CRON_SECRET`.
 
 ## Stack
 
@@ -48,7 +58,7 @@ Todo elegido para permanecer dentro de los planes gratuitos.
   frontend (solo en Edge Functions).
 - **Estado siempre derivado en el servidor**: saldos/totales/estados salen de
   **vistas SQL** (`account_balances`, `debt_balances`, `loan_progress`,
-  `bet_slip_summary`, etc.), **nunca** resumiendo listas cacheadas en cliente
+  etc.), **nunca** resumiendo listas cacheadas en cliente
   (que están capadas a 200 filas). Las comparaciones mes a mes usan queries
   acotadas por rango de fecha, no la lista en memoria.
 - **Navegación**: **drawer lateral** (`Sheet`) con todas las secciones, más una
@@ -72,9 +82,8 @@ Todo elegido para permanecer dentro de los planes gratuitos.
   "Reintentar" si falla (gastos, ingresos, categorías, deudas, cuentas,
   cuotas de préstamo, etc.).
 - **NO optimista** (dependen de un RPC atómico server-side que devuelve ids
-  reales): `create_debt`, `create_loan`, `create_bet_slip`,
-  `create_account_transfer` (+ update/delete), `pay_fixed_expense_instance`,
-  alta de partido (`add-match`). El cliente no puede fabricar los ids/filas
+  reales): `create_debt`, `create_loan`,
+  `create_account_transfer` (+ update/delete), `pay_fixed_expense_instance`. El cliente no puede fabricar los ids/filas
   dependientes de antemano.
 
 ## Inventario de features
@@ -93,7 +102,6 @@ Todo elegido para permanecer dentro de los planes gratuitos.
 | Gastos fijos | `/gastos-fijos` | `fixed-expenses-ux.md` |
 | Préstamos (en cuotas) | `/prestamos`, `/prestamos/:id` | `loans-ux.md` |
 | Ahorro programado | `/ahorros` | `savings-plans-ux.md` |
-| Partidos en vivo + cupones | `/partidos`, `/partidos/:id` | `live-matches-ux.md`, `live-coupons-ux.md` |
 | Iron (consumo de tabaco) | `/iron`, `/iron/historial`, `/iron/tendencias` | `iron-ux.md` |
 
 Otros docs: `nav-drawer-ux.md` (la barra inferior `BottomNav.vue` se agregó después, sin doc propio), `icon-color-chip-ux.md`, `design-system.md`.
@@ -119,16 +127,6 @@ Cosas que muerden si no se conocen de antemano:
 - **`debt_people` ≠ `card_people`**: son entidades separadas (se revirtió el
   reuso). Personas de deuda se gestionan en `/deudas/personas`; personas de
   tarjeta en `/tarjetas/gestionar`.
-- **Cupones de apuestas son multi-partido**: modelo de 3 niveles
-  `bet_slips` → `bet_slip_matches` → `bet_slip_legs`. Estado/cuota/ganancia
-  siempre derivados de vistas, nunca en cliente.
-- **Feed de Flashscore no oficial** (`flashscore.ninja`), token `x-fsign`
-  estático (secret `FLASHSCORE_FSIGN`): puede rotar y romper polling/búsqueda.
-  Búsqueda de partidos acotada a 4 días hacia adelante (`dayOffset` 0-3),
-  nunca finalizados/pasados.
-- **OCR de cupones es client-side** (Tesseract.js en `MatchFormSheet.vue`), no
-  Edge Function (Deno Deploy no corre Tesseract). Assets del modelo se bajan
-  del CDN on-demand en el primer uso.
 - **`categories.color`/`accounts.color`/`icon` son `text` libre sin check en
   BD**; la paleta/set fijos son restricción solo de frontend (`src/lib/
   colors.ts`, `accountIcons.ts`).
@@ -144,12 +142,10 @@ Cosas que muerden si no se conocen de antemano:
 `incomes`, `accounts`, `budgets`, `credit_cards`/`card_people`/`card_expenses`,
 `debts`/`debt_movements`/`debt_people`, `account_transfers`,
 `fixed_expenses`/`fixed_expense_instances`, `loans`/`loan_installments`/
-`loan_debtors`/`loan_debtor_payments`, `live_matches`/`bet_slips`/
-`bet_slip_matches`/`bet_slip_legs`/`push_subscriptions`. Vistas derivadas
+`loan_debtors`/`loan_debtor_payments`, `savings_plans`/
+`savings_plan_installments`, `iron_*`. Vistas derivadas
 (`security_invoker=true`) para todos los saldos/estados. RPCs atómicas para las
-operaciones no-optimistas (ver arriba). Edge Functions: `add-match`,
-`search-matches`, `create-bet-slip`, `poll-matches` (cron `pg_cron` cada 20s,
-`service_role`, motor de reglas + Web Push). Tipos en
+operaciones no-optimistas (ver arriba). Sin Edge Functions ni crons hoy. Tipos en
 `src/types/database.types.ts` — regenerar tras cambios de esquema:
 `npx supabase gen types typescript --project-id jgdenlrceubawwmknzcb >
 src/types/database.types.ts`.
@@ -159,12 +155,10 @@ global `beforeEach` (espera resolución de sesión, evita flash). Cliente tipado
 `src/lib/supabase.ts` (nunca `service_role`). Helpers en `src/lib/`
 (`charts.ts` — gráficos SVG a mano, sin librería, para que el tema cambie
 gratis; `date.ts`, `currency.ts`, `colors.ts`, `transactionItems.ts`,
-`matchClock.ts`, etc.). Límites defensivos `MAX_* = 200` sin paginación.
+etc.). Límites defensivos `MAX_* = 200` sin paginación.
 
-**PWA** — `vite-plugin-pwa` en modo `injectManifest` (SW a mano en `src/sw.ts`
-para listeners de `push`/`notificationclick`), `registerType: autoUpdate`, sin
-`runtimeCaching` de Supabase (siempre red). VAPID: clave pública en
-`VITE_VAPID_PUBLIC_KEY` (Vercel + `.env.local`), privada solo en Edge Functions.
+**PWA** — `vite-plugin-pwa` en modo `injectManifest` (SW a mano en `src/sw.ts`),
+`registerType: autoUpdate`, sin `runtimeCaching` de Supabase (siempre red).
 
 ## Deuda técnica conocida
 
@@ -201,7 +195,7 @@ para listeners de `push`/`notificationclick`), `registerType: autoUpdate`, sin
    transferencias (con/sin comisión, editar → id nuevo, borrar → reversión) →
    deudas (+ personas, movimiento vinculado a cuenta sin fila en Transacciones)
    → gastos fijos (generación perezosa, marcar pagado → expense real) →
-   préstamos → partidos (buscador, OCR, push, reloj en cliente) → instalación
+   préstamos → ahorro programado → instalación
    real como PWA en celular (Chrome Android / Safari iOS).
 2. **Presupuestos** (`budgets`, la tabla ya existe): pantalla por categoría/mes
    con barra de progreso — diseñar primero con `ui-ux-designer`.
