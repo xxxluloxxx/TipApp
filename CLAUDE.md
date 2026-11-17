@@ -31,7 +31,7 @@ login). No es una inconsistencia de producto.
 `poll-matches`, tablas `live_matches`/`bet_slip*`/`push_subscriptions`, Web Push,
 OCR con Tesseract). Su cron `poll_matches_every_20s` llenó `cron.job_run_details`
 (1,4 GB) y el proyecto superó la cuota free de 500 MB (`exceed_db_size_quota`,
-HTTP 402: Auth/API bloqueadas). Migración `20261117100000_remove_live_matches.sql`.
+HTTP 402: Auth/API bloqueadas); por eso se migró a Supabase self-hosted en pve2. Migración `20261117100000_remove_live_matches.sql`.
 Las migraciones `20260717*`/`20260718*` quedan como historial. **Si se agrega otro
 cron frecuente de `pg_cron`, programar también una limpieza de
 `cron.job_run_details`.** Secretos de Edge Functions ya sin uso (borrar si
@@ -40,9 +40,15 @@ siguen): `FLASHSCORE_FSIGN`, `VAPID_*`, `CRON_SECRET`.
 ## Stack
 
 - **Vue 3 + TypeScript** (`<script setup lang="ts">`), **Vite**.
-- **Supabase** (Postgres + Auth + Storage + Realtime + Edge Functions, free
-  tier). RLS **obligatorio** en toda tabla accesible desde el cliente (la
-  `anon key` es pública). Proyecto remoto real: ref `jgdenlrceubawwmknzcb`.
+- **Supabase self-hosted en pve2** (desde 2026-11-17; Docker en el LXC `132`
+  `tipapp-supabase`, IP `10.11.106.37`, solo Auth + REST + gateway Envoy +
+  Studio): `https://supabase-tipapp.brownet.net` (túnel Cloudflare `supabase-
+  tipapp-prod`, solo rutas `/auth|rest|realtime|storage|functions/v1`; Studio
+  solo por LAN). RLS **obligatorio** en toda tabla accesible desde el cliente
+  (la `anon key` es pública). Credenciales y operación: repo Proxmox,
+  `TipApp/TipApp-prod-CREDENCIALES.md`. **El proyecto Supabase cloud
+  `jgdenlrceubawwmknzcb` ya no es la fuente de verdad** (quedó bloqueado por
+  cuota, ver abajo); se conserva sin tocar como respaldo hasta decidir borrarlo.
 - **Vercel** (free tier): deploys automáticos por push a `main`.
 - **Tailwind CSS v4** (config CSS-first vía `@theme` en `src/assets/main.css`,
   sin `tailwind.config.js`) + **shadcn-vue** (Reka UI). Tokens en
@@ -137,8 +143,11 @@ Cosas que muerden si no se conocen de antemano:
 
 ## Arquitectura (referencia rápida)
 
-**Backend** — migraciones en `supabase/migrations/`, aplicadas al remoto real
-(`supabase db push`). Tablas núcleo: `profiles`, `categories`, `expenses`,
+**Backend** — migraciones en `supabase/migrations/`, aplicadas a mano al
+Supabase de pve2 (no hay `supabase db push`: `docker cp` del `.sql` al contenedor
+`supabase-db` y `psql -U postgres -v ON_ERROR_STOP=1 -f`, vía `ssh pve2 'pct exec 132 ...'`).
+Para un entorno nuevo se re-aplican todas **menos** las de Partidos en vivo
+(`2026071715{03..09}*`, `20260718100*`, `20261117100000`). Tablas núcleo: `profiles`, `categories`, `expenses`,
 `incomes`, `accounts`, `budgets`, `credit_cards`/`card_people`/`card_expenses`,
 `debts`/`debt_movements`/`debt_people`, `account_transfers`,
 `fixed_expenses`/`fixed_expense_instances`, `loans`/`loan_installments`/
@@ -147,8 +156,8 @@ Cosas que muerden si no se conocen de antemano:
 (`security_invoker=true`) para todos los saldos/estados. RPCs atómicas para las
 operaciones no-optimistas (ver arriba). Sin Edge Functions ni crons hoy. Tipos en
 `src/types/database.types.ts` — regenerar tras cambios de esquema:
-`npx supabase gen types typescript --project-id jgdenlrceubawwmknzcb >
-src/types/database.types.ts`.
+editar `src/types/database.types.ts` a mano (el generador por `--project-id` ya
+no aplica al self-hosted).
 
 **Frontend** — Pinia stores por dominio (`src/stores/`), Vue Router con guard
 global `beforeEach` (espera resolución de sesión, evita flash). Cliente tipado
