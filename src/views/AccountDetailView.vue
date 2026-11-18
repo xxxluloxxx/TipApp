@@ -470,7 +470,14 @@ const showChart = computed(() => balanceEvolutionPoints.value.length > 1)
               :style="{ color: readableTextColor(account.color ?? '#6b7280') }"
             />
           </span>
-          <h1 class="truncate text-xl font-semibold">{{ account.name }}</h1>
+          <div class="flex min-w-0 flex-col">
+            <h1 class="truncate text-xl font-semibold">{{ account.name }}</h1>
+            <p v-if="account.account_number || !account.include_in_total" class="truncate text-xs text-muted-foreground">
+              <span v-if="account.account_number" class="tabular-nums">N.º {{ account.account_number }}</span>
+              <span v-if="account.account_number && !account.include_in_total"> · </span>
+              <span v-if="!account.include_in_total">No suma al total</span>
+            </p>
+          </div>
         </div>
         <h1 v-else class="flex-1 truncate text-xl font-semibold">Cuenta</h1>
       </template>

@@ -16,6 +16,10 @@ export interface AccountPayload {
    * DESDE esta cuenta. `>= 0`, default 0. Puramente informativa (prefill del
    * Sheet de transferencia), no aplica ninguna lógica de saldo por sí sola. */
   transferCommission: number
+  /** Número de cuenta bancaria (opcional, informativo). */
+  accountNumber: string | null
+  /** false = no se suma al "Saldo total" (p. ej. ahorro programado). */
+  includeInTotal: boolean
 }
 
 /**
@@ -58,7 +62,10 @@ export const useAccountsStore = defineStore('accounts', () => {
   const isReordering = ref(false)
 
   const totalBalance = computed(() =>
-    accounts.value.reduce((sum, account) => sum + (balances.value[account.id] ?? 0), 0),
+    accounts.value.reduce(
+      (sum, account) => (account.include_in_total ? sum + (balances.value[account.id] ?? 0) : sum),
+      0,
+    ),
   )
 
   function accountById(id: string): Account | undefined {
@@ -232,6 +239,8 @@ export const useAccountsStore = defineStore('accounts', () => {
       icon: payload.icon,
       initial_balance: payload.initialBalance,
       transfer_commission: payload.transferCommission,
+      account_number: payload.accountNumber,
+      include_in_total: payload.includeInTotal,
       sort_order: nextSortOrder,
       created_at: nowIso,
       updated_at: nowIso,
@@ -249,6 +258,8 @@ export const useAccountsStore = defineStore('accounts', () => {
           icon: payload.icon,
           initial_balance: payload.initialBalance,
           transfer_commission: payload.transferCommission,
+          account_number: payload.accountNumber,
+          include_in_total: payload.includeInTotal,
           user_id: userId,
         })
         .select('*')
@@ -298,6 +309,8 @@ export const useAccountsStore = defineStore('accounts', () => {
       icon: payload.icon,
       initial_balance: payload.initialBalance,
       transfer_commission: payload.transferCommission,
+      account_number: payload.accountNumber,
+      include_in_total: payload.includeInTotal,
     }
 
     const balanceDelta = payload.initialBalance - previous.initial_balance
@@ -317,6 +330,8 @@ export const useAccountsStore = defineStore('accounts', () => {
           icon: payload.icon,
           initial_balance: payload.initialBalance,
           transfer_commission: payload.transferCommission,
+          account_number: payload.accountNumber,
+          include_in_total: payload.includeInTotal,
         })
         .eq('id', id)
         .select('*')

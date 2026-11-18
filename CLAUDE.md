@@ -133,6 +133,12 @@ Cosas que muerden si no se conocen de antemano:
 - **`debt_people` ≠ `card_people`**: son entidades separadas (se revirtió el
   reuso). Personas de deuda se gestionan en `/deudas/personas`; personas de
   tarjeta en `/tarjetas/gestionar`.
+- **Cuentas fuera del "Saldo total"**: `accounts.include_in_total=false` (switch
+  "Sumar al saldo total" en el form) saca la cuenta de `accountsStore.totalBalance`
+  (Inicio y hero de `/cuentas`) y de la variación mensual; su saldo propio no
+  cambia. `accounts.account_number` es texto libre opcional (informativo). Ambos
+  campos viajan en `AccountPayload`: quien llame `updateAccount` debe pasarlos
+  (ver `AccountBalanceAdjustmentSheet.vue`) o se pisan.
 - **`categories.color`/`accounts.color`/`icon` son `text` libre sin check en
   BD**; la paleta/set fijos son restricción solo de frontend (`src/lib/
   colors.ts`, `accountIcons.ts`).

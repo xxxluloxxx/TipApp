@@ -122,6 +122,8 @@ export type Database = {
       }
       accounts: {
         Row: {
+          account_number: string | null
+          include_in_total: boolean
           color: string | null
           created_at: string
           icon: string | null
@@ -134,6 +136,8 @@ export type Database = {
           user_id: string
         }
         Insert: {
+          account_number?: string | null
+          include_in_total?: boolean
           color?: string | null
           created_at?: string
           icon?: string | null
@@ -146,6 +150,8 @@ export type Database = {
           user_id: string
         }
         Update: {
+          account_number?: string | null
+          include_in_total?: boolean
           color?: string | null
           created_at?: string
           icon?: string | null

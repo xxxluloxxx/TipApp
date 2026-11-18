@@ -7,6 +7,7 @@ import { useAccountsStore, type Account } from '@/stores/accounts'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { Switch } from '@/components/ui/switch'
 import {
   Sheet,
   SheetContent,
@@ -40,6 +41,8 @@ const form = reactive({
   icon: DEFAULT_ACCOUNT_ICON as AccountIconKey,
   initialBalance: '',
   transferCommission: '',
+  accountNumber: '',
+  includeInTotal: true,
 })
 
 const errors = reactive<{ name?: string, color?: string, initialBalance?: string, transferCommission?: string }>({})
@@ -67,6 +70,8 @@ function resetForm() {
       : DEFAULT_ACCOUNT_ICON
     form.initialBalance = String(props.account.initial_balance)
     form.transferCommission = String(props.account.transfer_commission)
+    form.accountNumber = props.account.account_number ?? ''
+    form.includeInTotal = props.account.include_in_total
   } else {
     form.name = ''
     // Sección 6.3, punto 2: el color SÍ fuerza elección consciente en modo
@@ -77,6 +82,8 @@ function resetForm() {
     form.icon = DEFAULT_ACCOUNT_ICON
     form.initialBalance = ''
     form.transferCommission = ''
+    form.accountNumber = ''
+    form.includeInTotal = true
   }
 }
 
@@ -160,6 +167,8 @@ function onSubmit() {
       icon: form.icon,
       initialBalance: parseInitialBalance(form.initialBalance) ?? 0,
       transferCommission: parseCommission(form.transferCommission) ?? 0,
+      accountNumber: form.accountNumber.trim() || null,
+      includeInTotal: form.includeInTotal,
     }
 
     // El store ya se encarga del toast de éxito/error (optimista, sección
@@ -203,6 +212,21 @@ function onSubmit() {
           <p v-if="errors.name" class="text-xs text-destructive">
             {{ errors.name }}
           </p>
+        </div>
+
+        <div class="flex flex-col gap-1.5">
+          <Label for="numero-cuenta">
+            Número de cuenta <span class="font-normal text-muted-foreground">(opcional)</span>
+          </Label>
+          <Input
+            id="numero-cuenta"
+            v-model="form.accountNumber"
+            inputmode="numeric"
+            autocomplete="off"
+            placeholder="Ej. 2200123456"
+            maxlength="40"
+            :disabled="isSaving"
+          />
         </div>
 
         <div class="flex flex-col gap-1.5">
@@ -302,6 +326,16 @@ function onSubmit() {
           <p v-if="errors.transferCommission" class="text-xs text-destructive">
             {{ errors.transferCommission }}
           </p>
+        </div>
+
+        <div class="flex items-center gap-3 rounded-lg border border-border px-3 py-3">
+          <div class="flex-1">
+            <Label for="sumar-total">Sumar al saldo total</Label>
+            <p class="text-xs text-muted-foreground">
+              Apagalo si esta cuenta no debe contarse en el saldo total (por ejemplo, un ahorro que no podés tocar). Su propio saldo se sigue viendo igual.
+            </p>
+          </div>
+          <Switch id="sumar-total" v-model="form.includeInTotal" :disabled="isSaving" />
         </div>
       </form>
 

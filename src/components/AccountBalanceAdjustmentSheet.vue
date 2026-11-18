@@ -172,6 +172,8 @@ function submitInitialBalanceMode(currentDiff: number) {
     icon: props.account.icon ?? DEFAULT_ACCOUNT_ICON,
     initialBalance: props.account.initial_balance + currentDiff,
     transferCommission: props.account.transfer_commission,
+    accountNumber: props.account.account_number,
+    includeInTotal: props.account.include_in_total,
   }
   accountsStore.updateAccount(props.account.id, payload)
   return true

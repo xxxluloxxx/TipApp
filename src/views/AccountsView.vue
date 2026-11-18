@@ -81,16 +81,21 @@ async function loadAll() {
       // transferencia ya es una fila real de `expenses`, se cuenta sin trato
       // especial). Ambas queries acotadas por fecha (`gte`), seguras sin
       // `isMonthSafeToShow`.
-      supabase.from('expenses').select('amount').gte('expense_date', monthStartKey),
-      supabase.from('incomes').select('amount').gte('income_date', monthStartKey),
+      supabase.from('expenses').select('amount, account_id').gte('expense_date', monthStartKey),
+      supabase.from('incomes').select('amount, account_id').gte('income_date', monthStartKey),
     ])
     if (!accountsOk || !balancesOk || !countsOk) loadError.value = true
     if (expensesRes.error || incomesRes.error) {
       monthNet.value = null
     } else {
+      // Las cuentas excluidas del "Saldo total" tampoco cuentan en el neto del
+      // mes, para que la variación del hero sea coherente con el total.
+      const excluded = new Set(
+        accountsStore.accounts.filter(a => !a.include_in_total).map(a => a.id),
+      )
       monthNet.value
-        = (incomesRes.data ?? []).reduce((sum, i) => sum + i.amount, 0)
-          - (expensesRes.data ?? []).reduce((sum, e) => sum + e.amount, 0)
+        = (incomesRes.data ?? []).filter(i => !excluded.has(i.account_id)).reduce((sum, i) => sum + i.amount, 0)
+          - (expensesRes.data ?? []).filter(e => !excluded.has(e.account_id)).reduce((sum, e) => sum + e.amount, 0)
     }
   } finally {
     isInitialLoading.value = false
@@ -336,6 +341,12 @@ function openEditSheet(account: Account) {
                 </p>
                 <p class="text-xs text-muted-foreground">
                   {{ usageLabel(account.id) }}
+                </p>
+                <p v-if="account.account_number" class="truncate text-xs text-muted-foreground tabular-nums">
+                  N.º {{ account.account_number }}
+                </p>
+                <p v-if="!account.include_in_total" class="text-xs text-muted-foreground">
+                  No suma al total
                 </p>
               </div>
               <div class="flex flex-col items-end gap-0.5">
