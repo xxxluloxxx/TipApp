@@ -139,7 +139,13 @@ function openEditLoanSheet() {
 }
 
 const isDebtorSheetOpen = ref(false)
+const editingDebtor = ref<LoanDebtorItem | null>(null)
+function openEditDebtorSheet(debtor: LoanDebtorItem) {
+  editingDebtor.value = debtor
+  isDebtorSheetOpen.value = true
+}
 function openAddDebtorSheet() {
+  editingDebtor.value = null
   isDebtorSheetOpen.value = true
 }
 
@@ -461,6 +467,9 @@ function deleteLoanAndGoBack() {
                         <DropdownMenuItem @select="openRegisterPaymentSheet(debtor)">
                           <CirclePlus class="size-4" /> Registrar pago recibido
                         </DropdownMenuItem>
+                        <DropdownMenuItem @select="openEditDebtorSheet(debtor)">
+                          <SquarePen class="size-4" /> Editar montos
+                        </DropdownMenuItem>
                         <AlertDialog>
                           <AlertDialogTrigger as-child>
                             <DropdownMenuItem
@@ -525,6 +534,7 @@ function deleteLoanAndGoBack() {
 
     <LoanFormSheet v-model:open="isLoanSheetOpen" :loan="progressRow" />
     <LoanDebtorFormSheet
+      :debtor="editingDebtor"
       v-if="loan"
       v-model:open="isDebtorSheetOpen"
       :loan-id="loanId"

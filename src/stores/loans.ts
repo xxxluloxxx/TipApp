@@ -590,6 +590,31 @@ export const useLoansStore = defineStore('loans', () => {
     void persist()
   }
 
+  /** Editar lo que le corresponde a la persona y lo que yo le debo. No optimista:
+   * se escribe y se recargan los saldos derivados. */
+  async function updateDebtor(
+    loanDebtorId: string,
+    payload: { amountOwed: number, counterDebtAmount: number },
+  ): Promise<boolean> {
+    const { error } = await supabase
+      .from('loan_debtors')
+      .update({
+        amount_owed: payload.amountOwed,
+        counter_debt_amount: payload.counterDebtAmount,
+      })
+      .eq('id', loanDebtorId)
+    if (error) {
+      console.error('[loans] No se pudo editar la persona', error)
+      toast.error('No se pudo guardar los cambios', {
+        description: 'Revisá tu conexión e intentá de nuevo.',
+      })
+      return false
+    }
+    await fetchDebtorBalances()
+    toast.success('Persona actualizada')
+    return true
+  }
+
   /** Quitar una persona de un préstamo (sección 5.4): optimista. El guard de
    * "tiene pagos" se resuelve de antemano en la vista (deshabilita la opción),
    * acá solo se ejecuta el borrado. */
@@ -720,6 +745,7 @@ export const useLoansStore = defineStore('loans', () => {
     toggleInstallment,
     updateInstallmentAmount,
     addDebtor,
+    updateDebtor,
     removeDebtor,
     registerPayment,
     registerPaymentWithOffset,

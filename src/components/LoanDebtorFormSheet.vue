@@ -4,7 +4,7 @@ import { useRouter } from 'vue-router'
 import { UserRoundPlus } from '@lucide/vue'
 import { formatAmount } from '@/lib/currency'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
-import { useLoansStore } from '@/stores/loans'
+import { useLoansStore, type LoanDebtorItem } from '@/stores/loans'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -32,6 +32,8 @@ import {
 const props = defineProps<{
   open: boolean
   loanId: string
+  /** Si viene, el sheet edita a esta persona en vez de agregar una nueva. */
+  debtor?: LoanDebtorItem | null
   /** Ids de `debt_people` ya asignados a este préstamo (para excluir). */
   existingPersonIds: string[]
   loanTotalAmount: number
@@ -47,6 +49,8 @@ const router = useRouter()
 const debtPeopleStore = useDebtPeopleStore()
 const loansStore = useLoansStore()
 
+const parsedAmount = ref<number | null>(null)
+const isEdit = computed(() => !!props.debtor)
 const form = reactive({
   personId: '',
   amount: '',
@@ -68,7 +72,14 @@ function resetForm() {
 }
 
 watch(() => props.open, (isOpen) => {
-  if (isOpen) resetForm()
+  if (!isOpen) return
+  resetForm()
+  if (props.debtor) {
+    form.personId = props.debtor.debtPersonId
+    form.amount = String(props.debtor.amountAssigned)
+    form.counterDebt = props.debtor.counterDebtAmount > 0 ? String(props.debtor.counterDebtAmount) : ''
+    parsedAmount.value = props.debtor.amountAssigned
+  }
 })
 
 function parseAmount(raw: string): number | null {
@@ -82,13 +93,13 @@ function parseAmount(raw: string): number | null {
 
 // Sección 8.2/5.4: aviso inline NO bloqueante si la asignación superaría el
 // total del préstamo (repartir de más está permitido, solo se informa).
-const parsedAmount = ref<number | null>(null)
 watch(() => form.amount, (value) => {
   parsedAmount.value = parseAmount(value)
 })
 const exceedsTotal = computed(() => {
   if (parsedAmount.value === null || props.loanTotalAmount <= 0) return false
-  return props.assignedTotal + parsedAmount.value > props.loanTotalAmount
+  const others = props.assignedTotal - (props.debtor?.amountAssigned ?? 0)
+  return others + parsedAmount.value > props.loanTotalAmount
 })
 
 function validate(): boolean {
@@ -108,6 +119,14 @@ function validate(): boolean {
     errors.counterDebt = 'Ingresá un monto válido.'
     return false
   }
+  if (props.debtor) {
+    const counter = form.counterDebt.trim() ? parseAmount(form.counterDebt)! : 0
+    const alreadyPaid = props.debtor.counterDebtAmount - props.debtor.counterDebtRemaining
+    if (counter < alreadyPaid) {
+      errors.counterDebt = `Ya descontaste $${formatAmount(alreadyPaid)}; no puede ser menos.`
+      return false
+    }
+  }
   return true
 }
 
@@ -121,8 +140,17 @@ function goManagePeople() {
   router.push({ name: 'debt-people', query: { new: '1' } })
 }
 
-function onSubmit() {
+async function onSubmit() {
   if (!validate()) return
+
+  if (props.debtor) {
+    const ok = await loansStore.updateDebtor(props.debtor.loanDebtorId, {
+      amountOwed: parseAmount(form.amount)!,
+      counterDebtAmount: form.counterDebt.trim() ? parseAmount(form.counterDebt)! : 0,
+    })
+    if (ok) emit('update:open', false)
+    return
+  }
 
   loansStore.addDebtor({
     loanId: props.loanId,
@@ -138,12 +166,14 @@ function onSubmit() {
   <Sheet :open="props.open" @update:open="handleOpenChange">
     <SheetContent side="bottom">
       <SheetHeader>
-        <SheetTitle>Agregar persona</SheetTitle>
-        <SheetDescription>Elegí quién te debe una parte de este préstamo.</SheetDescription>
+        <SheetTitle>{{ isEdit ? 'Editar persona' : 'Agregar persona' }}</SheetTitle>
+        <SheetDescription>
+          {{ isEdit ? debtor?.person.name : 'Elegí quién te debe una parte de este préstamo.' }}
+        </SheetDescription>
       </SheetHeader>
 
       <form id="loan-debtor-form" class="flex flex-col gap-4 px-4" novalidate @submit.prevent="onSubmit">
-        <div class="flex flex-col gap-1.5">
+        <div v-if="!isEdit" class="flex flex-col gap-1.5">
           <Label for="persona-deudor">Persona</Label>
           <Select v-model="form.personId">
             <SelectTrigger id="persona-deudor" class="h-11 w-full" :aria-invalid="!!errors.personId">
