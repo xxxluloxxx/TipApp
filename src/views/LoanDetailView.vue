@@ -499,9 +499,18 @@ function deleteLoanAndGoBack() {
                     <span v-if="debtor.lastPaymentDate">Último pago: {{ formatDateChip(debtor.lastPaymentDate) }}</span>
                     <span v-else>Sin pagos todavía</span>
                   </div>
-                  <p v-if="debtor.counterDebtAmount > 0" class="text-xs text-muted-foreground">
-                    Yo le debo ${{ formatAmount(debtor.counterDebtRemaining) }} de ${{ formatAmount(debtor.counterDebtAmount) }}
-                  </p>
+                  <div v-if="debtor.counterDebtAmount > 0" class="flex flex-col gap-1.5 pt-1">
+                    <div class="h-2 overflow-hidden rounded-full bg-muted">
+                      <div
+                        class="h-full rounded-full bg-primary transition-[width]"
+                        :style="{ width: `${Math.min(((debtor.counterDebtAmount - debtor.counterDebtRemaining) / debtor.counterDebtAmount) * 100, 100)}%` }"
+                      />
+                    </div>
+                    <div class="flex items-center justify-between text-xs text-muted-foreground">
+                      <span>Yo le debo ${{ formatAmount(debtor.counterDebtRemaining) }} de ${{ formatAmount(debtor.counterDebtAmount) }}</span>
+                      <span>Pagado ${{ formatAmount(debtor.counterDebtAmount - debtor.counterDebtRemaining) }}</span>
+                    </div>
+                  </div>
                 </div>
               </template>
             </div>

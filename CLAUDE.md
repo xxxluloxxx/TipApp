@@ -139,6 +139,11 @@ Cosas que muerden si no se conocen de antemano:
   cambia. `accounts.account_number` es texto libre opcional (informativo). Ambos
   campos viajan en `AccountPayload`: quien llame `updateAccount` debe pasarlos
   (ver `AccountBalanceAdjustmentSheet.vue`) o se pisan.
+- **Pagos recibidos en Préstamos** (`record_loan_debtor_payment`, desde 2026-11-19):
+  el efectivo (`amount - offset_amount`) **sí** crea un `incomes` en la cuenta elegida
+  (`loan_debtor_payments.income_id`); la parte compensada solo baja
+  `loan_debtors.counter_debt_remaining` (lo que yo le debo a esa persona) y mueve su
+  barra de progreso. Las cuotas del préstamo en sí siguen aisladas de gastos/cuentas.
 - **`categories.color`/`accounts.color`/`icon` son `text` libre sin check en
   BD**; la paleta/set fijos son restricción solo de frontend (`src/lib/
   colors.ts`, `accountIcons.ts`).

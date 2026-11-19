@@ -1404,6 +1404,7 @@ export type Database = {
           p_loan_debtor_id: string
           p_offset?: number
           p_payment_date?: string
+          p_account_id?: string
         }
         Returns: string
       }

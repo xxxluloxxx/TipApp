@@ -2,6 +2,7 @@ import { defineStore } from 'pinia'
 import { computed, ref } from 'vue'
 import { toast } from 'vue-sonner'
 import { supabase } from '@/lib/supabase'
+import { useAccountsStore } from '@/stores/accounts'
 import { useAuthStore } from '@/stores/auth'
 import { useDebtPeopleStore } from '@/stores/debtPeople'
 import type { Tables } from '@/types/database.types'
@@ -116,6 +117,8 @@ export interface RegisterOffsetPaymentPayload {
   cash: number
   offset: number
   paymentDate: string
+  /** Cuenta donde entra el efectivo (obligatoria si `cash > 0`). */
+  accountId: string | null
 }
 
 function num(value: number | null | undefined): number {
@@ -684,12 +687,15 @@ export const useLoansStore = defineStore('loans', () => {
       p_cash: payload.cash,
       p_offset: payload.offset,
       p_payment_date: payload.paymentDate,
+      p_account_id: payload.accountId ?? undefined,
     })
     if (error) {
       console.error('[loans] No se pudo registrar el pago con compensación', error)
       return { error: true }
     }
     await fetchDebtorBalances()
+    // El efectivo creó un ingreso: recargar saldos de cuentas.
+    void useAccountsStore().fetchBalances()
     return { ok: true }
   }
 

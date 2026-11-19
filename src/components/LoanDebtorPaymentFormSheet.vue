@@ -7,6 +7,14 @@ import { formatAmount } from '@/lib/currency'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { useAccountsStore } from '@/stores/accounts'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select'
 import {
   Sheet,
   SheetContent,
@@ -31,6 +39,7 @@ const emit = defineEmits<{
 }>()
 
 const loansStore = useLoansStore()
+const accountsStore = useAccountsStore()
 // Lo que le debo a esta persona (dentro de Préstamos): permite compensar parte
 // del pago contra eso (record_loan_debtor_payment).
 const counterDebtRemaining = computed(() => props.debtor?.counterDebtRemaining ?? 0)
@@ -41,9 +50,17 @@ const todayValue = computed(() => todayDateInputValue())
 const form = reactive({
   amount: '',
   offset: '',
+  accountId: '',
   date: todayDateInputValue(),
 })
-const errors = reactive<{ amount?: string, offset?: string, date?: string }>({})
+const errors = reactive<{ amount?: string, offset?: string, date?: string, accountId?: string }>({})
+
+// Efectivo que realmente entra = total - compensado.
+const cashAmount = computed(() => {
+  const total = parseAmount(form.amount) ?? 0
+  const offset = form.offset.trim() ? (parseAmount(form.offset) ?? 0) : 0
+  return Math.max(total - offset, 0)
+})
 
 const dateInputRef = ref<HTMLInputElement | null>(null)
 
@@ -53,11 +70,20 @@ function resetForm() {
   errors.offset = undefined
   form.amount = ''
   form.offset = ''
+  errors.accountId = undefined
+  form.accountId = accountsStore.accounts[0]?.id ?? ''
   form.date = todayDateInputValue()
 }
 
 watch(() => props.open, (isOpen) => {
-  if (isOpen) resetForm()
+  if (isOpen) {
+    resetForm()
+    if (accountsStore.accounts.length === 0) {
+      void accountsStore.fetchAccounts().then(() => {
+        if (!form.accountId) form.accountId = accountsStore.accounts[0]?.id ?? ''
+      })
+    }
+  }
 })
 
 function parseAmount(raw: string): number | null {
@@ -87,6 +113,10 @@ function validate(): boolean {
     errors.offset = `Le debés $${formatAmount(counterDebtRemaining.value)}; no podés compensar más.`
     return false
   }
+  if (cashAmount.value > 0 && !form.accountId) {
+    errors.accountId = 'Elegí la cuenta donde entra el efectivo.'
+    return false
+  }
   if (!form.date) {
     errors.date = 'Seleccioná una fecha.'
     return false
@@ -108,38 +138,33 @@ async function onSubmit() {
   const total = parseAmount(form.amount)!
   const offset = form.offset.trim() ? parseAmount(form.offset)! : 0
 
-  if (offset > 0) {
-    // NO optimista: pago + abono en Deudas en un solo RPC atómico.
-    isSaving.value = true
-    try {
-      const result = await loansStore.registerPaymentWithOffset({
-        loanDebtorId: props.debtor.loanDebtorId,
-        cash: total - offset,
-        offset,
-        paymentDate: form.date,
+  // NO optimista: ingreso (efectivo) + pago + compensación en un solo RPC atómico.
+  isSaving.value = true
+  try {
+    const cash = total - offset
+    const result = await loansStore.registerPaymentWithOffset({
+      loanDebtorId: props.debtor.loanDebtorId,
+      cash,
+      offset,
+      paymentDate: form.date,
+      accountId: cash > 0 ? form.accountId : null,
+    })
+    if ('error' in result) {
+      toast.error('No pudimos registrar el pago', {
+        description: 'Revisá tu conexión e intentá de nuevo.',
       })
-      if ('error' in result) {
-        toast.error('No pudimos registrar el pago', {
-          description: 'Revisá tu conexión e intentá de nuevo.',
-        })
-        return
-      }
-      toast.success('Pago registrado', {
-        description: `Se abonaron ${'$' + formatAmount(offset)} a lo que le debés.`,
-      })
-      emit('update:open', false)
-    } finally {
-      isSaving.value = false
+      return
     }
-    return
+    toast.success('Pago registrado', {
+      description: [
+        cash > 0 ? `Ingresaron $${formatAmount(cash)} a tu cuenta.` : '',
+        offset > 0 ? `Se descontaron $${formatAmount(offset)} de lo que le debés.` : '',
+      ].filter(Boolean).join(' '),
+    })
+    emit('update:open', false)
+  } finally {
+    isSaving.value = false
   }
-
-  loansStore.registerPayment({
-    loanDebtorId: props.debtor.loanDebtorId,
-    amount: total,
-    paymentDate: form.date,
-  })
-  emit('update:open', false)
 }
 </script>
 
@@ -193,6 +218,24 @@ async function onSubmit() {
           <p class="text-xs text-muted-foreground">
             Le debés ${{ formatAmount(counterDebtRemaining) }}. Esta parte no entra como efectivo: se descuenta de esa deuda.
           </p>
+        </div>
+
+        <div v-if="cashAmount > 0" class="flex flex-col gap-1.5">
+          <Label for="cuenta-pago">Cuenta donde entra ${{ formatAmount(cashAmount) }}</Label>
+          <Select v-model="form.accountId">
+            <SelectTrigger id="cuenta-pago" class="h-11 w-full" :aria-invalid="!!errors.accountId">
+              <SelectValue placeholder="Seleccioná una cuenta" />
+            </SelectTrigger>
+            <SelectContent>
+              <SelectItem v-for="account in accountsStore.accounts" :key="account.id" :value="account.id">
+                {{ account.name }}
+              </SelectItem>
+            </SelectContent>
+          </Select>
+          <p v-if="errors.accountId" class="text-xs text-destructive">
+            {{ errors.accountId }}
+          </p>
+          <p class="text-xs text-muted-foreground">Se registra como un ingreso en esa cuenta.</p>
         </div>
 
         <div class="flex flex-col gap-1.5">
