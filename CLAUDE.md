@@ -68,7 +68,7 @@ Todo elegido para permanecer dentro de los planes gratuitos.
   (que están capadas a 200 filas). Las comparaciones mes a mes usan queries
   acotadas por rango de fecha, no la lista en memoria.
 - **Navegación**: **drawer lateral** (`Sheet`) con todas las secciones, más una
-  **barra inferior fija** (`BottomNav.vue`) con Inicio/Transacciones/Cuentas
+  **barra inferior fija** (`BottomNav.vue`) con Inicio/Transacciones/Cuentas/Calculadora
   (pedido del usuario). Sin sidebar persistente en desktop, sin flecha
   "Volver" en headers (se eliminó en commit `60ec21d`).
 - **Accesibilidad**: color nunca como único indicador de estado (badges con
@@ -108,6 +108,7 @@ Todo elegido para permanecer dentro de los planes gratuitos.
 | Gastos fijos | `/gastos-fijos` | `fixed-expenses-ux.md` |
 | Préstamos (en cuotas) | `/prestamos`, `/prestamos/:id` | `loans-ux.md` |
 | Ahorro programado | `/ahorros` | `savings-plans-ux.md` |
+| Calculadora de movimientos (borradores) | `/calculadora`, `/calculadora/:id` | — (tablas `calc_drafts`/`calc_entries`, vista `calc_draft_summary`; sin categorías, sin saldo inicial, sin vínculo con cuentas/gastos reales) |
 | Iron (consumo de tabaco) | `/iron`, `/iron/historial`, `/iron/tendencias` | `iron-ux.md` |
 
 Otros docs: `nav-drawer-ux.md` (la barra inferior `BottomNav.vue` se agregó después, sin doc propio), `icon-color-chip-ux.md`, `design-system.md`.

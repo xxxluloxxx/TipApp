@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { ArrowLeftRight, Home, Wallet } from '@lucide/vue'
+import { ArrowLeftRight, Calculator, Home, Wallet } from '@lucide/vue'
 
 // Barra inferior fija con los 3 destinos más usados. Convive con el drawer
 // lateral (que sigue teniendo todas las secciones). Solo en rutas con sesión.
@@ -15,6 +15,7 @@ const items = [
   { name: 'home', label: 'Inicio', icon: Home, matches: ['home'] },
   { name: 'transactions', label: 'Transacciones', icon: ArrowLeftRight, matches: ['transactions'] },
   { name: 'accounts', label: 'Cuentas', icon: Wallet, matches: ['accounts', 'account-detail'] },
+  { name: 'calculator', label: 'Calculadora', icon: Calculator, matches: ['calculator', 'calculator-draft'] },
 ]
 
 function isActive(matches: string[]): boolean {

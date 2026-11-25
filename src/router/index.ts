@@ -145,6 +145,18 @@ const router = createRouter({
       meta: { requiresAuth: true },
     },
     {
+      path: '/calculadora',
+      name: 'calculator',
+      component: () => import('@/views/CalculatorView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
+      path: '/calculadora/:id',
+      name: 'calculator-draft',
+      component: () => import('@/views/CalculatorDraftView.vue'),
+      meta: { requiresAuth: true },
+    },
+    {
       path: '/ahorros',
       name: 'savings-plans',
       component: () => import('@/views/SavingsPlansView.vue'),

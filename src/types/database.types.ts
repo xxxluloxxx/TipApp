@@ -968,6 +968,60 @@ export type Database = {
           },
         ]
       }
+      calc_drafts: {
+        Row: {
+          created_at: string
+          id: string
+          name: string
+          updated_at: string
+          user_id: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          name: string
+          updated_at?: string
+          user_id?: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          name?: string
+          updated_at?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
+      calc_entries: {
+        Row: {
+          amount: number
+          created_at: string
+          description: string
+          draft_id: string
+          id: string
+          kind: string
+          user_id: string
+        }
+        Insert: {
+          amount: number
+          created_at?: string
+          description?: string
+          draft_id: string
+          id?: string
+          kind: string
+          user_id?: string
+        }
+        Update: {
+          amount?: number
+          created_at?: string
+          description?: string
+          draft_id?: string
+          id?: string
+          kind?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       loans: {
         Row: {
           created_at: string
@@ -1120,6 +1174,20 @@ export type Database = {
       }
     }
     Views: {
+      calc_draft_summary: {
+        Row: {
+          created_at: string | null
+          draft_id: string | null
+          entries_count: number | null
+          expense_total: number | null
+          income_total: number | null
+          name: string | null
+          total: number | null
+          updated_at: string | null
+          user_id: string | null
+        }
+        Relationships: []
+      }
       account_balances: {
         Row: {
           account_id: string | null
