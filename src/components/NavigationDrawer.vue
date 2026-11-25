@@ -2,6 +2,7 @@
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import {
+  Calculator,
   ArrowLeftRight,
   ArrowRightLeft,
   CalendarSync,
@@ -52,6 +53,7 @@ type NavRouteName =
   | 'fixed-expenses'
   | 'loans'
   | 'savings-plans'
+  | 'calculator'
   | 'categories'
   | 'statistics'
   | 'reports'
@@ -195,6 +197,16 @@ function logoutFromDrawer() {
         >
           <PiggyBank class="size-5 shrink-0" />
           Ahorro programado
+        </button>
+        <button
+          type="button"
+          class="flex min-h-11 items-center gap-3 rounded-md px-3 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
+          :class="isActive('calculator') ? 'bg-accent text-accent-foreground' : 'text-foreground hover:bg-accent hover:text-accent-foreground'"
+          :aria-current="isActive('calculator') ? 'page' : undefined"
+          @click="navigateFromDrawer('calculator')"
+        >
+          <Calculator class="size-5 shrink-0" />
+          Calculadora
         </button>
         <button
           type="button"
